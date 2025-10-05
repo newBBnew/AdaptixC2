@@ -30,20 +30,23 @@ func NewTeamserver() *Teamserver {
 		wm_agent_types: make(map[string]string),
 		wm_listeners:   make(map[string][]string),
 
-		events:      safe.NewSlice(),
-		clients:     safe.NewMap(),
-		agents:      safe.NewMap(),
-		listeners:   safe.NewMap(),
-		messages:    safe.NewSlice(),
-		downloads:   safe.NewMap(),
-		tmp_uploads: safe.NewMap(),
-		screenshots: safe.NewMap(),
-		credentials: safe.NewSlice(),
-		targets:     safe.NewSlice(),
-		tunnels:     safe.NewMap(),
-		terminals:   safe.NewMap(),
-		pivots:      safe.NewSlice(),
-		otps:        safe.NewMap(),
+		events:            safe.NewSlice(),
+		clients:           safe.NewMap(),
+		agents:            safe.NewMap(),
+		listeners:         safe.NewMap(),
+		messages:          safe.NewSlice(),
+		downloads:         safe.NewMap(),
+		tmp_uploads:       safe.NewMap(),
+		screenshots:       safe.NewMap(),
+		credentials:       safe.NewSlice(),
+		targets:           safe.NewSlice(),
+		tunnels:           safe.NewMap(),
+		terminals:         safe.NewMap(),
+		pivots:            safe.NewSlice(),
+		otps:              safe.NewMap(),
+		websocketFlags:    safe.NewMap(),
+		websocketTokens:   safe.NewMap(),
+		websocketSessions: safe.NewMap(),
 	}
 	ts.Extender = extender.NewExtender(ts)
 	return ts
@@ -184,7 +187,7 @@ func (ts *Teamserver) RestoreData() {
 		countMessages++
 	}
 	logs.Success("   ", "Restored %v messages", countMessages)
-	
+
 	/// DOWNLOADS
 	countDownloads := 0
 	restoreDownloads := ts.DBMS.DbDownloadAll()

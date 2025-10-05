@@ -87,9 +87,15 @@ func (m *ModuleExtender) HandlerListenerValid(data string) error {
 		return errors.New("user_agent is required")
 	}
 
-	match, _ := regexp.MatchString("^[0-9a-f]{32}$", conf.EncryptKey)
-	if len(conf.EncryptKey) != 32 || !match {
-		return errors.New("encrypt_key must be 32 hex characters")
+	if conf.UseCustomKey {
+		if len(conf.EncryptKey) < 6 || len(conf.EncryptKey) > 32 {
+			return errors.New("encrypt_key must be between 6 and 32 characters when using a custom key")
+		}
+	} else {
+		match, _ := regexp.MatchString("^[0-9a-f]{32}$", conf.EncryptKey)
+		if len(conf.EncryptKey) != 32 || !match {
+			return errors.New("encrypt_key must be 32 hex characters")
+		}
 	}
 
 	if !strings.Contains(conf.WebPageOutput, "<<<PAYLOAD_DATA>>>") {
@@ -238,6 +244,8 @@ func (m *ModuleExtender) HandlerEditListenerData(name string, listenerObject any
 		listener.Config.RequestHeaders = conf.RequestHeaders
 		listener.Config.WebPageError = conf.WebPageError
 		listener.Config.WebPageOutput = conf.WebPageOutput
+		listener.Config.UseCustomKey = conf.UseCustomKey
+		listener.Config.EncryptKey = conf.EncryptKey
 
 		listenerData = adaptix.ListenerData{
 			BindHost:  listener.Config.HostBind,

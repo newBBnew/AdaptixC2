@@ -2,6 +2,7 @@ package server
 
 import (
 	"AdaptixServer/core/extender"
+	"AdaptixServer/core/utils/krypt"
 	"AdaptixServer/core/utils/logs"
 	"AdaptixServer/core/utils/safe"
 	"AdaptixServer/core/utils/tformat"
@@ -9,10 +10,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/Adaptix-Framework/axc2"
+	"github.com/gorilla/websocket"
 )
 
 func (ts *Teamserver) TsAgentList() (string, error) {
@@ -466,6 +469,10 @@ func (ts *Teamserver) TsAgentRemove(agentId string) error {
 	}
 	agent := value.(*Agent)
 
+	ts.websocketFlags.Delete(agentId)
+	ts.TsAgentWebsocketDetach(agentId, "removed")
+	ts.websocketTokens.Delete(agentId)
+
 	/// Clear Downloads
 
 	var downloads []string
@@ -646,6 +653,179 @@ func (ts *Teamserver) TsAgentSetTick(agentId string) error {
 		agent.Tick = true
 	}
 	return nil
+}
+
+func (ts *Teamserver) TsAgentWebsocketSet(agentId string, enabled bool) (map[string]any, error) {
+	setup := make(map[string]any)
+
+	value, ok := ts.agents.Get(agentId)
+	if !ok {
+		return nil, fmt.Errorf("agent '%s' does not exist", agentId)
+	}
+	agent := value.(*Agent)
+
+	if enabled {
+		ts.TsAgentWebsocketDetach(agentId, "replaced by new request")
+
+		token, err := krypt.GenerateUID(32)
+		if err != nil {
+			return nil, err
+		}
+
+		listenerValue, ok := ts.listeners.Get(agent.Data.Listener)
+		if !ok {
+			return nil, fmt.Errorf("listener '%s' not found", agent.Data.Listener)
+		}
+		listenerData := listenerValue.(adaptix.ListenerData)
+
+		var httpConf struct {
+			CallbackAddresses string `json:"callback_addresses"`
+			UseCustomKey      bool   `json:"use_custom_key"`
+			EncryptKey        string `json:"encrypt_key"`
+			Ssl               bool   `json:"ssl"`
+			WebsocketEnable   bool   `json:"ws_enable"`
+			WebsocketPath     string `json:"ws_path"`
+			SslCert           []byte `json:"ssl_cert"`
+		}
+
+		if err := json.Unmarshal([]byte(listenerData.Data), &httpConf); err != nil {
+			return nil, err
+		}
+
+		if !httpConf.WebsocketEnable {
+			return nil, errors.New("listener not configured for websocket channel")
+		}
+
+		addresses := strings.Split(httpConf.CallbackAddresses, ",")
+		if len(addresses) == 0 {
+			return nil, errors.New("listener has no callback addresses defined")
+		}
+
+		hostPort := strings.TrimSpace(addresses[0])
+		if hostPort == "" {
+			return nil, errors.New("invalid callback address")
+		}
+		if _, _, err := net.SplitHostPort(hostPort); err != nil {
+			return nil, fmt.Errorf("invalid callback address '%s'", hostPort)
+		}
+
+		scheme := "ws"
+		if httpConf.Ssl {
+			scheme = "wss"
+		}
+
+		wsPath := httpConf.WebsocketPath
+		if wsPath == "" {
+			wsPath = "/ws"
+		}
+
+		url := fmt.Sprintf("%s://%s%s?agent_id=%s&token=%s", scheme, hostPort, wsPath, agentId, token)
+
+		ts.websocketFlags.Put(agentId, true)
+		ts.websocketTokens.Put(agentId, token)
+
+		setup["token"] = token
+		setup["url"] = url
+		if httpConf.Ssl && len(httpConf.SslCert) > 0 {
+			setup["cert"] = httpConf.SslCert
+		} else {
+			setup["cert"] = []byte{}
+		}
+
+		message := "WebSocket auxiliary channel enable requested"
+		ts.TsAgentConsoleOutput(agentId, CONSOLE_OUT_INFO, message, "", true)
+
+		return setup, nil
+	}
+
+	ts.websocketFlags.Delete(agentId)
+	ts.websocketTokens.Delete(agentId)
+	ts.TsAgentWebsocketDetach(agentId, "disabled by operator")
+
+	message := "WebSocket auxiliary channel disabled"
+	ts.TsAgentConsoleOutput(agentId, CONSOLE_OUT_INFO, message, "", true)
+
+	return setup, nil
+}
+
+func (ts *Teamserver) TsAgentWebsocketIsEnabled(agentId string) bool {
+	if value, ok := ts.websocketFlags.Get(agentId); ok {
+		if enabled, okBool := value.(bool); okBool {
+			return enabled
+		}
+	}
+	return false
+}
+
+func (ts *Teamserver) TsAgentWebsocketAttach(agentId string, token string, conn *websocket.Conn) error {
+	if _, ok := ts.agents.Get(agentId); !ok {
+		return fmt.Errorf("agent '%s' does not exist", agentId)
+	}
+
+	if !ts.TsAgentWebsocketIsEnabled(agentId) {
+		return errors.New("websocket channel is not enabled")
+	}
+
+	value, ok := ts.websocketTokens.Get(agentId)
+	if !ok {
+		return errors.New("websocket token not found or already used")
+	}
+	storedToken, okCast := value.(string)
+	if !okCast || storedToken != token {
+		return errors.New("invalid websocket token")
+	}
+
+	ts.websocketTokens.Delete(agentId)
+
+	if value, ok := ts.websocketSessions.Get(agentId); ok {
+		if existing, okCast := value.(*websocket.Conn); okCast && existing != nil {
+			_ = existing.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "replaced"), time.Now().Add(2*time.Second))
+			_ = existing.Close()
+		}
+	}
+
+	ts.websocketSessions.Put(agentId, conn)
+	ts.TsAgentConsoleOutput(agentId, CONSOLE_OUT_INFO, "WebSocket auxiliary channel connected", "", true)
+
+	go ts.monitorAgentWebsocket(agentId, conn)
+	return nil
+}
+
+func (ts *Teamserver) TsAgentWebsocketDetach(agentId string, reason string) {
+	if value, ok := ts.websocketSessions.GetDelete(agentId); ok {
+		if conn, okCast := value.(*websocket.Conn); okCast && conn != nil {
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, reason), time.Now().Add(2*time.Second))
+			_ = conn.Close()
+		}
+	}
+
+	if reason != "" && reason != "disabled by operator" {
+		ts.TsAgentConsoleOutput(agentId, CONSOLE_OUT_INFO, fmt.Sprintf("WebSocket auxiliary channel %s", reason), "", true)
+	}
+}
+
+func (ts *Teamserver) monitorAgentWebsocket(agentId string, conn *websocket.Conn) {
+	defer func() {
+		ts.websocketSessions.Delete(agentId)
+		ts.TsAgentConsoleOutput(agentId, CONSOLE_OUT_INFO, "WebSocket auxiliary channel disconnected", "", true)
+		_ = conn.Close()
+	}()
+
+	conn.SetReadLimit(4 << 20)
+	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	})
+
+	for {
+		messageType, _, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		if messageType == websocket.PingMessage {
+			_ = conn.WriteMessage(websocket.PongMessage, nil)
+		}
+	}
 }
 
 /// Sync

@@ -29,6 +29,7 @@ type HTTPConfig struct {
 	PortBind           int    `json:"port_bind"`
 	Callback_addresses string `json:"callback_addresses"`
 	EncryptKey         string `json:"encrypt_key"`
+	UseCustomKey       bool   `json:"use_custom_key"`
 
 	Ssl         bool   `json:"ssl"`
 	SslCert     []byte `json:"ssl_cert"`
@@ -273,9 +274,14 @@ func (handler *HTTP) parseBeatAndData(ctx *gin.Context) (string, string, []byte,
 		return "", "", nil, nil, errors.New("failed decrypt beat")
 	}
 
-	encKey, err := hex.DecodeString(handler.Config.EncryptKey)
-	if err != nil {
-		return "", "", nil, nil, errors.New("failed decrypt beat")
+	var encKey []byte
+	if handler.Config.UseCustomKey {
+		encKey = []byte(handler.Config.EncryptKey)
+	} else {
+		encKey, err = hex.DecodeString(handler.Config.EncryptKey)
+		if err != nil {
+			return "", "", nil, nil, errors.New("failed decrypt beat")
+		}
 	}
 	rc4crypt, errcrypt := rc4.NewCipher(encKey)
 	if errcrypt != nil {

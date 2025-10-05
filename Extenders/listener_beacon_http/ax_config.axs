@@ -190,6 +190,7 @@ function ListenerUI(mode_create)
     container.put("uri", textlineUri);
     container.put("user_agent", textlineUserAgent);
     container.put("hb_header", textlineHB);
+    container.put("use_custom_key", checkCustomKey);
     container.put("encrypt_key", textlineEncryptKey);
     container.put("ssl", ssl_group);
     container.put("ssl_cert", certSelector);

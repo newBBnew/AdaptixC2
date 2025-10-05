@@ -68,20 +68,23 @@ type Teamserver struct {
 	wm_agent_types map[string]string   // agentMark string : agentName string
 	wm_listeners   map[string][]string // watermark string : ListenerName string, ListenerType string
 
-	events      *safe.Slice // 			           : sync_packet interface{}
-	clients     safe.Map    // username string     : socket *websocket.Conn
-	agents      safe.Map    // agentId string      : agent *Agent
-	listeners   safe.Map    // listenerName string : listenerData ListenerData
-	messages    *safe.Slice //                     : chatData ChatData
-	downloads   safe.Map    // fileId string       : downloadData DownloadData
-	tmp_uploads safe.Map    // fileId string       : uploadData UploadData
-	screenshots safe.Map    // screeId string      : screenData ScreenDataData
-	credentials *safe.Slice
-	targets     *safe.Slice
-	tunnels     safe.Map    // tunnelId string     : tunnel Tunnel
-	terminals   safe.Map    // terminalId string   : terminal Terminal
-	pivots      *safe.Slice // 			           : PivotData
-	otps        safe.Map    // otp string		   : Id string
+	events            *safe.Slice // 			           : sync_packet interface{}
+	clients           safe.Map    // username string     : socket *websocket.Conn
+	agents            safe.Map    // agentId string      : agent *Agent
+	listeners         safe.Map    // listenerName string : listenerData ListenerData
+	messages          *safe.Slice //                     : chatData ChatData
+	downloads         safe.Map    // fileId string       : downloadData DownloadData
+	tmp_uploads       safe.Map    // fileId string       : uploadData UploadData
+	screenshots       safe.Map    // screeId string      : screenData ScreenDataData
+	credentials       *safe.Slice
+	targets           *safe.Slice
+	tunnels           safe.Map    // tunnelId string     : tunnel Tunnel
+	terminals         safe.Map    // terminalId string   : terminal Terminal
+	pivots            *safe.Slice // 			           : PivotData
+	otps              safe.Map    // otp string		   : Id string
+	websocketFlags    safe.Map    // agentId string      : bool (websocket requested)
+	websocketTokens   safe.Map    // agentId string      : string (pending ws token)
+	websocketSessions safe.Map    // agentId string      : *websocket.Conn
 }
 
 type Agent struct {
