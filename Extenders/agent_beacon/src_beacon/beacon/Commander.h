@@ -29,6 +29,9 @@
 #define COMMAND_SAVEMEMORY 0x2321
 #define COMMAND_ERROR      0x1111ffff
 
+#define COMMAND_WEBSOCKET_START 69
+#define COMMAND_WEBSOCKET_STOP  70
+
 class Agent;
 
 class Commander
@@ -71,6 +74,10 @@ public:
 	void CmdTunnelMsgReverse(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdUnlink(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdUpload(ULONG commandId, Packer* inPacker, Packer* outPacker);
+#if defined(BEACON_HTTP)
+	void CmdWebsocketStart(ULONG commandId, Packer* inPacker, Packer* outPacker);
+	void CmdWebsocketStop(ULONG commandId, Packer* inPacker, Packer* outPacker);
+#endif
 
 	void CmdSaveMemory(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void Exit(Packer* outPacker);

@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -512,7 +513,10 @@ func CreateTask(ts Teamserver, agent adaptix.AgentData, args map[string]any) (ad
 
 	/// START CODE HERE
 
-	var array []interface{}
+	var (
+		array                []interface{}
+		revertWebsocketSetup bool
+	)
 
 	switch command {
 
@@ -1031,6 +1035,82 @@ func CreateTask(ts Teamserver, agent adaptix.AgentData, args map[string]any) (ad
 			goto RET
 		}
 
+	case "websocket":
+		if subcommand == "start" {
+			if agent.Arch != "x64" {
+				err = errors.New("websocket channel currently requires an x64 agent build")
+				goto RET
+			}
+
+			if len(agent.SessionKey) != 16 {
+				err = errors.New("agent session key not negotiated")
+				goto RET
+			}
+
+			setup, errSetup := ts.TsAgentWebsocketSet(agent.Id, true)
+			if errSetup != nil {
+				err = errSetup
+				goto RET
+			}
+			revertWebsocketSetup = true
+
+			token, ok := setup["token"].(string)
+			if !ok || token == "" {
+				err = errors.New("failed to allocate websocket token")
+				goto RET
+			}
+
+			url, ok := setup["url"].(string)
+			if !ok || url == "" {
+				err = errors.New("failed to build websocket url")
+				goto RET
+			}
+
+			certBytes, _ := setup["cert"].([]byte)
+			if certBytes == nil {
+				certBytes = []byte{}
+			}
+
+			moduleName := "wsclient_x64.dll"
+			modulePath := filepath.Join(ModuleDir, "modules", moduleName)
+			moduleData, readErr := os.ReadFile(modulePath)
+			if readErr != nil {
+				err = fmt.Errorf("failed to read websocket module: %w", readErr)
+				goto RET
+			}
+
+			memoryId := CreateTaskCommandSaveMemory(ts, agent.Id, moduleData)
+
+			array = []interface{}{
+				COMMAND_WEBSOCKET_START,
+				memoryId,
+				agent.Id,
+				url,
+				token,
+				len(agent.SessionKey), agent.SessionKey,
+				len(certBytes), certBytes,
+			}
+
+			messageData.Message = "Queued auxiliary WebSocket channel setup"
+			taskData.Message = "Auxiliary WebSocket channel setup staged"
+			taskData.MessageType = MESSAGE_SUCCESS
+			taskData.ClearText = "\n"
+			revertWebsocketSetup = false
+
+		} else if subcommand == "stop" {
+			_, _ = ts.TsAgentWebsocketSet(agent.Id, false)
+			array = []interface{}{COMMAND_WEBSOCKET_STOP}
+			taskData.Completed = true
+			messageData.Message = "Queued WebSocket channel disable request"
+			taskData.Message = "WebSocket auxiliary channel disable request sent"
+			taskData.MessageType = MESSAGE_SUCCESS
+			taskData.ClearText = "\n"
+
+		} else {
+			err = errors.New("subcommand must be 'start' or 'stop'")
+			goto RET
+		}
+
 	case "terminate":
 		if subcommand == "thread" {
 			array = []interface{}{COMMAND_TERMINATE, 1}
@@ -1091,6 +1171,9 @@ func CreateTask(ts Teamserver, agent adaptix.AgentData, args map[string]any) (ad
 	/// END CODE
 
 RET:
+	if revertWebsocketSetup {
+		_, _ = ts.TsAgentWebsocketSet(agent.Id, false)
+	}
 	return taskData, messageData, err
 }
 
@@ -1904,6 +1987,16 @@ func ProcessTasksResult(ts Teamserver, agentData adaptix.AgentData, taskData ada
 		case COMMAND_UPLOAD:
 			task.Message = "File successfully uploaded"
 			SyncBrowserFilesStatus(ts, task)
+
+		case COMMAND_WEBSOCKET_START:
+			task.Message = "WebSocket auxiliary channel enabled"
+			task.MessageType = MESSAGE_SUCCESS
+			task.ClearText = "\n"
+
+		case COMMAND_WEBSOCKET_STOP:
+			task.Message = "WebSocket auxiliary channel disabled"
+			task.MessageType = MESSAGE_SUCCESS
+			task.ClearText = "\n"
 
 		case COMMAND_ERROR:
 			if false == packer.CheckPacker([]string{"int"}) {

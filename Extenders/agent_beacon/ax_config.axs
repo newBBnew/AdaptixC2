@@ -228,6 +228,11 @@ function RegisterCommands(listenerType)
     let cmd_socks = ax.create_command("socks", "Managing socks tunnels");
     cmd_socks.addSubCommands([_cmd_socks_start, _cmd_socks_stop]);
 
+    let _cmd_ws_start = ax.create_command("start", "Enable auxiliary WebSocket channel for high-volume tasks", "websocket start");
+    let _cmd_ws_stop = ax.create_command("stop", "Disable the auxiliary WebSocket channel", "websocket stop");
+    let cmd_websocket = ax.create_command("websocket", "Manage the auxiliary WebSocket channel");
+    cmd_websocket.addSubCommands([_cmd_ws_start, _cmd_ws_stop]);
+
     let _cmd_terminate_thread = ax.create_command("thread", "Terminate the main beacon thread (without terminating the process)", "terminate thread", "Task: terminate agent thread");
     let _cmd_terminate_process = ax.create_command("process", "Terminate the beacon process", "terminate process", "Task: terminate agent process");
     let cmd_terminate = ax.create_command("terminate", "Terminate the session");
@@ -264,7 +269,7 @@ function RegisterCommands(listenerType)
     if(listenerType == "BeaconHTTP") {
         let commands_external = ax.create_commands_group("beacon", [cmd_cat, cmd_cd, cmd_cp, cmd_disks, cmd_download, cmd_execute, cmd_exfil, cmd_getuid,
             cmd_job, cmd_link, cmd_ls, cmd_lportfwd, cmd_mv, cmd_mkdir, cmd_profile, cmd_ps, cmd_pwd, cmd_rev2self, cmd_rm, cmd_rportfwd, cmd_sleep,
-            cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact] );
+            cmd_socks, cmd_websocket, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact] );
 
         return { commands_windows: commands_external }
     }
