@@ -32,6 +32,14 @@ AdaptixClient/AdaptixClient_autogen/
 **/_autogen/
 AdaptixClient/Libs/
 
+# CMake generated files in kddockwidgets (官方新增)
+AdaptixClient/Libs/kddockwidgets/CMakeFiles/
+AdaptixClient/Libs/kddockwidgets/Makefile
+AdaptixClient/Libs/kddockwidgets/cmake_install.cmake
+AdaptixClient/Libs/kddockwidgets/*_autogen/
+AdaptixClient/Libs/kddockwidgets/*.a
+AdaptixClient/Libs/kddockwidgets/*_export.h
+
 # Extension-Kit 二进制与图片（保留 _include 源）
 Extension-Kit/**/_bin/
 Extension-Kit/**/_img/
