@@ -68,6 +68,7 @@ MCP::MCPResponse InfoHandler::handleListAgents(const MCP::MCPRequest& request) {
         agentObj["external_ip"] = agent->data.ExternalIP;
         agentObj["process_name"] = agent->data.Process;
         agentObj["process_id"] = agent->data.Pid;
+        agentObj["thread_id"] = agent->data.Tid;
         agentObj["arch"] = agent->data.Arch;
         agentObj["elevated"] = agent->data.Elevated;
         agentObj["os"] = agent->data.OsDesc;
@@ -75,6 +76,11 @@ MCP::MCPResponse InfoHandler::handleListAgents(const MCP::MCPRequest& request) {
         agentObj["sleep"] = agent->data.Sleep;
         agentObj["jitter"] = agent->data.Jitter;
         agentObj["listener"] = agent->data.Listener;
+        agentObj["first_seen"] = agent->data.FirstOnlineTime;
+        agentObj["last_tick"] = agent->data.LastTick;
+        agentObj["tags"] = agent->data.Tags;
+        agentObj["mark"] = agent->data.Mark;
+        agentObj["impersonated"] = agent->data.Impersonated;
         
         agentsArray.append(agentObj);
     }

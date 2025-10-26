@@ -23,7 +23,7 @@ void MCPCommandRegistry::registerHandler(const QString& type, IMCPCommandHandler
     }
     
     handlers[type] = handler;
-    qDebug() << "[MCP Registry] Registered handler for command type:" << type;
+    // qDebug() << "[MCP Registry] Registered handler for command type:" << type;
 }
 
 IMCPCommandHandler* MCPCommandRegistry::getHandler(const QString& type) {
@@ -64,7 +64,7 @@ QList<MCP::Capability> MCPCommandRegistry::getAllCapabilities() const {
 void MCPCommandRegistry::clear() {
     QMutexLocker locker(&mutex);
     
-    qDebug() << "[MCP Registry] Clearing all handlers";
+    // qDebug() << "[MCP Registry] Clearing all handlers";
     
     for (auto handler : handlers) {
         delete handler;

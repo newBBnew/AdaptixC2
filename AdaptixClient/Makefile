@@ -2210,6 +2210,30 @@ Source/Workers/MCP/MCPCommandHandler.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/MCPCommandHandler.cpp.s
 .PHONY : Source/Workers/MCP/MCPCommandHandler.cpp.s
 
+Source/Workers/MCP/handlers/AgentHandler.o: Source/Workers/MCP/handlers/AgentHandler.cpp.o
+.PHONY : Source/Workers/MCP/handlers/AgentHandler.o
+
+# target to build an object file
+Source/Workers/MCP/handlers/AgentHandler.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/AgentHandler.cpp.o
+.PHONY : Source/Workers/MCP/handlers/AgentHandler.cpp.o
+
+Source/Workers/MCP/handlers/AgentHandler.i: Source/Workers/MCP/handlers/AgentHandler.cpp.i
+.PHONY : Source/Workers/MCP/handlers/AgentHandler.i
+
+# target to preprocess a source file
+Source/Workers/MCP/handlers/AgentHandler.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/AgentHandler.cpp.i
+.PHONY : Source/Workers/MCP/handlers/AgentHandler.cpp.i
+
+Source/Workers/MCP/handlers/AgentHandler.s: Source/Workers/MCP/handlers/AgentHandler.cpp.s
+.PHONY : Source/Workers/MCP/handlers/AgentHandler.s
+
+# target to generate assembly for a file
+Source/Workers/MCP/handlers/AgentHandler.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/AgentHandler.cpp.s
+.PHONY : Source/Workers/MCP/handlers/AgentHandler.cpp.s
+
 Source/Workers/MCP/handlers/AxScriptHandler.o: Source/Workers/MCP/handlers/AxScriptHandler.cpp.o
 .PHONY : Source/Workers/MCP/handlers/AxScriptHandler.o
 
@@ -2329,6 +2353,78 @@ Source/Workers/MCP/handlers/ListenerHandler.s: Source/Workers/MCP/handlers/Liste
 Source/Workers/MCP/handlers/ListenerHandler.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/ListenerHandler.cpp.s
 .PHONY : Source/Workers/MCP/handlers/ListenerHandler.cpp.s
+
+Source/Workers/MCP/handlers/PivotsHandler.o: Source/Workers/MCP/handlers/PivotsHandler.cpp.o
+.PHONY : Source/Workers/MCP/handlers/PivotsHandler.o
+
+# target to build an object file
+Source/Workers/MCP/handlers/PivotsHandler.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/PivotsHandler.cpp.o
+.PHONY : Source/Workers/MCP/handlers/PivotsHandler.cpp.o
+
+Source/Workers/MCP/handlers/PivotsHandler.i: Source/Workers/MCP/handlers/PivotsHandler.cpp.i
+.PHONY : Source/Workers/MCP/handlers/PivotsHandler.i
+
+# target to preprocess a source file
+Source/Workers/MCP/handlers/PivotsHandler.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/PivotsHandler.cpp.i
+.PHONY : Source/Workers/MCP/handlers/PivotsHandler.cpp.i
+
+Source/Workers/MCP/handlers/PivotsHandler.s: Source/Workers/MCP/handlers/PivotsHandler.cpp.s
+.PHONY : Source/Workers/MCP/handlers/PivotsHandler.s
+
+# target to generate assembly for a file
+Source/Workers/MCP/handlers/PivotsHandler.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/PivotsHandler.cpp.s
+.PHONY : Source/Workers/MCP/handlers/PivotsHandler.cpp.s
+
+Source/Workers/MCP/handlers/TargetsHandler.o: Source/Workers/MCP/handlers/TargetsHandler.cpp.o
+.PHONY : Source/Workers/MCP/handlers/TargetsHandler.o
+
+# target to build an object file
+Source/Workers/MCP/handlers/TargetsHandler.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/TargetsHandler.cpp.o
+.PHONY : Source/Workers/MCP/handlers/TargetsHandler.cpp.o
+
+Source/Workers/MCP/handlers/TargetsHandler.i: Source/Workers/MCP/handlers/TargetsHandler.cpp.i
+.PHONY : Source/Workers/MCP/handlers/TargetsHandler.i
+
+# target to preprocess a source file
+Source/Workers/MCP/handlers/TargetsHandler.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/TargetsHandler.cpp.i
+.PHONY : Source/Workers/MCP/handlers/TargetsHandler.cpp.i
+
+Source/Workers/MCP/handlers/TargetsHandler.s: Source/Workers/MCP/handlers/TargetsHandler.cpp.s
+.PHONY : Source/Workers/MCP/handlers/TargetsHandler.s
+
+# target to generate assembly for a file
+Source/Workers/MCP/handlers/TargetsHandler.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/TargetsHandler.cpp.s
+.PHONY : Source/Workers/MCP/handlers/TargetsHandler.cpp.s
+
+Source/Workers/MCP/handlers/TunnelHandler.o: Source/Workers/MCP/handlers/TunnelHandler.cpp.o
+.PHONY : Source/Workers/MCP/handlers/TunnelHandler.o
+
+# target to build an object file
+Source/Workers/MCP/handlers/TunnelHandler.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/TunnelHandler.cpp.o
+.PHONY : Source/Workers/MCP/handlers/TunnelHandler.cpp.o
+
+Source/Workers/MCP/handlers/TunnelHandler.i: Source/Workers/MCP/handlers/TunnelHandler.cpp.i
+.PHONY : Source/Workers/MCP/handlers/TunnelHandler.i
+
+# target to preprocess a source file
+Source/Workers/MCP/handlers/TunnelHandler.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/TunnelHandler.cpp.i
+.PHONY : Source/Workers/MCP/handlers/TunnelHandler.cpp.i
+
+Source/Workers/MCP/handlers/TunnelHandler.s: Source/Workers/MCP/handlers/TunnelHandler.cpp.s
+.PHONY : Source/Workers/MCP/handlers/TunnelHandler.s
+
+# target to generate assembly for a file
+Source/Workers/MCP/handlers/TunnelHandler.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/AdaptixClient.dir/build.make CMakeFiles/AdaptixClient.dir/Source/Workers/MCP/handlers/TunnelHandler.cpp.s
+.PHONY : Source/Workers/MCP/handlers/TunnelHandler.cpp.s
 
 Source/Workers/TerminalWorker.o: Source/Workers/TerminalWorker.cpp.o
 .PHONY : Source/Workers/TerminalWorker.o
@@ -2716,6 +2812,9 @@ help:
 	@echo "... Source/Workers/MCP/MCPCommandHandler.o"
 	@echo "... Source/Workers/MCP/MCPCommandHandler.i"
 	@echo "... Source/Workers/MCP/MCPCommandHandler.s"
+	@echo "... Source/Workers/MCP/handlers/AgentHandler.o"
+	@echo "... Source/Workers/MCP/handlers/AgentHandler.i"
+	@echo "... Source/Workers/MCP/handlers/AgentHandler.s"
 	@echo "... Source/Workers/MCP/handlers/AxScriptHandler.o"
 	@echo "... Source/Workers/MCP/handlers/AxScriptHandler.i"
 	@echo "... Source/Workers/MCP/handlers/AxScriptHandler.s"
@@ -2731,6 +2830,15 @@ help:
 	@echo "... Source/Workers/MCP/handlers/ListenerHandler.o"
 	@echo "... Source/Workers/MCP/handlers/ListenerHandler.i"
 	@echo "... Source/Workers/MCP/handlers/ListenerHandler.s"
+	@echo "... Source/Workers/MCP/handlers/PivotsHandler.o"
+	@echo "... Source/Workers/MCP/handlers/PivotsHandler.i"
+	@echo "... Source/Workers/MCP/handlers/PivotsHandler.s"
+	@echo "... Source/Workers/MCP/handlers/TargetsHandler.o"
+	@echo "... Source/Workers/MCP/handlers/TargetsHandler.i"
+	@echo "... Source/Workers/MCP/handlers/TargetsHandler.s"
+	@echo "... Source/Workers/MCP/handlers/TunnelHandler.o"
+	@echo "... Source/Workers/MCP/handlers/TunnelHandler.i"
+	@echo "... Source/Workers/MCP/handlers/TunnelHandler.s"
 	@echo "... Source/Workers/TerminalWorker.o"
 	@echo "... Source/Workers/TerminalWorker.i"
 	@echo "... Source/Workers/TerminalWorker.s"

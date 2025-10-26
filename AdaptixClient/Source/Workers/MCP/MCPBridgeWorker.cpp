@@ -40,7 +40,7 @@ bool MCPBridgeWorker::start() {
     // Listen on localhost only (security)
     if (wsServer->listen(QHostAddress::LocalHost, listenPort)) {
         quint16 actualPort = wsServer->serverPort();
-        qInfo() << "[MCP Bridge] 🚀 Started on ws://localhost:" << actualPort;
+        // qInfo() << "[MCP Bridge] 🚀 Started on ws://localhost:" << actualPort;
         Q_EMIT started(actualPort);
         return true;
     } else {
@@ -63,7 +63,7 @@ void MCPBridgeWorker::stop() {
         wsServer->close();
         delete wsServer;
         wsServer = nullptr;
-        qInfo() << "[MCP Bridge] Stopped";
+        // qInfo() << "[MCP Bridge] Stopped";
         Q_EMIT stopped();
     }
 }
@@ -79,12 +79,12 @@ int MCPBridgeWorker::getConnectionCount() const {
 
 void MCPBridgeWorker::setAuthToken(const QString& token) {
     authToken = token;
-    qDebug() << "[MCP Bridge] Authentication token" << (token.isEmpty() ? "disabled" : "enabled");
+    // qDebug() << "[MCP Bridge] Authentication token" << (token.isEmpty() ? "disabled" : "enabled");
 }
 
 void MCPBridgeWorker::setAuditLogEnabled(bool enabled) {
     auditLogEnabled = enabled;
-    qDebug() << "[MCP Bridge] Audit logging" << (enabled ? "enabled" : "disabled");
+    // qDebug() << "[MCP Bridge] Audit logging" << (enabled ? "enabled" : "disabled");
 }
 
 void MCPBridgeWorker::onNewConnection() {
@@ -110,7 +110,7 @@ void MCPBridgeWorker::onNewConnection() {
             this, &MCPBridgeWorker::onSocketError);
     
     QString peerAddress = mcpConnection->peerAddress().toString();
-    qInfo() << "[MCP Bridge] ✅ MCP Server connected from" << peerAddress;
+    // qInfo() << "[MCP Bridge] ✅ MCP Server connected from" << peerAddress;
     Q_EMIT connectionEstablished(peerAddress);
 }
 
@@ -135,8 +135,8 @@ void MCPBridgeWorker::onTextMessageReceived(const QString& message) {
         return;
     }
     
-    qDebug() << "[MCP Bridge] 📥 Received command:" << request.type 
-             << "| ID:" << request.requestId;
+    // qDebug() << "[MCP Bridge] 📥 Received command:" << request.type 
+    //          << "| ID:" << request.requestId;
     
     // Validate authentication
     if (!validateAuth(request)) {
@@ -167,7 +167,7 @@ void MCPBridgeWorker::onTextMessageReceived(const QString& message) {
 void MCPBridgeWorker::onDisconnected() {
     QMutexLocker locker(&connectionMutex);
     
-    qInfo() << "[MCP Bridge] 📡 MCP Server disconnected (normal close)";
+    // qInfo() << "[MCP Bridge] 📡 MCP Server disconnected (normal close)";
     
     if (mcpConnection) {
         mcpConnection->deleteLater();
@@ -184,7 +184,7 @@ void MCPBridgeWorker::onSocketError(QAbstractSocket::SocketError error) {
     switch (error) {
         case QAbstractSocket::RemoteHostClosedError:
             // Normal disconnect - client closed connection gracefully
-            qDebug() << "[MCP Bridge] 👋 Client closed connection";
+            // qDebug() << "[MCP Bridge] 👋 Client closed connection";
             return; // Don't emit error for normal close
             
         case QAbstractSocket::SocketTimeoutError:
@@ -305,17 +305,17 @@ void MCPBridgeWorker::logCommand(const MCP::MCPRequest& request,
                                  const MCP::MCPResponse& response) {
     QString timestamp = QDateTime::currentDateTime().toString(Qt::ISODate);
     QString status = response.status;
-    QString logLine = QString("[%1] MCP Command: %2 | ID: %3 | Status: %4")
-                        .arg(timestamp)
-                        .arg(request.type)
-                        .arg(request.requestId)
-                        .arg(status);
     
+    // Only log errors
     if (status != MCP::Status::SUCCESS) {
-        logLine += QString(" | Error: %1").arg(response.message);
+        QString logLine = QString("[%1] MCP Command: %2 | ID: %3 | Status: %4 | Error: %5")
+                            .arg(timestamp)
+                            .arg(request.type)
+                            .arg(request.requestId)
+                            .arg(status)
+                            .arg(response.message);
+        qWarning().noquote() << logLine;
     }
-    
-    qInfo().noquote() << logLine;
     
     // TODO: Could also write to file or database for persistent audit trail
 }
@@ -331,7 +331,7 @@ void MCPBridgeWorker::sendResponse(const MCP::MCPResponse& response) {
     
     mcpConnection->sendTextMessage(jsonStr);
     
-    qDebug() << "[MCP Bridge] 📤 Sent response | ID:" << response.requestId 
-             << "| Status:" << response.status;
+    // qDebug() << "[MCP Bridge] 📤 Sent response | ID:" << response.requestId 
+    //          << "| Status:" << response.status;
 }
 

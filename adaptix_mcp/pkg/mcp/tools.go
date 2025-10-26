@@ -22,8 +22,17 @@ func (s *MCPServer) registerTools() {
 	s.tools["list_screenshots"] = s.handleListScreenshotsTool
 	s.tools["list_tasks"] = s.handleListTasksTool
 	s.tools["get_task_output"] = s.handleGetTaskOutputTool
+	s.tools["list_tunnels"] = s.handleListTunnelsTool
+	s.tools["create_tunnel"] = s.handleCreateTunnelTool
+	s.tools["stop_tunnel"] = s.handleStopTunnelTool
+	s.tools["remove_agent"] = s.handleRemoveAgentTool
+	s.tools["update_agent_config"] = s.handleUpdateAgentConfigTool
+	s.tools["set_agent_tag"] = s.handleSetAgentTagTool
+	s.tools["set_agent_mark"] = s.handleSetAgentMarkTool
+	s.tools["list_targets"] = s.handleListTargetsTool
+	s.tools["list_pivots"] = s.handleListPivotsTool
 
-	utils.InfoLogger.Println("🛠️  Registered Tools: execute_command, get_console_output, clear_console, list_agents, get_agent_info, list_listeners, create_listener, edit_listener, stop_listener, list_credentials, list_downloads, list_screenshots, list_tasks, get_task_output")
+	utils.InfoLogger.Println("🛠️  Registered Tools: execute_command, get_console_output, clear_console, list_agents, get_agent_info, list_listeners, create_listener, edit_listener, stop_listener, list_credentials, list_downloads, list_screenshots, list_tasks, get_task_output, list_tunnels, create_tunnel, stop_tunnel, remove_agent, update_agent_config, set_agent_tag, set_agent_mark, list_targets, list_pivots")
 }
 
 // routeTool 路由Tool请求
@@ -381,4 +390,207 @@ func (s *MCPServer) handleStopListenerTool(params map[string]interface{}) (inter
 	}
 
 	return fmt.Sprintf("✅ Listener stopped: %s\nMessage: %s", name, resp.Message), nil
+}
+
+// handleListTunnelsTool 列出所有Tunnel
+func (s *MCPServer) handleListTunnelsTool(params map[string]interface{}) (interface{}, error) {
+	// 调用TunnelHandler
+	resp, err := s.clientConnector.SendCommand("tunnel", map[string]interface{}{
+		"command": "list",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tunnels: %w", err)
+	}
+
+	if resp.Data != nil {
+		return resp.Data, nil
+	}
+
+	return map[string]interface{}{
+		"tunnels": []interface{}{},
+		"total":   0,
+	}, nil
+}
+
+// handleCreateTunnelTool 创建Tunnel
+func (s *MCPServer) handleCreateTunnelTool(params map[string]interface{}) (interface{}, error) {
+	tunnelType, ok := params["tunnel_type"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid tunnel_type")
+	}
+
+	config, ok := params["config"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid config")
+	}
+
+	// 调用TunnelHandler
+	resp, err := s.clientConnector.SendCommand("tunnel", map[string]interface{}{
+		"command":     "create",
+		"tunnel_type": tunnelType,
+		"config":      config,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tunnel: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Tunnel created: %s\nMessage: %s", tunnelType, resp.Message), nil
+}
+
+// handleStopTunnelTool 停止Tunnel
+func (s *MCPServer) handleStopTunnelTool(params map[string]interface{}) (interface{}, error) {
+	tunnelID, ok := params["tunnel_id"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid tunnel_id")
+	}
+
+	// 调用TunnelHandler
+	resp, err := s.clientConnector.SendCommand("tunnel", map[string]interface{}{
+		"command":   "stop",
+		"tunnel_id": tunnelID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to stop tunnel: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Tunnel stopped: %s\nMessage: %s", tunnelID, resp.Message), nil
+}
+
+// handleRemoveAgentTool 删除Agent
+func (s *MCPServer) handleRemoveAgentTool(params map[string]interface{}) (interface{}, error) {
+	// Support both agent_id and agent_ids
+	reqParams := map[string]interface{}{
+		"command": "remove",
+	}
+
+	if agentID, ok := params["agent_id"].(string); ok && agentID != "" {
+		reqParams["agent_id"] = agentID
+	} else if agentIDs, ok := params["agent_ids"].([]interface{}); ok && len(agentIDs) > 0 {
+		reqParams["agent_ids"] = agentIDs
+	} else {
+		return nil, fmt.Errorf("missing agent_id or agent_ids")
+	}
+
+	resp, err := s.clientConnector.SendCommand("agent", reqParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove agent: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Agent(s) removed\nMessage: %s", resp.Message), nil
+}
+
+// handleUpdateAgentConfigTool 更新Agent配置
+func (s *MCPServer) handleUpdateAgentConfigTool(params map[string]interface{}) (interface{}, error) {
+	agentID, ok := params["agent_id"].(string)
+	if !ok || agentID == "" {
+		return nil, fmt.Errorf("missing or invalid agent_id")
+	}
+
+	reqParams := map[string]interface{}{
+		"command":  "update_config",
+		"agent_id": agentID,
+	}
+
+	if sleep, ok := params["sleep"]; ok {
+		reqParams["sleep"] = sleep
+	}
+
+	if jitter, ok := params["jitter"]; ok {
+		reqParams["jitter"] = jitter
+	}
+
+	resp, err := s.clientConnector.SendCommand("agent", reqParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update agent config: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Agent config updated: %s\nMessage: %s", agentID, resp.Message), nil
+}
+
+// handleSetAgentTagTool 设置Agent标签
+func (s *MCPServer) handleSetAgentTagTool(params map[string]interface{}) (interface{}, error) {
+	reqParams := map[string]interface{}{
+		"command": "set_tag",
+	}
+
+	if agentID, ok := params["agent_id"].(string); ok && agentID != "" {
+		reqParams["agent_id"] = agentID
+	} else if agentIDs, ok := params["agent_ids"].([]interface{}); ok && len(agentIDs) > 0 {
+		reqParams["agent_ids"] = agentIDs
+	} else {
+		return nil, fmt.Errorf("missing agent_id or agent_ids")
+	}
+
+	tag, _ := params["tag"].(string) // Tag can be empty
+	reqParams["tag"] = tag
+
+	resp, err := s.clientConnector.SendCommand("agent", reqParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set agent tag: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Agent tag set\nMessage: %s", resp.Message), nil
+}
+
+// handleSetAgentMarkTool 设置Agent标记
+func (s *MCPServer) handleSetAgentMarkTool(params map[string]interface{}) (interface{}, error) {
+	reqParams := map[string]interface{}{
+		"command": "set_mark",
+	}
+
+	if agentID, ok := params["agent_id"].(string); ok && agentID != "" {
+		reqParams["agent_id"] = agentID
+	} else if agentIDs, ok := params["agent_ids"].([]interface{}); ok && len(agentIDs) > 0 {
+		reqParams["agent_ids"] = agentIDs
+	} else {
+		return nil, fmt.Errorf("missing agent_id or agent_ids")
+	}
+
+	mark, _ := params["mark"].(string) // Mark can be empty
+	reqParams["mark"] = mark
+
+	resp, err := s.clientConnector.SendCommand("agent", reqParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set agent mark: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Agent mark set\nMessage: %s", resp.Message), nil
+}
+
+// handleListTargetsTool 列出所有Target
+func (s *MCPServer) handleListTargetsTool(params map[string]interface{}) (interface{}, error) {
+	resp, err := s.clientConnector.SendCommand("targets", map[string]interface{}{
+		"command": "list",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list targets: %w", err)
+	}
+
+	if resp.Data != nil {
+		return resp.Data, nil
+	}
+
+	return map[string]interface{}{
+		"targets": []interface{}{},
+		"total":   0,
+	}, nil
+}
+
+// handleListPivotsTool 列出所有Pivot
+func (s *MCPServer) handleListPivotsTool(params map[string]interface{}) (interface{}, error) {
+	resp, err := s.clientConnector.SendCommand("pivots", map[string]interface{}{
+		"command": "list",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pivots: %w", err)
+	}
+
+	if resp.Data != nil {
+		return resp.Data, nil
+	}
+
+	return map[string]interface{}{
+		"pivots": []interface{}{},
+		"total":  0,
+	}, nil
 }

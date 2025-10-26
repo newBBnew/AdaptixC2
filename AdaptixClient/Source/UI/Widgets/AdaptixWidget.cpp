@@ -35,6 +35,10 @@
 #include "../../Workers/MCP/handlers/InfoHandler.h"
 #include "../../Workers/MCP/handlers/ListenerHandler.h"
 #include "../../Workers/MCP/handlers/ConsoleHandler.h"
+#include "../../Workers/MCP/handlers/TunnelHandler.h"
+#include "../../Workers/MCP/handlers/AgentHandler.h"
+#include "../../Workers/MCP/handlers/TargetsHandler.h"
+#include "../../Workers/MCP/handlers/PivotsHandler.h"
 
 AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, WebSocketWorker* channelWsWorker)
 {
@@ -111,7 +115,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     MCPBridge = nullptr;
     
     if (GlobalClient->settings->data.mcpBridge.enabled) {
-        qInfo() << "[MCP] Initializing MCP Bridge...";
+        // qInfo() << "[MCP] Initializing MCP Bridge...";
         
         // Create MCP Bridge worker
         MCPBridge = new MCPBridgeWorker(
@@ -131,6 +135,10 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
             REGISTER_MCP_HANDLER(InfoHandler, this);
             REGISTER_MCP_HANDLER(ListenerHandler, this);
             REGISTER_MCP_HANDLER(ConsoleHandler, this);
+            REGISTER_MCP_HANDLER(TunnelHandler, this);
+            REGISTER_MCP_HANDLER(AgentHandler, this);
+            REGISTER_MCP_HANDLER(TargetsHandler, this);
+            REGISTER_MCP_HANDLER(PivotsHandler, this);
         
         // Move to thread
         MCPBridgeThread = new QThread(this);
@@ -139,21 +147,21 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
         // Connect signals
         connect(MCPBridgeThread, &QThread::started, MCPBridge, &MCPBridgeWorker::start);
         connect(MCPBridge, &MCPBridgeWorker::started, this, [](quint16 port) {
-            qInfo() << "[MCP] ✅ MCP Bridge started successfully on port" << port;
+            // qInfo() << "[MCP] ✅ MCP Bridge started successfully on port" << port;
         });
         connect(MCPBridge, &MCPBridgeWorker::errorOccurred, this, [](QString error) {
             qCritical() << "[MCP] ❌ Error:" << error;
         });
         connect(MCPBridge, &MCPBridgeWorker::commandExecuted, this, [](QString type, bool success) {
-            qDebug() << "[MCP] Command executed:" << type << "| Success:" << success;
+            // qDebug() << "[MCP] Command executed:" << type << "| Success:" << success;
         });
         
         // Start MCP Bridge thread
         MCPBridgeThread->start();
         
-        qInfo() << "[MCP] MCP Bridge initialization complete";
+        // qInfo() << "[MCP] MCP Bridge initialization complete";
     } else {
-        qDebug() << "[MCP] MCP Bridge disabled in settings";
+        // qDebug() << "[MCP] MCP Bridge disabled in settings";
     }
 
     connect( this, &AdaptixWidget::SyncedSignal, this,   &AdaptixWidget::OnSynced);
@@ -215,14 +223,14 @@ AdaptixWidget::~AdaptixWidget()
 {
     // Stop and clean up MCP Bridge
     if (MCPBridge) {
-        qInfo() << "[MCP] Stopping MCP Bridge...";
+        // qInfo() << "[MCP] Stopping MCP Bridge...";
         MCPBridge->stop();
     }
     
     if (MCPBridgeThread && MCPBridgeThread->isRunning()) {
         MCPBridgeThread->quit();
         MCPBridgeThread->wait(3000); // Wait up to 3 seconds
-        qInfo() << "[MCP] MCP Bridge thread stopped";
+        // qInfo() << "[MCP] MCP Bridge thread stopped";
     }
 }
 

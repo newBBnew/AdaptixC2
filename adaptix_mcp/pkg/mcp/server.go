@@ -377,6 +377,24 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 			},
 		},
 		{
+			Name:        "edit_listener",
+			Description: "Edit listener configuration",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{
+						"type":        "string",
+						"description": "Listener name",
+					},
+					"config": map[string]interface{}{
+						"type":        "object",
+						"description": "Updated listener configuration",
+					},
+				},
+				"required": []string{"name", "config"},
+			},
+		},
+		{
 			Name:        "stop_listener",
 			Description: "Stop a listener",
 			InputSchema: map[string]interface{}{
@@ -388,6 +406,154 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 					},
 				},
 				"required": []string{"name"},
+			},
+		},
+		{
+			Name:        "list_tunnels",
+			Description: "List all tunnels",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "create_tunnel",
+			Description: "Create a new tunnel",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"tunnel_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Tunnel type (e.g., socks5, portfwd)",
+					},
+					"config": map[string]interface{}{
+						"type":        "string",
+						"description": "Tunnel configuration as JSON string",
+					},
+				},
+				"required": []string{"tunnel_type", "config"},
+			},
+		},
+		{
+			Name:        "stop_tunnel",
+			Description: "Stop a tunnel",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"tunnel_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Tunnel ID",
+					},
+				},
+				"required": []string{"tunnel_id"},
+			},
+		},
+		{
+			Name:        "remove_agent",
+			Description: "Delete one or more agents",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Single agent ID to remove",
+					},
+					"agent_ids": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "string",
+						},
+						"description": "Array of agent IDs to remove",
+					},
+				},
+			},
+		},
+		{
+			Name:        "update_agent_config",
+			Description: "Update agent configuration (sleep/jitter)",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Agent ID",
+					},
+					"sleep": map[string]interface{}{
+						"type":        "number",
+						"description": "Sleep interval in seconds",
+					},
+					"jitter": map[string]interface{}{
+						"type":        "number",
+						"description": "Jitter percentage (0-100)",
+					},
+				},
+				"required": []string{"agent_id"},
+			},
+		},
+		{
+			Name:        "set_agent_tag",
+			Description: "Set agent tag for one or more agents",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Single agent ID",
+					},
+					"agent_ids": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "string",
+						},
+						"description": "Array of agent IDs",
+					},
+					"tag": map[string]interface{}{
+						"type":        "string",
+						"description": "Tag to set (can be empty to clear tag)",
+					},
+				},
+				"required": []string{"tag"},
+			},
+		},
+		{
+			Name:        "set_agent_mark",
+			Description: "Set agent mark for one or more agents",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Single agent ID",
+					},
+					"agent_ids": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "string",
+						},
+						"description": "Array of agent IDs",
+					},
+					"mark": map[string]interface{}{
+						"type":        "string",
+						"description": "Mark to set (can be empty to clear mark)",
+					},
+				},
+				"required": []string{"mark"},
+			},
+		},
+		{
+			Name:        "list_targets",
+			Description: "List all targets",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "list_pivots",
+			Description: "List all pivots",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 	}

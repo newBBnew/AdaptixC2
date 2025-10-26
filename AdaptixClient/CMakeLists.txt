@@ -165,6 +165,10 @@ SET( HEADERS
                 Source/Workers/MCP/handlers/InfoHandler.h
                 Source/Workers/MCP/handlers/ListenerHandler.h
                 Source/Workers/MCP/handlers/ConsoleHandler.h
+                Source/Workers/MCP/handlers/TunnelHandler.h
+                Source/Workers/MCP/handlers/AgentHandler.h
+                Source/Workers/MCP/handlers/TargetsHandler.h
+                Source/Workers/MCP/handlers/PivotsHandler.h
 )
 
 add_executable(AdaptixClient
@@ -255,6 +259,10 @@ add_executable(AdaptixClient
                 Source/Workers/MCP/handlers/InfoHandler.cpp
                 Source/Workers/MCP/handlers/ListenerHandler.cpp
                 Source/Workers/MCP/handlers/ConsoleHandler.cpp
+                Source/Workers/MCP/handlers/TunnelHandler.cpp
+                Source/Workers/MCP/handlers/AgentHandler.cpp
+                Source/Workers/MCP/handlers/TargetsHandler.cpp
+                Source/Workers/MCP/handlers/PivotsHandler.cpp
 )
 
 target_compile_definitions(
