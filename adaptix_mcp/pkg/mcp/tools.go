@@ -1,10 +1,108 @@
 package mcp
 
 import (
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/adaptix/adaptix_mcp/pkg/utils"
 )
+
+// 参数提取辅助函数
+
+// extractStringParam 从 params 中提取字符串参数
+func extractStringParam(params map[string]interface{}, key string, required bool) (string, error) {
+	value, ok := params[key]
+	if !ok {
+		if required {
+			return "", fmt.Errorf("missing parameter: %s", key)
+		}
+		return "", nil
+	}
+
+	strValue, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("invalid parameter type for %s: expected string", key)
+	}
+
+	if required && strValue == "" {
+		return "", fmt.Errorf("parameter %s cannot be empty", key)
+	}
+
+	return strValue, nil
+}
+
+// extractNumberParam 从 params 中提取数字参数
+func extractNumberParam(params map[string]interface{}, key string, required bool) (float64, error) {
+	value, ok := params[key]
+	if !ok {
+		if required {
+			return 0, fmt.Errorf("missing parameter: %s", key)
+		}
+		return 0, nil
+	}
+
+	numValue, ok := value.(float64)
+	if !ok {
+		return 0, fmt.Errorf("invalid parameter type for %s: expected number", key)
+	}
+
+	return numValue, nil
+}
+
+// extractBoolParam 从 params 中提取布尔参数
+func extractBoolParam(params map[string]interface{}, key string, required bool) (bool, error) {
+	value, ok := params[key]
+	if !ok {
+		if required {
+			return false, fmt.Errorf("missing parameter: %s", key)
+		}
+		return false, nil
+	}
+
+	boolValue, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("invalid parameter type for %s: expected boolean", key)
+	}
+
+	return boolValue, nil
+}
+
+// extractMapParam 从 params 中提取对象参数
+func extractMapParam(params map[string]interface{}, key string, required bool) (map[string]interface{}, error) {
+	value, ok := params[key]
+	if !ok {
+		if required {
+			return nil, fmt.Errorf("missing parameter: %s", key)
+		}
+		return nil, nil
+	}
+
+	mapValue, ok := value.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid parameter type for %s: expected object", key)
+	}
+
+	return mapValue, nil
+}
+
+// extractArrayParam 从 params 中提取数组参数
+func extractArrayParam(params map[string]interface{}, key string, required bool) ([]interface{}, error) {
+	value, ok := params[key]
+	if !ok {
+		if required {
+			return nil, fmt.Errorf("missing parameter: %s", key)
+		}
+		return nil, nil
+	}
+
+	arrayValue, ok := value.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid parameter type for %s: expected array", key)
+	}
+
+	return arrayValue, nil
+}
 
 // registerTools 注册所有Tools
 func (s *MCPServer) registerTools() {
@@ -14,25 +112,19 @@ func (s *MCPServer) registerTools() {
 	s.tools["list_agents"] = s.handleListAgentsTool
 	s.tools["get_agent_info"] = s.handleGetAgentInfoTool
 	s.tools["list_listeners"] = s.handleListListenersTool
-	s.tools["create_listener"] = s.handleCreateListenerTool
-	s.tools["edit_listener"] = s.handleEditListenerTool
-	s.tools["stop_listener"] = s.handleStopListenerTool
-	s.tools["list_credentials"] = s.handleListCredentialsTool
-	s.tools["list_downloads"] = s.handleListDownloadsTool
-	s.tools["list_screenshots"] = s.handleListScreenshotsTool
+	s.tools["manage_listener"] = s.handleManageListenerTool
+	s.tools["list_collected_data"] = s.handleListCollectedDataTool
 	s.tools["list_tasks"] = s.handleListTasksTool
 	s.tools["get_task_output"] = s.handleGetTaskOutputTool
+	s.tools["delete_tasks"] = s.handleDeleteTasksTool
 	s.tools["list_tunnels"] = s.handleListTunnelsTool
-	s.tools["create_tunnel"] = s.handleCreateTunnelTool
-	s.tools["stop_tunnel"] = s.handleStopTunnelTool
-	s.tools["remove_agent"] = s.handleRemoveAgentTool
+	s.tools["manage_tunnel"] = s.handleManageTunnelTool
 	s.tools["update_agent_config"] = s.handleUpdateAgentConfigTool
-	s.tools["set_agent_tag"] = s.handleSetAgentTagTool
-	s.tools["set_agent_mark"] = s.handleSetAgentMarkTool
+	s.tools["update_agent_metadata"] = s.handleUpdateAgentMetadataTool
 	s.tools["list_targets"] = s.handleListTargetsTool
 	s.tools["list_pivots"] = s.handleListPivotsTool
 
-	utils.InfoLogger.Println("🛠️  Registered Tools: execute_command, get_console_output, clear_console, list_agents, get_agent_info, list_listeners, create_listener, edit_listener, stop_listener, list_credentials, list_downloads, list_screenshots, list_tasks, get_task_output, list_tunnels, create_tunnel, stop_tunnel, remove_agent, update_agent_config, set_agent_tag, set_agent_mark, list_targets, list_pivots")
+	utils.DebugLogger.Println("🛠️  Registered 16 tools")
 }
 
 // routeTool 路由Tool请求
@@ -72,18 +164,28 @@ func (s *MCPServer) routeTool(name string, params map[string]interface{}) (CallT
 
 // handleExecuteCommandTool 执行命令
 func (s *MCPServer) handleExecuteCommandTool(params map[string]interface{}) (interface{}, error) {
-	agentID, ok := params["agent_id"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid agent_id")
+	agentID, err := extractStringParam(params, "agent_id", true)
+	if err != nil {
+		return nil, err
 	}
 
-	command, ok := params["command"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid command")
+	command, err := extractStringParam(params, "command", true)
+	if err != nil {
+		return nil, err
 	}
 
-	// 调用ConsoleHandler
-	resp, err := s.clientConnector.SendCommand("console", map[string]interface{}{
+	// 提取可选参数
+	waitForResult, _ := extractBoolParam(params, "wait_for_result", false)
+	maxWaitSeconds, _ := extractNumberParam(params, "max_wait_seconds", false)
+	if maxWaitSeconds == 0 {
+		maxWaitSeconds = 30 // 默认等待30秒
+	}
+
+	// 记录执行前的时间戳
+	executeTime := time.Now().Unix()
+
+	// 调用ConsoleHandler执行命令
+	_, err = s.clientConnector.SendCommand("console", map[string]interface{}{
 		"command":  "send_input",
 		"agent_id": agentID,
 		"input":    command,
@@ -92,14 +194,180 @@ func (s *MCPServer) handleExecuteCommandTool(params map[string]interface{}) (int
 		return nil, fmt.Errorf("failed to execute command: %w", err)
 	}
 
-	return fmt.Sprintf("✅ Command sent to agent %s: %s\nMessage: %s", agentID, command, resp.Message), nil
+	// 等待一小段时间让任务创建
+	time.Sleep(500 * time.Millisecond)
+
+	// 查询该 agent 的任务列表，找到对应的任务
+	taskID, taskInfo, err := s.findMatchingTask(agentID, command, executeTime)
+	if err != nil {
+		// 如果找不到任务，仍然返回成功（命令已发送）
+		return map[string]interface{}{
+			"message":  fmt.Sprintf("✅ Command sent to agent %s: %s", agentID, command),
+			"agent_id": agentID,
+			"command":  command,
+			"task_id":  "",
+			"note":     "Task not found yet, use get_task_output with task_id from list_tasks",
+		}, nil
+	}
+
+	result := map[string]interface{}{
+		"message":   fmt.Sprintf("✅ Command sent to agent %s: %s", agentID, command),
+		"agent_id":  agentID,
+		"command":   command,
+		"task_id":   taskID,
+		"status":    taskInfo["status"],
+		"completed": taskInfo["completed"],
+	}
+
+	// 如果不需要等待结果，检查任务是否已经完成（包括错误状态）
+	if !waitForResult {
+		// 快速检查一次任务状态，如果已完成（包括错误），返回结果
+		taskOutput, err := s.clientConnector.SendCommand("info", map[string]interface{}{
+			"command": "get_task_output",
+			"task_id": taskID,
+		})
+		if err == nil && taskOutput.Data != nil {
+			if completed, _ := taskOutput.Data["completed"].(bool); completed {
+				status, _ := taskOutput.Data["status"].(string)
+				output, _ := taskOutput.Data["output"].(string)
+				result["completed"] = completed
+				result["status"] = status
+				result["output"] = output
+				result["output_size"] = len(output)
+				if status == "Error" && output != "" {
+					result["error"] = true
+					result["error_message"] = output
+				}
+			}
+		}
+		return result, nil
+	}
+
+	// 等待任务完成
+	taskResult, err := s.waitForTaskCompletion(taskID, int(maxWaitSeconds))
+	if err != nil {
+		result["wait_error"] = err.Error()
+		return result, nil
+	}
+
+	// 合并任务结果
+	result["completed"] = taskResult["completed"]
+	result["status"] = taskResult["status"]
+	result["output"] = taskResult["output"]
+	result["output_size"] = taskResult["output_size"]
+	result["finish_time"] = taskResult["finish_time"]
+
+	// 如果是错误状态，明确标记为错误
+	if taskResult["status"] == "Error" {
+		result["error"] = true
+		if output, ok := taskResult["output"].(string); ok && output != "" {
+			result["error_message"] = output
+		}
+	}
+
+	return result, nil
+}
+
+// findMatchingTask 查找匹配的任务
+func (s *MCPServer) findMatchingTask(agentID, command string, executeTime int64) (string, map[string]interface{}, error) {
+	// 查询该 agent 的任务列表
+	resp, err := s.clientConnector.SendCommand("info", map[string]interface{}{
+		"command":  "list_tasks",
+		"agent_id": agentID,
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	// 解析任务列表
+	if resp.Data == nil {
+		return "", nil, fmt.Errorf("no task data returned")
+	}
+
+	tasks, ok := resp.Data["tasks"].([]interface{})
+	if !ok {
+		return "", nil, fmt.Errorf("invalid tasks array format")
+	}
+
+	// 查找匹配的任务（命令相同，且开始时间在执行时间之后）
+	for _, taskInterface := range tasks {
+		task, ok := taskInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		taskCommand, _ := task["command"].(string)
+		taskAgentID, _ := task["agent_id"].(string)
+		taskStartTime, _ := task["start_time"].(float64)
+
+		// 匹配条件：命令相同、agent 相同、开始时间在执行时间之后（允许5秒误差）
+		if taskCommand == command && taskAgentID == agentID {
+			// 检查时间（任务开始时间应该在执行时间之后，但不能太早）
+			if int64(taskStartTime) >= executeTime-5 && int64(taskStartTime) <= executeTime+10 {
+				taskID, _ := task["task_id"].(string)
+				return taskID, task, nil
+			}
+		}
+	}
+
+	return "", nil, fmt.Errorf("matching task not found")
+}
+
+// waitForTaskCompletion 等待任务完成
+func (s *MCPServer) waitForTaskCompletion(taskID string, maxWaitSeconds int) (map[string]interface{}, error) {
+	deadline := time.Now().Add(time.Duration(maxWaitSeconds) * time.Second)
+	pollInterval := 500 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		// 查询任务输出
+		resp, err := s.clientConnector.SendCommand("info", map[string]interface{}{
+			"command": "get_task_output",
+			"task_id": taskID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get task output: %w", err)
+		}
+
+		if resp.Data != nil {
+			completed, _ := resp.Data["completed"].(bool)
+			if completed {
+				// 任务完成，返回结果（包括成功和错误状态）
+				output, _ := resp.Data["output"].(string)
+				outputSize := len(output)
+				status, _ := resp.Data["status"].(string)
+
+				result := map[string]interface{}{
+					"completed":   completed,
+					"status":      status,
+					"output":      output,
+					"output_size": outputSize,
+					"finish_time": resp.Data["finish_time"],
+				}
+
+				// 如果是错误状态，明确标记
+				if status == "Error" {
+					result["error"] = true
+					if output != "" {
+						result["error_message"] = output
+					}
+				}
+
+				return result, nil
+			}
+		}
+
+		// 等待一段时间再查询
+		time.Sleep(pollInterval)
+	}
+
+	return nil, fmt.Errorf("task did not complete within %d seconds", maxWaitSeconds)
 }
 
 // handleGetConsoleOutputTool 获取控制台输出
 func (s *MCPServer) handleGetConsoleOutputTool(params map[string]interface{}) (interface{}, error) {
-	agentID, ok := params["agent_id"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid agent_id")
+	agentID, err := extractStringParam(params, "agent_id", true)
+	if err != nil {
+		return nil, err
 	}
 
 	// 调用InfoHandler获取控制台输出
@@ -123,9 +391,9 @@ func (s *MCPServer) handleGetConsoleOutputTool(params map[string]interface{}) (i
 
 // handleClearConsoleTool 清空控制台输出
 func (s *MCPServer) handleClearConsoleTool(params map[string]interface{}) (interface{}, error) {
-	agentID, ok := params["agent_id"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid agent_id")
+	agentID, err := extractStringParam(params, "agent_id", true)
+	if err != nil {
+		return nil, err
 	}
 
 	// 调用ConsoleHandler清空控制台
@@ -167,9 +435,9 @@ func (s *MCPServer) handleListAgentsTool(params map[string]interface{}) (interfa
 
 // handleGetAgentInfoTool 获取Agent详细信息
 func (s *MCPServer) handleGetAgentInfoTool(params map[string]interface{}) (interface{}, error) {
-	agentID, ok := params["agent_id"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid agent_id")
+	agentID, err := extractStringParam(params, "agent_id", true)
+	if err != nil {
+		return nil, err
 	}
 
 	// 调用InfoHandler获取Agent信息
@@ -196,7 +464,8 @@ func (s *MCPServer) handleListTasksTool(params map[string]interface{}) (interfac
 		"command": "list_tasks",
 	}
 
-	if agentID, ok := params["agent_id"].(string); ok && agentID != "" {
+	agentID, _ := extractStringParam(params, "agent_id", false)
+	if agentID != "" {
 		reqParams["agent_id"] = agentID
 	}
 
@@ -217,9 +486,9 @@ func (s *MCPServer) handleListTasksTool(params map[string]interface{}) (interfac
 
 // handleGetTaskOutputTool 获取指定任务的完整输出
 func (s *MCPServer) handleGetTaskOutputTool(params map[string]interface{}) (interface{}, error) {
-	taskID, ok := params["task_id"].(string)
-	if !ok || taskID == "" {
-		return nil, fmt.Errorf("missing or invalid task_id")
+	taskID, err := extractStringParam(params, "task_id", true)
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := s.clientConnector.SendCommand("info", map[string]interface{}{
@@ -235,6 +504,51 @@ func (s *MCPServer) handleGetTaskOutputTool(params map[string]interface{}) (inte
 	}
 
 	return nil, fmt.Errorf("task not found: %s", taskID)
+}
+
+// handleDeleteTasksTool 删除任务
+func (s *MCPServer) handleDeleteTasksTool(params map[string]interface{}) (interface{}, error) {
+	agentID, err := extractStringParam(params, "agent_id", true)
+	if err != nil {
+		return nil, err
+	}
+
+	// 支持单个 task_id 或多个 task_ids
+	var taskIDs []string
+
+	if taskID, _ := extractStringParam(params, "task_id", false); taskID != "" {
+		taskIDs = []string{taskID}
+	} else if taskIDsArray, err := extractArrayParam(params, "task_ids", false); err == nil && len(taskIDsArray) > 0 {
+		for _, v := range taskIDsArray {
+			if id, ok := v.(string); ok {
+				taskIDs = append(taskIDs, id)
+			}
+		}
+	} else {
+		return nil, fmt.Errorf("missing required parameter: task_id or task_ids")
+	}
+
+	if len(taskIDs) == 0 {
+		return nil, fmt.Errorf("no task IDs provided")
+	}
+
+	// 调用AgentHandler删除任务
+	resp, err := s.clientConnector.SendCommand("agent", map[string]interface{}{
+		"command":  "delete_tasks",
+		"agent_id": agentID,
+		"task_ids": taskIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete tasks: %w", err)
+	}
+
+	return map[string]interface{}{
+		"message":  resp.Message,
+		"agent_id": agentID,
+		"task_ids": taskIDs,
+		"count":    len(taskIDs),
+		"success":  resp.Status == "success",
+	}, nil
 }
 
 // handleListListenersTool 列出所有Listener
@@ -257,139 +571,99 @@ func (s *MCPServer) handleListListenersTool(params map[string]interface{}) (inte
 	return []interface{}{}, nil
 }
 
-// handleListCredentialsTool 列出所有凭证
-func (s *MCPServer) handleListCredentialsTool(params map[string]interface{}) (interface{}, error) {
-	// 调用InfoHandler获取凭证列表
-	resp, err := s.clientConnector.SendCommand("info", map[string]interface{}{
-		"command": "list_credentials",
-	})
+// handleListCollectedDataTool 列出收集的数据（凭证/下载/截图）
+func (s *MCPServer) handleListCollectedDataTool(params map[string]interface{}) (interface{}, error) {
+	// 提取 data_type
+	dataType, err := extractStringParam(params, "data_type", true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list credentials: %w", err)
+		return nil, err
 	}
 
-	// 从响应中提取credentials数据
+	// 验证 data_type
+	validTypes := map[string]string{
+		"credentials": "list_credentials",
+		"downloads":   "list_downloads",
+		"screenshots": "list_screenshots",
+	}
+
+	command, ok := validTypes[dataType]
+	if !ok {
+		return nil, fmt.Errorf("invalid data_type: must be one of 'credentials', 'downloads', 'screenshots'")
+	}
+
+	// 调用InfoHandler
+	resp, err := s.clientConnector.SendCommand("info", map[string]interface{}{
+		"command": command,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list %s: %w", dataType, err)
+	}
+
+	// 从响应中提取数据
 	if resp.Data != nil {
-		if credentials, ok := resp.Data["credentials"]; ok {
-			return credentials, nil
+		if data, ok := resp.Data[dataType]; ok {
+			return data, nil
 		}
 	}
 
 	return []interface{}{}, nil
 }
 
-// handleListDownloadsTool 列出所有下载
-func (s *MCPServer) handleListDownloadsTool(params map[string]interface{}) (interface{}, error) {
-	// 调用InfoHandler获取下载列表
-	resp, err := s.clientConnector.SendCommand("info", map[string]interface{}{
-		"command": "list_downloads",
-	})
+// handleManageListenerTool 管理Listener（创建/编辑/停止）
+func (s *MCPServer) handleManageListenerTool(params map[string]interface{}) (interface{}, error) {
+	// 提取 action
+	action, err := extractStringParam(params, "action", true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list downloads: %w", err)
+		return nil, err
 	}
 
-	// 从响应中提取downloads数据
-	if resp.Data != nil {
-		if downloads, ok := resp.Data["downloads"]; ok {
-			return downloads, nil
-		}
+	// 验证 action
+	if action != "create" && action != "edit" && action != "stop" {
+		return nil, fmt.Errorf("invalid action: must be 'create', 'edit', or 'stop'")
 	}
 
-	return []interface{}{}, nil
-}
-
-// handleListScreenshotsTool 列出所有截图
-func (s *MCPServer) handleListScreenshotsTool(params map[string]interface{}) (interface{}, error) {
-	// 调用InfoHandler获取截图列表
-	resp, err := s.clientConnector.SendCommand("info", map[string]interface{}{
-		"command": "list_screenshots",
-	})
+	// 提取 name（所有操作都需要）
+	name, err := extractStringParam(params, "name", true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list screenshots: %w", err)
+		return nil, err
 	}
 
-	// 从响应中提取screenshots数据
-	if resp.Data != nil {
-		if screenshots, ok := resp.Data["screenshots"]; ok {
-			return screenshots, nil
-		}
-	}
-
-	return []interface{}{}, nil
-}
-
-// handleCreateListenerTool 创建Listener
-func (s *MCPServer) handleCreateListenerTool(params map[string]interface{}) (interface{}, error) {
-	name, ok := params["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid name")
-	}
-
-	listenerType, ok := params["type"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid type")
-	}
-
-	config, ok := params["config"].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid config")
-	}
-
-	// 调用ListenerHandler
-	resp, err := s.clientConnector.SendCommand("listener", map[string]interface{}{
-		"command":       "create",
-		"name":          name,
-		"listener_type": listenerType,
-		"config":        config,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create listener: %w", err)
-	}
-
-	return fmt.Sprintf("✅ Listener created: %s (type: %s)\nMessage: %s", name, listenerType, resp.Message), nil
-}
-
-// handleEditListenerTool 编辑Listener
-func (s *MCPServer) handleEditListenerTool(params map[string]interface{}) (interface{}, error) {
-	name, ok := params["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid name")
-	}
-
-	config, ok := params["config"].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid config")
-	}
-
-	// 调用ListenerHandler
-	resp, err := s.clientConnector.SendCommand("listener", map[string]interface{}{
-		"command": "edit",
+	// 构建请求参数
+	reqParams := map[string]interface{}{
+		"command": action,
 		"name":    name,
-		"config":  config,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to edit listener: %w", err)
 	}
 
-	return fmt.Sprintf("✅ Listener edited: %s\nMessage: %s", name, resp.Message), nil
-}
+	// create 需要 type
+	if action == "create" {
+		listenerType, err := extractStringParam(params, "type", true)
+		if err != nil {
+			return nil, err
+		}
+		reqParams["listener_type"] = listenerType
+	}
 
-// handleStopListenerTool 停止Listener
-func (s *MCPServer) handleStopListenerTool(params map[string]interface{}) (interface{}, error) {
-	name, ok := params["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid name")
+	// create 和 edit 需要 config
+	if action == "create" || action == "edit" {
+		config, err := extractMapParam(params, "config", true)
+		if err != nil {
+			return nil, err
+		}
+		// Convert config map to JSON string (ListenerHandler expects a JSON string)
+		configJSON, err := json.Marshal(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal config: %w", err)
+		}
+		reqParams["config"] = string(configJSON)
 	}
 
 	// 调用ListenerHandler
-	resp, err := s.clientConnector.SendCommand("listener", map[string]interface{}{
-		"command": "stop",
-		"name":    name,
-	})
+	resp, err := s.clientConnector.SendCommand("listener", reqParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to stop listener: %w", err)
+		return nil, fmt.Errorf("failed to %s listener: %w", action, err)
 	}
 
-	return fmt.Sprintf("✅ Listener stopped: %s\nMessage: %s", name, resp.Message), nil
+	return fmt.Sprintf("✅ Listener %sd: %s\nMessage: %s", action, name, resp.Message), nil
 }
 
 // handleListTunnelsTool 列出所有Tunnel
@@ -412,78 +686,59 @@ func (s *MCPServer) handleListTunnelsTool(params map[string]interface{}) (interf
 	}, nil
 }
 
-// handleCreateTunnelTool 创建Tunnel
-func (s *MCPServer) handleCreateTunnelTool(params map[string]interface{}) (interface{}, error) {
-	tunnelType, ok := params["tunnel_type"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid tunnel_type")
-	}
-
-	config, ok := params["config"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid config")
-	}
-
-	// 调用TunnelHandler
-	resp, err := s.clientConnector.SendCommand("tunnel", map[string]interface{}{
-		"command":     "create",
-		"tunnel_type": tunnelType,
-		"config":      config,
-	})
+// handleManageTunnelTool 管理Tunnel（创建/停止）
+func (s *MCPServer) handleManageTunnelTool(params map[string]interface{}) (interface{}, error) {
+	// 提取 action
+	action, err := extractStringParam(params, "action", true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create tunnel: %w", err)
+		return nil, err
 	}
 
-	return fmt.Sprintf("✅ Tunnel created: %s\nMessage: %s", tunnelType, resp.Message), nil
-}
-
-// handleStopTunnelTool 停止Tunnel
-func (s *MCPServer) handleStopTunnelTool(params map[string]interface{}) (interface{}, error) {
-	tunnelID, ok := params["tunnel_id"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid tunnel_id")
+	// 验证 action
+	if action != "create" && action != "stop" {
+		return nil, fmt.Errorf("invalid action: must be 'create' or 'stop'")
 	}
 
-	// 调用TunnelHandler
-	resp, err := s.clientConnector.SendCommand("tunnel", map[string]interface{}{
-		"command":   "stop",
-		"tunnel_id": tunnelID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to stop tunnel: %w", err)
-	}
-
-	return fmt.Sprintf("✅ Tunnel stopped: %s\nMessage: %s", tunnelID, resp.Message), nil
-}
-
-// handleRemoveAgentTool 删除Agent
-func (s *MCPServer) handleRemoveAgentTool(params map[string]interface{}) (interface{}, error) {
-	// Support both agent_id and agent_ids
+	// 构建请求参数
 	reqParams := map[string]interface{}{
-		"command": "remove",
+		"command": action,
 	}
 
-	if agentID, ok := params["agent_id"].(string); ok && agentID != "" {
-		reqParams["agent_id"] = agentID
-	} else if agentIDs, ok := params["agent_ids"].([]interface{}); ok && len(agentIDs) > 0 {
-		reqParams["agent_ids"] = agentIDs
+	if action == "create" {
+		// 创建需要 tunnel_type 和 config
+		tunnelType, err := extractStringParam(params, "tunnel_type", true)
+		if err != nil {
+			return nil, err
+		}
+		config, err := extractStringParam(params, "config", true)
+		if err != nil {
+			return nil, err
+		}
+		reqParams["tunnel_type"] = tunnelType
+		reqParams["config"] = config
 	} else {
-		return nil, fmt.Errorf("missing agent_id or agent_ids")
+		// 停止需要 tunnel_id
+		tunnelID, err := extractStringParam(params, "tunnel_id", true)
+		if err != nil {
+			return nil, err
+		}
+		reqParams["tunnel_id"] = tunnelID
 	}
 
-	resp, err := s.clientConnector.SendCommand("agent", reqParams)
+	// 调用TunnelHandler
+	resp, err := s.clientConnector.SendCommand("tunnel", reqParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to remove agent: %w", err)
+		return nil, fmt.Errorf("failed to %s tunnel: %w", action, err)
 	}
 
-	return fmt.Sprintf("✅ Agent(s) removed\nMessage: %s", resp.Message), nil
+	return fmt.Sprintf("✅ Tunnel %sd\nMessage: %s", action, resp.Message), nil
 }
 
 // handleUpdateAgentConfigTool 更新Agent配置
 func (s *MCPServer) handleUpdateAgentConfigTool(params map[string]interface{}) (interface{}, error) {
-	agentID, ok := params["agent_id"].(string)
-	if !ok || agentID == "" {
-		return nil, fmt.Errorf("missing or invalid agent_id")
+	agentID, err := extractStringParam(params, "agent_id", true)
+	if err != nil {
+		return nil, err
 	}
 
 	reqParams := map[string]interface{}{
@@ -491,11 +746,12 @@ func (s *MCPServer) handleUpdateAgentConfigTool(params map[string]interface{}) (
 		"agent_id": agentID,
 	}
 
-	if sleep, ok := params["sleep"]; ok {
+	// Optional parameters
+	if sleep, err := extractNumberParam(params, "sleep", false); err == nil && sleep > 0 {
 		reqParams["sleep"] = sleep
 	}
 
-	if jitter, ok := params["jitter"]; ok {
+	if jitter, err := extractNumberParam(params, "jitter", false); err == nil && jitter >= 0 {
 		reqParams["jitter"] = jitter
 	}
 
@@ -507,54 +763,50 @@ func (s *MCPServer) handleUpdateAgentConfigTool(params map[string]interface{}) (
 	return fmt.Sprintf("✅ Agent config updated: %s\nMessage: %s", agentID, resp.Message), nil
 }
 
-// handleSetAgentTagTool 设置Agent标签
-func (s *MCPServer) handleSetAgentTagTool(params map[string]interface{}) (interface{}, error) {
-	reqParams := map[string]interface{}{
-		"command": "set_tag",
+// handleUpdateAgentMetadataTool 更新Agent元数据（tag/mark）
+func (s *MCPServer) handleUpdateAgentMetadataTool(params map[string]interface{}) (interface{}, error) {
+	// 提取 metadata_type (tag 或 mark)
+	metadataType, err := extractStringParam(params, "metadata_type", true)
+	if err != nil {
+		return nil, err
 	}
 
-	if agentID, ok := params["agent_id"].(string); ok && agentID != "" {
-		reqParams["agent_id"] = agentID
-	} else if agentIDs, ok := params["agent_ids"].([]interface{}); ok && len(agentIDs) > 0 {
-		reqParams["agent_ids"] = agentIDs
-	} else {
+	// 验证 metadata_type
+	if metadataType != "tag" && metadataType != "mark" {
+		return nil, fmt.Errorf("invalid metadata_type: must be 'tag' or 'mark'")
+	}
+
+	// 提取 value
+	value, _ := extractStringParam(params, "value", false) // Value can be empty
+
+	// 提取 agent_id 或 agent_ids
+	agentID, _ := extractStringParam(params, "agent_id", false)
+	agentIDs, _ := extractArrayParam(params, "agent_ids", false)
+
+	if agentID == "" && len(agentIDs) == 0 {
 		return nil, fmt.Errorf("missing agent_id or agent_ids")
 	}
 
-	tag, _ := params["tag"].(string) // Tag can be empty
-	reqParams["tag"] = tag
-
-	resp, err := s.clientConnector.SendCommand("agent", reqParams)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set agent tag: %w", err)
-	}
-
-	return fmt.Sprintf("✅ Agent tag set\nMessage: %s", resp.Message), nil
-}
-
-// handleSetAgentMarkTool 设置Agent标记
-func (s *MCPServer) handleSetAgentMarkTool(params map[string]interface{}) (interface{}, error) {
+	// 构建请求参数
 	reqParams := map[string]interface{}{
-		"command": "set_mark",
+		"command": "set_" + metadataType,
 	}
 
-	if agentID, ok := params["agent_id"].(string); ok && agentID != "" {
+	if agentID != "" {
 		reqParams["agent_id"] = agentID
-	} else if agentIDs, ok := params["agent_ids"].([]interface{}); ok && len(agentIDs) > 0 {
-		reqParams["agent_ids"] = agentIDs
 	} else {
-		return nil, fmt.Errorf("missing agent_id or agent_ids")
+		reqParams["agent_ids"] = agentIDs
 	}
 
-	mark, _ := params["mark"].(string) // Mark can be empty
-	reqParams["mark"] = mark
+	reqParams[metadataType] = value
 
+	// 发送请求
 	resp, err := s.clientConnector.SendCommand("agent", reqParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to set agent mark: %w", err)
+		return nil, fmt.Errorf("failed to update agent %s: %w", metadataType, err)
 	}
 
-	return fmt.Sprintf("✅ Agent mark set\nMessage: %s", resp.Message), nil
+	return fmt.Sprintf("✅ Agent %s updated\nMessage: %s", metadataType, resp.Message), nil
 }
 
 // handleListTargetsTool 列出所有Target

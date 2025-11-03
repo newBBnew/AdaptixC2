@@ -54,21 +54,17 @@ func NewMCPServer(connector *client.Connector) *MCPServer {
 
 // Start 启动MCP服务器
 func (s *MCPServer) Start() error {
-	utils.InfoLogger.Println("🚀 Starting MCP Server...")
-	utils.InfoLogger.Println("📖 Reading from stdin, writing to stdout...")
-	utils.InfoLogger.Println("💡 Waiting for JSON-RPC requests...")
-	utils.InfoLogger.Println("✅ MCP Server started, listening on stdin...")
+	utils.InfoLogger.Println("🚀 MCP Server started, listening on stdin for JSON-RPC requests...")
 
 	// 主循环：读取stdin的JSON-RPC请求
 	for {
-		utils.DebugLogger.Println("⏳ Waiting for next request from stdin...")
 		line, err := s.stdin.ReadString('\n')
 		if err != nil {
 			utils.ErrorLogger.Printf("Failed to read from stdin: %v", err)
 			return err
 		}
 
-		utils.DebugLogger.Printf("📨 Raw input: %s", line)
+		utils.DebugLogger.Printf("📨 Received: %s", line)
 
 		// 处理请求
 		response := s.handleRequest(line)
@@ -229,7 +225,7 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 	tools := []Tool{
 		{
 			Name:        "execute_command",
-			Description: "Execute a command on an agent's console",
+			Description: "Execute a command on an agent's console. Returns task_id for tracking. Optionally waits for completion and returns output. If command fails (e.g., 'command not found'), the task status will be 'Error' and the output will contain detailed error information. Use get_task_output to retrieve full error details.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -240,6 +236,16 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 					"command": map[string]interface{}{
 						"type":        "string",
 						"description": "Command to execute",
+					},
+					"wait_for_result": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to wait for command completion and return output (default: false)",
+						"default":     false,
+					},
+					"max_wait_seconds": map[string]interface{}{
+						"type":        "number",
+						"description": "Maximum seconds to wait for completion when wait_for_result=true (default: 30)",
+						"default":     30,
 					},
 				},
 				"required": []string{"agent_id", "command"},
@@ -304,27 +310,18 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 			},
 		},
 		{
-			Name:        "list_credentials",
-			Description: "List all collected credentials",
+			Name:        "list_collected_data",
+			Description: "List collected data (credentials, downloads, or screenshots)",
 			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-		{
-			Name:        "list_downloads",
-			Description: "List all file downloads",
-			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-		{
-			Name:        "list_screenshots",
-			Description: "List all screenshots",
-			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
+				"type": "object",
+				"properties": map[string]interface{}{
+					"data_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of data to list",
+						"enum":        []string{"credentials", "downloads", "screenshots"},
+					},
+				},
+				"required": []string{"data_type"},
 			},
 		},
 		{
@@ -355,57 +352,53 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 			},
 		},
 		{
-			Name:        "create_listener",
-			Description: "Create a new listener",
+			Name:        "delete_tasks",
+			Description: "Delete one or more tasks (can delete failed, running, or pending tasks)",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Agent ID",
+					},
+					"task_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Single task ID to delete",
+					},
+					"task_ids": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Array of task IDs to delete",
+					},
+				},
+				"required": []string{"agent_id"},
+			},
+		},
+		{
+			Name:        "manage_listener",
+			Description: "Manage listener (create, edit, or stop)",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"description": "Action to perform",
+						"enum":        []string{"create", "edit", "stop"},
+					},
 					"name": map[string]interface{}{
 						"type":        "string",
 						"description": "Listener name",
 					},
 					"type": map[string]interface{}{
 						"type":        "string",
-						"description": "Listener type (e.g., beacon)",
+						"description": "Listener type (required for create, e.g., beacon)",
 					},
 					"config": map[string]interface{}{
 						"type":        "object",
-						"description": "Listener configuration",
+						"description": "Listener configuration (required for create/edit)",
 					},
 				},
-				"required": []string{"name", "type", "config"},
-			},
-		},
-		{
-			Name:        "edit_listener",
-			Description: "Edit listener configuration",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{
-						"type":        "string",
-						"description": "Listener name",
-					},
-					"config": map[string]interface{}{
-						"type":        "object",
-						"description": "Updated listener configuration",
-					},
-				},
-				"required": []string{"name", "config"},
-			},
-		},
-		{
-			Name:        "stop_listener",
-			Description: "Stop a listener",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{
-						"type":        "string",
-						"description": "Listener name",
-					},
-				},
-				"required": []string{"name"},
+				"required": []string{"action", "name"},
 			},
 		},
 		{
@@ -417,55 +410,30 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 			},
 		},
 		{
-			Name:        "create_tunnel",
-			Description: "Create a new tunnel",
+			Name:        "manage_tunnel",
+			Description: "Manage tunnel (create or stop)",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"description": "Action to perform",
+						"enum":        []string{"create", "stop"},
+					},
 					"tunnel_type": map[string]interface{}{
 						"type":        "string",
-						"description": "Tunnel type (e.g., socks5, portfwd)",
+						"description": "Tunnel type (required for create, e.g., socks5, portfwd)",
 					},
 					"config": map[string]interface{}{
 						"type":        "string",
-						"description": "Tunnel configuration as JSON string",
+						"description": "Tunnel configuration as JSON string (required for create)",
 					},
-				},
-				"required": []string{"tunnel_type", "config"},
-			},
-		},
-		{
-			Name:        "stop_tunnel",
-			Description: "Stop a tunnel",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
 					"tunnel_id": map[string]interface{}{
 						"type":        "string",
-						"description": "Tunnel ID",
+						"description": "Tunnel ID (required for stop)",
 					},
 				},
-				"required": []string{"tunnel_id"},
-			},
-		},
-		{
-			Name:        "remove_agent",
-			Description: "Delete one or more agents",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"agent_id": map[string]interface{}{
-						"type":        "string",
-						"description": "Single agent ID to remove",
-					},
-					"agent_ids": map[string]interface{}{
-						"type": "array",
-						"items": map[string]interface{}{
-							"type": "string",
-						},
-						"description": "Array of agent IDs to remove",
-					},
-				},
+				"required": []string{"action"},
 			},
 		},
 		{
@@ -491,11 +459,20 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 			},
 		},
 		{
-			Name:        "set_agent_tag",
-			Description: "Set agent tag for one or more agents",
+			Name:        "update_agent_metadata",
+			Description: "Update agent metadata (tag or mark) for one or more agents",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"metadata_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of metadata to update: 'tag' or 'mark'",
+						"enum":        []string{"tag", "mark"},
+					},
+					"value": map[string]interface{}{
+						"type":        "string",
+						"description": "Value to set (can be empty to clear)",
+					},
 					"agent_id": map[string]interface{}{
 						"type":        "string",
 						"description": "Single agent ID",
@@ -507,37 +484,8 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 						},
 						"description": "Array of agent IDs",
 					},
-					"tag": map[string]interface{}{
-						"type":        "string",
-						"description": "Tag to set (can be empty to clear tag)",
-					},
 				},
-				"required": []string{"tag"},
-			},
-		},
-		{
-			Name:        "set_agent_mark",
-			Description: "Set agent mark for one or more agents",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"agent_id": map[string]interface{}{
-						"type":        "string",
-						"description": "Single agent ID",
-					},
-					"agent_ids": map[string]interface{}{
-						"type": "array",
-						"items": map[string]interface{}{
-							"type": "string",
-						},
-						"description": "Array of agent IDs",
-					},
-					"mark": map[string]interface{}{
-						"type":        "string",
-						"description": "Mark to set (can be empty to clear mark)",
-					},
-				},
-				"required": []string{"mark"},
+				"required": []string{"metadata_type", "value"},
 			},
 		},
 		{
@@ -662,11 +610,39 @@ func (s *MCPServer) handlePromptsList(req JSONRPCRequest) *JSONRPCResponse {
 
 // handlePromptsGet 处理prompts/get请求
 func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) *JSONRPCResponse {
-	// TODO: Implement prompts get
+	params, ok := req.Params.(map[string]interface{})
+	if !ok {
+		return s.errorResponse(req.ID, -32602, "Invalid params", nil)
+	}
+
+	// 提取 prompt name
+	name, ok := params["name"].(string)
+	if !ok {
+		return s.errorResponse(req.ID, -32602, "Missing or invalid prompt name", nil)
+	}
+
+	// 提取 arguments（可选）
+	promptParams, ok := params["arguments"].(map[string]interface{})
+	if !ok {
+		promptParams = make(map[string]interface{})
+	}
+
+	// 查找对应的 Prompt Handler
+	handler, ok := s.prompts[name]
+	if !ok {
+		return s.errorResponse(req.ID, -32602, fmt.Sprintf("Unknown prompt: %s", name), nil)
+	}
+
+	// 调用 Handler
+	result, err := handler(promptParams)
+	if err != nil {
+		return s.errorResponse(req.ID, -32001, err.Error(), nil)
+	}
+
 	return &JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
-		Result:  GetPromptResult{Messages: []interface{}{}},
+		Result:  result,
 	}
 }
 

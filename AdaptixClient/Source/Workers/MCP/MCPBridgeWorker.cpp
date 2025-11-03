@@ -106,7 +106,7 @@ void MCPBridgeWorker::onNewConnection() {
             this, &MCPBridgeWorker::onTextMessageReceived);
     connect(mcpConnection, &QWebSocket::disconnected,
             this, &MCPBridgeWorker::onDisconnected);
-    connect(mcpConnection, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::error),
+    connect(mcpConnection, &QWebSocket::errorOccurred,
             this, &MCPBridgeWorker::onSocketError);
     
     QString peerAddress = mcpConnection->peerAddress().toString();

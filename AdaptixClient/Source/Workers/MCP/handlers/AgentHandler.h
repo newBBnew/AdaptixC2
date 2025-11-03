@@ -16,6 +16,7 @@ class AdaptixWidget;
  * - update_config: 更新Agent配置(sleep, jitter等)
  * - set_tag: 设置Agent标签
  * - set_mark: 设置Agent标记
+ * - delete_tasks: 删除任务
  */
 class AgentHandler : public IMCPCommandHandler {
 public:
@@ -39,6 +40,7 @@ private:
     MCP::MCPResponse handleUpdateConfig(const MCP::MCPRequest& request);
     MCP::MCPResponse handleSetTag(const MCP::MCPRequest& request);
     MCP::MCPResponse handleSetMark(const MCP::MCPRequest& request);
+    MCP::MCPResponse handleDeleteTasks(const MCP::MCPRequest& request);
 };
 
 #endif // ADAPTIX_MCP_AGENTHANDLER_H

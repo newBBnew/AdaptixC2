@@ -29,8 +29,8 @@ type Response struct {
 type Connector struct {
 	url     string
 	conn    *websocket.Conn
-	mu      sync.Mutex
-	pending map[string]chan *Response
+	mu      sync.RWMutex
+	pending sync.Map // map[string]chan *Response - 使用 sync.Map 提升并发安全性
 
 	reconnectInterval time.Duration
 	timeout           time.Duration
@@ -44,7 +44,6 @@ type Connector struct {
 func NewConnector(url string) *Connector {
 	return &Connector{
 		url:               url,
-		pending:           make(map[string]chan *Response),
 		reconnectInterval: 5 * time.Second,
 		timeout:           30 * time.Second,
 		stopChan:          make(chan struct{}),
@@ -98,22 +97,18 @@ func (c *Connector) SendCommand(commandType string, params map[string]interface{
 	// 创建响应通道
 	respChan := make(chan *Response, 1)
 
-	// 注册pending（需要加锁）
-	c.mu.Lock()
-	c.pending[requestID] = respChan
-	c.mu.Unlock()
+	// 注册pending（使用 sync.Map）
+	c.pending.Store(requestID, respChan)
 
-	// 发送请求（不持有锁）
+	// 发送请求
 	if err := c.conn.WriteJSON(request); err != nil {
-		c.mu.Lock()
-		delete(c.pending, requestID)
-		c.mu.Unlock()
+		c.pending.Delete(requestID)
 		return nil, fmt.Errorf("failed to send command: %w", err)
 	}
 
 	utils.DebugLogger.Printf("→ Sent command: %s (ID: %s)", commandType, requestID)
 
-	// 等待响应（带超时，不持有锁）
+	// 等待响应（带超时）
 	select {
 	case resp := <-respChan:
 		if resp.Status == "success" {
@@ -123,9 +118,8 @@ func (c *Connector) SendCommand(commandType string, params map[string]interface{
 			return nil, fmt.Errorf("command failed: %s", resp.Message)
 		}
 	case <-time.After(c.timeout):
-		c.mu.Lock()
-		delete(c.pending, requestID)
-		c.mu.Unlock()
+		// 超时后删除 pending，防止内存泄漏
+		c.pending.Delete(requestID)
 		return nil, fmt.Errorf("command timeout after %v", c.timeout)
 	}
 }
@@ -163,14 +157,13 @@ func (c *Connector) listenResponses() {
 				return
 			}
 
-			// 将响应发送到对应的通道
-			c.mu.Lock()
-			if ch, ok := c.pending[resp.RequestID]; ok {
-				ch <- &resp
-				close(ch)
-				delete(c.pending, resp.RequestID)
+			// 将响应发送到对应的通道（使用 sync.Map）
+			if value, ok := c.pending.LoadAndDelete(resp.RequestID); ok {
+				if ch, ok := value.(chan *Response); ok {
+					ch <- &resp
+					close(ch)
+				}
 			}
-			c.mu.Unlock()
 		}
 	}
 }
@@ -221,7 +214,39 @@ func generateID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
-// IsConnected 检查连接状态
+// IsConnected 检查连接状态（带健康检查）
 func (c *Connector) IsConnected() bool {
-	return c.connected
+	c.mu.RLock()
+	connected := c.connected
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return false
+	}
+
+	// 发送 ping 检测连接健康
+	if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+		utils.WarnLogger.Printf("Connection health check failed: %v", err)
+		c.mu.Lock()
+		c.connected = false
+		c.mu.Unlock()
+		return false
+	}
+
+	return true
+}
+
+// SetReconnectInterval 设置重连间隔
+func (c *Connector) SetReconnectInterval(interval time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reconnectInterval = interval
+}
+
+// SetTimeout 设置请求超时时间
+func (c *Connector) SetTimeout(timeout time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.timeout = timeout
 }

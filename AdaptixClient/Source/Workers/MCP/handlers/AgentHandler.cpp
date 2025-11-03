@@ -27,6 +27,8 @@ MCPResponse AgentHandler::handle(const MCPRequest& request)
         return handleSetTag(request);
     } else if (command == "set_mark") {
         return handleSetMark(request);
+    } else if (command == "delete_tasks") {
+        return handleDeleteTasks(request);
     } else {
         return MCPResponse::error(
             request.requestId,
@@ -393,6 +395,68 @@ MCPResponse AgentHandler::handleSetMark(const MCPRequest& request)
     return MCPResponse::success(
         request.requestId,
         message,
+        data
+    );
+}
+
+MCPResponse AgentHandler::handleDeleteTasks(const MCPRequest& request)
+{
+    QString agentId = request.params.value("agent_id").toString();
+    
+    if (agentId.isEmpty()) {
+        return MCPResponse::error(
+            request.requestId,
+            "Missing required parameter: agent_id"
+        );
+    }
+    
+    // Verify agent exists
+    Agent* agent = adaptixWidget->AgentsMap.value(agentId, nullptr);
+    if (!agent) {
+        return MCPResponse::error(
+            request.requestId,
+            QString("Agent not found: %1").arg(agentId)
+        );
+    }
+    
+    // Extract task IDs (support both single task_id and array task_ids)
+    QStringList taskIds;
+    
+    if (request.params.contains("task_id")) {
+        QString taskId = request.params.value("task_id").toString();
+        if (!taskId.isEmpty()) {
+            taskIds.append(taskId);
+        }
+    }
+    
+    if (request.params.contains("task_ids")) {
+        QJsonArray taskIdsArray = request.params.value("task_ids").toArray();
+        for (const QJsonValue& val : taskIdsArray) {
+            QString taskId = val.toString();
+            if (!taskId.isEmpty() && !taskIds.contains(taskId)) {
+                taskIds.append(taskId);
+            }
+        }
+    }
+    
+    if (taskIds.isEmpty()) {
+        return MCPResponse::error(
+            request.requestId,
+            "Missing required parameter: task_id or task_ids"
+        );
+    }
+    
+    // Delete tasks using Agent's TasksDelete method
+    QString message = agent->TasksDelete(taskIds);
+    
+    QJsonObject data;
+    data["agent_id"] = agentId;
+    data["task_ids"] = QJsonArray::fromStringList(taskIds);
+    data["count"] = taskIds.count();
+    
+    return MCPResponse::success(
+        request.requestId,
+        message.isEmpty() ? QString("Deleted %1 task(s)").arg(taskIds.count()) : message,
         data
     );
 }

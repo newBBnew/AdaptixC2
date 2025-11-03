@@ -16,7 +16,7 @@ func (s *MCPServer) registerResources() {
 	s.resources["tasks"] = s.handleTasksResource
 	s.resources["extenders"] = s.handleExtendersResource
 
-	utils.InfoLogger.Println("📚 Registered Resources: agents, listeners, credentials, tasks, extenders")
+	utils.DebugLogger.Println("📚 Registered 5 resources")
 }
 
 // routeResource 路由Resource请求
