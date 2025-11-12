@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -693,4 +695,52 @@ func (ts *Teamserver) TsAgentConsoleOutput(agentId string, messageType int, mess
 func (ts *Teamserver) TsAgentConsoleOutputClient(agentId string, client string, messageType int, message string, clearText string) {
 	packet := CreateSpAgentConsoleOutput(agentId, messageType, message, clearText)
 	ts.TsSyncClient(client, packet)
+}
+
+func (ts *Teamserver) TsGetBofFile(bofPath string) ([]byte, error) {
+	// 读取 BOF 文件（路径相对于 Server 工作目录）
+	// 支持相对路径和绝对路径
+	var fullPath string
+	if strings.HasPrefix(bofPath, "/") || (len(bofPath) > 2 && bofPath[1] == ':') {
+		// 绝对路径
+		fullPath = bofPath
+	} else {
+		// 相对路径，智能查找：
+		// 1. 首先尝试从当前工作目录读取
+		// 2. 如果失败，尝试从项目根目录读取（向上查找）
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get working directory: %v", err)
+		}
+
+		// 尝试路径 1：当前工作目录
+		fullPath = filepath.Join(wd, bofPath)
+		if _, err := os.Stat(fullPath); err != nil {
+			// 尝试路径 2：项目根目录（向上一级，适用于在 release/ 或 AdaptixServer/ 运行的情况）
+			parentDir := filepath.Dir(wd)
+			fullPath2 := filepath.Join(parentDir, bofPath)
+			if _, err2 := os.Stat(fullPath2); err2 == nil {
+				fullPath = fullPath2
+			} else {
+				// 尝试路径 3：向上两级（适用于更深的嵌套）
+				grandParentDir := filepath.Dir(parentDir)
+				fullPath3 := filepath.Join(grandParentDir, bofPath)
+				if _, err3 := os.Stat(fullPath3); err3 == nil {
+					fullPath = fullPath3
+				}
+				// 如果都失败，保持使用原始路径（将在下面报错）
+			}
+		}
+	}
+
+	logs.Debug("", "[BOF] Reading BOF file: %s (full path: %s)", bofPath, fullPath)
+
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		logs.Error("", "[BOF] Failed to read BOF file %s: %v", fullPath, err)
+		return nil, fmt.Errorf("failed to read BOF file %s: %v", fullPath, err)
+	}
+
+	logs.Info("", "[BOF] Successfully read BOF file: %s (%d bytes)", bofPath, len(data))
+	return data, nil
 }

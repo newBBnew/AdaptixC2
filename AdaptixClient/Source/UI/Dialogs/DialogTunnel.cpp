@@ -1,7 +1,7 @@
 #include <UI/Dialogs/DialogTunnel.h>
 #include <Client/Requestor.h>
 
-DialogTunnel::DialogTunnel(const QString &agentId, const bool s4, const bool s5, const bool lpf, const bool rpf)
+DialogTunnel::DialogTunnel(const QString &agentId, const bool s4, const bool s5, const bool lpf, const bool rpf, const bool wsSocks5)
 {
     this->createUI();
 
@@ -12,6 +12,7 @@ DialogTunnel::DialogTunnel(const QString &agentId, const bool s4, const bool s5,
     if (s5)  tunnelTypeCombo->addItem("Socks5");
     if (lpf) tunnelTypeCombo->addItem("Local port forwarding");
     if (rpf) tunnelTypeCombo->addItem("Reverse port forwarding");
+    if (wsSocks5) tunnelTypeCombo->addItem("WebSocket Socks5");
 
     connect(tunnelTypeCombo, &QComboBox::currentTextChanged, this, &DialogTunnel::changeType);
     connect(buttonCreate,    &QPushButton::clicked,          this, &DialogTunnel::onButtonCreate);
@@ -176,6 +177,24 @@ void DialogTunnel::createUI()
     rpfGridLayout->addWidget(rpfTargetAddrInput, 1, 1, 1, 1);
     rpfGridLayout->addWidget(rpfTargetPortSpin,  1, 2, 1, 1);
     tunnelStackWidget->addWidget(rpfWidget);
+
+    wsSocks5Widget = new QWidget(this);
+    wsSocks5LocalAddrLabel = new QLabel("Listen:", wsSocks5Widget);
+    wsSocks5LocalAddrInput = new QLineEdit("0.0.0.0", wsSocks5Widget);
+    wsSocks5LocalPortSpin  = new QSpinBox(wsSocks5Widget);
+    wsSocks5LocalPortSpin->setMinimum(1);
+    wsSocks5LocalPortSpin->setMaximum(65535);
+    wsSocks5LocalPortSpin->setValue(1080);
+    wsSocks5InfoLabel = new QLabel("Note: Agent will connect to server via WebSocket", wsSocks5Widget);
+    wsSocks5InfoLabel->setWordWrap(true);
+    wsSocks5InfoLabel->setStyleSheet("color: gray; font-style: italic;");
+
+    wsSocks5GridLayout = new QGridLayout(wsSocks5Widget);
+    wsSocks5GridLayout->addWidget(wsSocks5LocalAddrLabel, 0, 0, 1, 1);
+    wsSocks5GridLayout->addWidget(wsSocks5LocalAddrInput, 0, 1, 1, 1);
+    wsSocks5GridLayout->addWidget(wsSocks5LocalPortSpin,  0, 2, 1, 1);
+    wsSocks5GridLayout->addWidget(wsSocks5InfoLabel,      1, 0, 1, 3);
+    tunnelStackWidget->addWidget(wsSocks5Widget);
 }
 
 void DialogTunnel::StartDialog()
@@ -213,6 +232,14 @@ void DialogTunnel::changeType(const QString &type) const
      }
      else if (type == "Reverse port forwarding") {
           tunnelStackWidget->setCurrentIndex(3);
+     }
+     else if (type == "WebSocket Socks5") {
+          tunnelStackWidget->setCurrentIndex(4);
+          // WebSocket SOCKS5 只能在 Server 端监听
+          tunnelEndpointCombo->setEnabled(false);
+     }
+     else {
+          tunnelEndpointCombo->setEnabled(true);
      }
 }
 
@@ -334,6 +361,23 @@ void DialogTunnel::onButtonCreate()
           dataJson["port"]   = port;
           dataJson["t_host"] = t_host;
           dataJson["t_port"] = t_port;
+
+     }
+     else if (type == "WebSocket Socks5") {
+          QString l_host = this->wsSocks5LocalAddrInput->text();
+          int     l_port = this->wsSocks5LocalPortSpin->value();
+
+          if (l_host.isEmpty()) {
+               this->valid   = false;
+               this->message = "Listen host must be set";
+               this->close();
+               return;
+          }
+
+          this->tunnelType = "ws_socks5";
+          this->valid = true;
+          dataJson["l_host"] = l_host;
+          dataJson["l_port"] = l_port;
 
      }
      else {

@@ -56,7 +56,7 @@ public Q_SLOTS:
     void     log(const QString &text);
     void     log_error(const QString &text);
     void     open_agent_console(const QString &id);
-    void     open_access_tunnel(const QString &id, bool socks4, bool socks5, bool lportfwd, bool rportfwd);
+    void     open_access_tunnel(const QString &id, bool socks4, bool socks5, bool lportfwd, bool rportfwd, bool wsSocks5 = true);
     void     open_browser_files(const QString &id);
     void     open_browser_process(const QString &id);
     void     open_remote_terminal(const QString &id);

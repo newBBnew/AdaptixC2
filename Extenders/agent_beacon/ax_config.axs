@@ -14,7 +14,7 @@ menu.add_session_browser(file_browser_action, ["beacon"])
 menu.add_session_browser(process_browser_action, ["beacon"])
 
 
-let tunnel_access_action = menu.create_action("Create Tunnel", function(value) { ax.open_access_tunnel(value[0], true, true, true, true) });
+let tunnel_access_action = menu.create_action("Create Tunnel", function(value) { ax.open_access_tunnel(value[0], true, true, true, true, true) });
 menu.add_session_access(tunnel_access_action, ["beacon"])
 
 
@@ -228,6 +228,12 @@ function RegisterCommands(listenerType)
     let cmd_socks = ax.create_command("socks", "Managing socks tunnels");
     cmd_socks.addSubCommands([_cmd_socks_start, _cmd_socks_stop]);
 
+    let _cmd_wstunnel_start = ax.create_command("start", "Start WebSocket SOCKS5 tunnel (auto-create and connect)", "wstunnel start 127.0.0.1 1080");
+    _cmd_wstunnel_start.addArgString("l_host", true, "Local host to listen on (e.g., 127.0.0.1 or 0.0.0.0)");
+    _cmd_wstunnel_start.addArgInt("l_port", true, "Local port to listen on (e.g., 1080)");
+    let cmd_wstunnel = ax.create_command("wstunnel", "Managing WebSocket tunnels");
+    cmd_wstunnel.addSubCommands([_cmd_wstunnel_start]);
+
     let _cmd_terminate_thread = ax.create_command("thread", "Terminate the main beacon thread (without terminating the process)", "terminate thread", "Task: terminate agent thread");
     let _cmd_terminate_process = ax.create_command("process", "Terminate the beacon process", "terminate process", "Task: terminate agent process");
     let cmd_terminate = ax.create_command("terminate", "Terminate the session");
@@ -264,14 +270,14 @@ function RegisterCommands(listenerType)
     if(listenerType == "BeaconHTTP") {
         let commands_external = ax.create_commands_group("beacon", [cmd_cat, cmd_cd, cmd_cp, cmd_disks, cmd_download, cmd_execute, cmd_exfil, cmd_getuid,
             cmd_job, cmd_link, cmd_ls, cmd_lportfwd, cmd_mv, cmd_mkdir, cmd_profile, cmd_ps, cmd_pwd, cmd_rev2self, cmd_rm, cmd_rportfwd, cmd_sleep,
-            cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact] );
+            cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact, cmd_wstunnel] );
 
         return { commands_windows: commands_external }
     }
     else if (listenerType == "BeaconSMB" || listenerType == "BeaconTCP") {
         let commands_internal = ax.create_commands_group("beacon", [cmd_cat, cmd_cd, cmd_cp, cmd_disks, cmd_download, cmd_execute, cmd_exfil, cmd_getuid,
             cmd_job, cmd_link, cmd_ls, cmd_lportfwd, cmd_mv, cmd_mkdir, cmd_profile, cmd_ps, cmd_pwd, cmd_rev2self, cmd_rm, cmd_rportfwd,
-            cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact] );
+            cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact, cmd_wstunnel] );
 
         return { commands_windows: commands_internal }
     }

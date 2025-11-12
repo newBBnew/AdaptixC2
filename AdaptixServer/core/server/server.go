@@ -184,7 +184,7 @@ func (ts *Teamserver) RestoreData() {
 		countMessages++
 	}
 	logs.Success("   ", "Restored %v messages", countMessages)
-	
+
 	/// DOWNLOADS
 	countDownloads := 0
 	restoreDownloads := ts.DBMS.DbDownloadAll()
@@ -263,23 +263,35 @@ func (ts *Teamserver) Start() {
 		err     error
 	)
 
+	// 使用 map 去重，确保每个 IP 只添加一次
+	ipMap := make(map[string]bool)
+	ipMap["0.0.0.0"] = true
+	ts.Parameters.Interfaces = append(ts.Parameters.Interfaces, "0.0.0.0")
+
 	interfaces, err := net.Interfaces()
 	if err == nil {
-		ts.Parameters.Interfaces = append(ts.Parameters.Interfaces, "0.0.0.0")
 		for _, i := range interfaces {
 			iAddrs, err := i.Addrs()
 			if err == nil {
 				for _, addr := range iAddrs {
 					ipNet, ok := addr.(*net.IPNet)
 					if ok {
-						if ipNet.IP.To4() != nil {
-							ts.Parameters.Interfaces = append(ts.Parameters.Interfaces, ipNet.IP.String())
+						ip := ipNet.IP.To4()
+						if ip != nil {
+							ipStr := ip.String()
+							// 去重：只添加未添加过的 IP
+							if !ipMap[ipStr] {
+								ipMap[ipStr] = true
+								ts.Parameters.Interfaces = append(ts.Parameters.Interfaces, ipStr)
+							}
 						}
 					}
 				}
 			}
 		}
 	}
+
+	// 如果没有找到任何接口，至少添加默认值
 	if len(ts.Parameters.Interfaces) == 0 {
 		ts.Parameters.Interfaces = append(ts.Parameters.Interfaces, "0.0.0.0")
 		ts.Parameters.Interfaces = append(ts.Parameters.Interfaces, "127.0.0.1")

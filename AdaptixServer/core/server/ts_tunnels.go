@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 	"github.com/gorilla/websocket"
 )
 
@@ -83,6 +83,15 @@ func (ts *Teamserver) TsTunnelClientStart(AgentId string, Listen bool, Type int,
 			message = fmt.Sprintf("SOCKS5 (with Auth) server started on (client '%v') '%v:%v'", Client, Lhost, Lport)
 		}
 
+	case TUNNEL_WS_SOCKS5:
+		if !Listen {
+			return "", errors.New("WebSocket SOCKS5 tunnel requires server-side listening")
+		}
+		commandline = fmt.Sprintf("[from browser] ws_socks5 start %v:%v", Lhost, Lport)
+		message = fmt.Sprintf("WebSocket SOCKS5 tunnel created on '%v:%v'\n"+
+			"Waiting for Agent to establish WebSocket connection...\n"+
+			"Execute 'wstunnel start <url>' command on the agent.", Lhost, Lport)
+
 	case TUNNEL_LPORTFWD:
 		if Listen {
 			commandline = fmt.Sprintf("[from browser] local_port_fwd start %v:%v %v:%v", Lhost, Lport, Thost, Tport)
@@ -142,6 +151,19 @@ func (ts *Teamserver) TsTunnelClientStart(AgentId string, Listen bool, Type int,
 		MessageType: CONSOLE_OUT_SUCCESS,
 		ClearText:   "",
 	}
+
+	// 对于 WebSocket SOCKS5，检查是否有 token，如果有则更新 ClearText
+	if Type == TUNNEL_WS_SOCKS5 && Listen {
+		value, ok := ts.tunnels.Get(tunnelId)
+		if ok {
+			tunnel, _ := value.(*Tunnel)
+			if tunnel.wsToken != "" && tunnel.Data.Info != "" {
+				// Info 字段存储了 WebSocket URL
+				taskData.ClearText = fmt.Sprintf("\nExecute BOF:\n  execute bof wstunnel.x64.o %s\n", tunnel.Data.Info)
+			}
+		}
+	}
+
 	ts.TsTaskCreate(AgentId, commandline, Client, taskData)
 
 	return tunnelId, nil
@@ -287,6 +309,44 @@ func (ts *Teamserver) TsTunnelStart(TunnelId string) (string, error) {
 	}
 	agent, _ := value.(*Agent)
 
+	if tunnel.Type == TUNNEL_WS_SOCKS5 {
+		tunnel.wsToken = ts.AdaptixServer.WsTunnelRegisterPending(agent.Data.Id, 10*time.Minute)
+		if tunnel.wsToken != "" {
+			logs.Info("", "[WS-Agent] Pending token for agent %s: %s", agent.Data.Id, tunnel.wsToken)
+
+			// 使用 Agent 的 ExternalIP 作为 WebSocket 回连地址
+			// Agent 通过 ExternalIP 回连到 Server
+			serverAddr := agent.Data.ExternalIP
+			if serverAddr == "" {
+				// Fallback: 使用 Server 配置
+				serverAddr = ts.Profile.Server.Interface
+				if serverAddr == "0.0.0.0" || serverAddr == "" {
+					serverAddr = "127.0.0.1"
+				}
+			}
+
+			serverPort := ts.Profile.Server.Port
+			endpoint := ts.Profile.Server.Endpoint
+			if endpoint == "" {
+				endpoint = "/api"
+			}
+
+			// 判断使用 ws 还是 wss（根据端口判断）
+			protocol := "wss"
+			if serverPort == 80 {
+				protocol = "ws"
+			}
+
+			wsUrl := fmt.Sprintf("%s://%s:%d%s/ws/agent-tunnel?agent_id=%s&token=%s",
+				protocol, serverAddr, serverPort, endpoint, agent.Data.Id, tunnel.wsToken)
+
+			// 将 WebSocket URL 存储在 tunnel.Data.Info 中
+			tunnel.Data.Info = wsUrl
+
+			logs.Info("", "[WS-Agent] WebSocket URL for agent %s: %s (using agent ExternalIp)", agent.Data.Id, wsUrl)
+		}
+	}
+
 	if tunnel.Type == TUNNEL_RPORTFWD {
 
 		id, _ := strconv.ParseInt(TunnelId, 16, 64)
@@ -294,7 +354,8 @@ func (ts *Teamserver) TsTunnelStart(TunnelId string) (string, error) {
 		taskData := tunnel.handlerReverse(int(id), port)
 		tunnelManageTask(agent, taskData)
 
-	} else {
+	} else if tunnel.Type != TUNNEL_WS_SOCKS5 {
+		// TUNNEL_WS_SOCKS5 不在这里启动监听器，等待 WebSocket 连接建立后再启动
 
 		address := tunnel.Data.Interface + ":" + tunnel.Data.Port
 		listener, err := net.Listen("tcp", address)
@@ -311,7 +372,7 @@ func (ts *Teamserver) TsTunnelStart(TunnelId string) (string, error) {
 				if err != nil {
 					return
 				}
-				go handleTunChannelCreate(agent, tunnel, conn)
+				go handleTunChannelCreate(ts, agent, tunnel, conn)
 			}
 		}()
 
@@ -323,7 +384,10 @@ func (ts *Teamserver) TsTunnelStart(TunnelId string) (string, error) {
 		}
 	}
 
-	tunnel.Active = true
+	// 对于 TUNNEL_WS_SOCKS5，只有在 WebSocket 连接建立后才设置 Active=true
+	if tunnel.Type != TUNNEL_WS_SOCKS5 {
+		tunnel.Active = true
+	}
 	tunnel.TaskId, _ = krypt.GenerateUID(8)
 
 	packet := CreateSpTunnelCreate(tunnel.Data)
@@ -384,6 +448,12 @@ func (ts *Teamserver) TsTunnelCreate(AgentId string, Type int, Info string, Lhos
 		tunnelData.Fhost = Thost
 		tunnelData.Fport = tport
 
+	case TUNNEL_WS_SOCKS5:
+		tunnelData.Type = "WebSocket SOCKS5"
+		tunnelData.TunnelId = fmt.Sprintf("%08x", krypt.CRC32([]byte(Client+agent.Data.Id+"ws-socks5"+lport)))
+		tunnelData.Interface = Lhost
+		tunnelData.Port = lport
+
 	case TUNNEL_RPORTFWD:
 		tunnelData.Type = "Reverse port forward"
 		tunnelData.TunnelId = fmt.Sprintf("%08x", krypt.CRC32([]byte(Client+agent.Data.Id+"rportfwd"+lport)))
@@ -439,6 +509,29 @@ func (ts *Teamserver) TsTunnelCreateSocks5(AgentId string, Info string, Lhost st
 	} else {
 		return ts.TsTunnelCreate(AgentId, TUNNEL_SOCKS5, Info, Lhost, Lport, "", "", 0, "", "")
 	}
+}
+
+func (ts *Teamserver) TsTunnelCreateWsSocks5(AgentId string, Info string, Lhost string, Lport int) (string, string, error) {
+	// 创建 WebSocket SOCKS5 隧道并返回隧道ID和WebSocket URL
+	tunnelId, err := ts.TsTunnelCreate(AgentId, TUNNEL_WS_SOCKS5, Info, Lhost, Lport, "", "", 0, "", "")
+	if err != nil {
+		return "", "", err
+	}
+
+	// 启动隧道（生成 WebSocket URL）
+	_, err = ts.TsTunnelStart(tunnelId)
+	if err != nil {
+		return "", "", err
+	}
+
+	// 从隧道对象中获取 WebSocket URL
+	tunnelObj, ok := ts.tunnels.Get(tunnelId)
+	if !ok {
+		return "", "", fmt.Errorf("tunnel not found after creation")
+	}
+	tunnel := tunnelObj.(*Tunnel)
+
+	return tunnelId, tunnel.Data.Info, nil
 }
 
 func (ts *Teamserver) TsTunnelCreateLportfwd(AgentId string, Info string, Lhost string, Lport int, Thost string, Tport int) (string, error) {
@@ -649,6 +742,174 @@ func (ts *Teamserver) TsTunnelConnectionData(channelId int, data []byte) {
 	}
 }
 
+func (ts *Teamserver) TsTunnelGetWsToken(tunnelId string) (string, error) {
+	value, ok := ts.tunnels.Get(tunnelId)
+	if !ok {
+		return "", errors.New("tunnel not found")
+	}
+	tunnel, _ := value.(*Tunnel)
+	if tunnel.Type != TUNNEL_WS_SOCKS5 {
+		return "", errors.New("tunnel is not WebSocket SOCKS5 type")
+	}
+	return tunnel.wsToken, nil
+}
+
+func (ts *Teamserver) TsTunnelWsAgentAck(agentId string, channelID uint32) {
+	logs.Info("", "[WS-Agent] Received ACK from agent %s for channel %d", agentId, channelID)
+	_, tunChannel := ts.findWsChannel(agentId, channelID)
+	if tunChannel == nil {
+		logs.Debug("", "[WS-Agent] Ack for unknown channel agent=%s channel=%d", agentId, channelID)
+		return
+	}
+
+	tunChannel.wsSignalReady()
+	logs.Info("", "[WS-Agent] Channel %d marked as ready", channelID)
+}
+
+func (ts *Teamserver) TsTunnelWsAgentData(agentId string, channelID uint32, data []byte) {
+	tunnel, tunChannel := ts.findWsChannel(agentId, channelID)
+	if tunChannel == nil {
+		logs.Debug("", "[WS-Agent] Data for unknown channel agent=%s channel=%d", agentId, channelID)
+		return
+	}
+
+	select {
+	case <-tunChannel.wsClosed:
+		return
+	default:
+	}
+
+	if tunChannel.conn == nil {
+		logs.Error("", "[WS-Agent] Connection is nil for channel %d", channelID)
+		return
+	}
+
+	logs.Debug("", "[WS-Agent] Received %d bytes from agent (channel %d), forwarding to client", len(data), channelID)
+	if _, err := tunChannel.conn.Write(data); err != nil {
+		logs.Error("", "[WS-Agent] Write to client failed agent=%s channel=%d err=%v", agentId, channelID, err)
+		ts.closeWsTunnelChannel(tunnel, tunChannel, true)
+	}
+}
+
+func (ts *Teamserver) TsTunnelWsAgentClose(agentId string, channelID uint32) {
+	tunnel, tunChannel := ts.findWsChannel(agentId, channelID)
+	if tunChannel == nil {
+		return
+	}
+
+	ts.closeWsTunnelChannel(tunnel, tunChannel, false)
+}
+
+func (ts *Teamserver) TsTunnelWsAgentSessionOpened(agentId string) {
+	logs.Info("", "[WS-Agent] WebSocket session opened for agent %s, starting SOCKS5 listener if needed", agentId)
+
+	// 查找该 Agent 的 WebSocket SOCKS5 隧道
+	ts.tunnels.ForEach(func(key string, value interface{}) bool {
+		tunnel, ok := value.(*Tunnel)
+		if !ok {
+			return true
+		}
+		if tunnel.Type != TUNNEL_WS_SOCKS5 || tunnel.Data.AgentId != agentId {
+			return true
+		}
+		// 如果监听器还没有启动，启动它
+		if tunnel.listener == nil && !tunnel.Active {
+			address := tunnel.Data.Interface + ":" + tunnel.Data.Port
+			listener, err := net.Listen("tcp", address)
+			if err != nil {
+				logs.Error("", "[WS-Agent] Failed to start SOCKS5 listener for agent %s: %v", agentId, err)
+				return true
+			}
+			tunnel.listener = listener
+
+			value, ok := ts.agents.Get(agentId)
+			if !ok {
+				logs.Error("", "[WS-Agent] Agent %s not found", agentId)
+				_ = listener.Close()
+				tunnel.listener = nil
+				return true
+			}
+			agent, _ := value.(*Agent)
+
+			go func() {
+				for {
+					var conn net.Conn
+					conn, err = tunnel.listener.Accept()
+					if err != nil {
+						return
+					}
+					go handleTunChannelCreate(ts, agent, tunnel, conn)
+				}
+			}()
+
+			tunnel.Active = true
+			logs.Info("", "[WS-Agent] SOCKS5 listener started for agent %s on %s", agentId, address)
+
+			// 更新任务状态
+			taskData := adaptix.TaskData{
+				TaskId:      tunnel.TaskId,
+				Completed:   true,
+				FinishDate:  time.Now().Unix(),
+				Message:     fmt.Sprintf("WebSocket SOCKS5 tunnel established on %s", address),
+				MessageType: CONSOLE_OUT_SUCCESS,
+			}
+			ts.TsTaskUpdate(agentId, taskData)
+		}
+		return true
+	})
+}
+
+func (ts *Teamserver) TsTunnelWsAgentSessionClosed(agentId string) {
+	var channelsToClose []struct {
+		tunnel     *Tunnel
+		tunChannel *TunnelChannel
+	}
+
+	ts.tunnels.ForEach(func(key string, value interface{}) bool {
+		tunnel, ok := value.(*Tunnel)
+		if !ok {
+			return true
+		}
+		if tunnel.Type != TUNNEL_WS_SOCKS5 || tunnel.Data.AgentId != agentId {
+			return true
+		}
+
+		// 停止 SOCKS5 监听器
+		if tunnel.listener != nil {
+			logs.Info("", "[WS-Agent] Stopping SOCKS5 listener for agent %s", agentId)
+			_ = tunnel.listener.Close()
+			tunnel.listener = nil
+			tunnel.Active = false
+
+			// 更新任务状态
+			taskData := adaptix.TaskData{
+				TaskId:      tunnel.TaskId,
+				Completed:   false,
+				Message:     "WebSocket connection closed, SOCKS5 tunnel stopped",
+				MessageType: CONSOLE_OUT_ERROR,
+			}
+			ts.TsTaskUpdate(agentId, taskData)
+		}
+
+		tunnel.connections.ForEach(func(cKey string, cValue interface{}) bool {
+			ch, ok := cValue.(*TunnelChannel)
+			if !ok {
+				return true
+			}
+			channelsToClose = append(channelsToClose, struct {
+				tunnel     *Tunnel
+				tunChannel *TunnelChannel
+			}{tunnel: tunnel, tunChannel: ch})
+			return true
+		})
+		return true
+	})
+
+	for _, item := range channelsToClose {
+		ts.closeWsTunnelChannel(item.tunnel, item.tunChannel, false)
+	}
+}
+
 func (ts *Teamserver) TsTunnelConnectionResume(AgentId string, channelId int, ioDirect bool) {
 	var (
 		valueConn  interface{}
@@ -751,7 +1012,7 @@ func (ts *Teamserver) TsTunnelConnectionAccept(tunnelId int, channelId int) {
 
 /// handlers
 
-func handleTunChannelCreate(agent *Agent, tunnel *Tunnel, conn net.Conn) {
+func handleTunChannelCreate(ts *Teamserver, agent *Agent, tunnel *Tunnel, conn net.Conn) {
 
 	tunChannel := &TunnelChannel{
 		channelId: int(rand.Uint32()),
@@ -803,6 +1064,15 @@ func handleTunChannelCreate(agent *Agent, tunnel *Tunnel, conn net.Conn) {
 		tport, _ := strconv.Atoi(tunnel.Data.Fport)
 		taskData = tunnel.handlerConnectTCP(tunChannel.channelId, tunnel.Data.Fhost, tport)
 
+	case TUNNEL_WS_SOCKS5:
+		// 先初始化 wsChannelID，确保在存储前已经设置
+		for tunChannel.wsChannelID == 0 {
+			tunChannel.wsChannelID = rand.Uint32()
+		}
+		tunnel.connections.Put(strconv.Itoa(tunChannel.channelId), tunChannel)
+		ts.handleWsSocks5Connection(agent, tunnel, tunChannel)
+		return
+
 	default:
 		return
 	}
@@ -810,6 +1080,223 @@ func handleTunChannelCreate(agent *Agent, tunnel *Tunnel, conn net.Conn) {
 	tunnelManageTask(agent, taskData)
 
 	tunnel.connections.Put(strconv.Itoa(tunChannel.channelId), tunChannel)
+}
+
+func (ts *Teamserver) handleWsSocks5Connection(agent *Agent, tunnel *Tunnel, tunChannel *TunnelChannel) {
+	if agent == nil || tunChannel == nil || tunnel == nil {
+		logs.Error("", "[WS-Agent] handleWsSocks5Connection: nil parameters")
+		return
+	}
+
+	logs.Info("", "[WS-Agent] Starting SOCKS5 connection handling for agent %s", agent.Data.Id)
+
+	// 解析 SOCKS5 握手但不发送响应（等待 Agent 确认）
+	targetAddress, targetPort, socksCommand, err := proxy.CheckSocks5WithoutResponse(tunChannel.conn)
+	if err != nil {
+		logs.Error("", "[WS-Agent] SOCKS5 handshake parsing failed: %v", err)
+		_ = proxy.SendSocks5Response(tunChannel.conn, false)
+		ts.closeWsTunnelChannel(tunnel, tunChannel, false)
+		return
+	}
+
+	logs.Info("", "[WS-Agent] SOCKS5 request parsed: target=%s:%d command=%d", targetAddress, targetPort, socksCommand)
+
+	if !ts.AdaptixServer.WsTunnelHasSession(agent.Data.Id) {
+		logs.Error("", "[WS-Agent] Agent %s has no active WebSocket session. Please execute 'wstunnel start <url>' command on the agent first!", agent.Data.Id)
+		_ = proxy.SendSocks5Response(tunChannel.conn, false)
+		ts.closeWsTunnelChannel(tunnel, tunChannel, false)
+		return
+	}
+
+	if socksCommand == 3 {
+		logs.Error("", "[WS-Agent] UDP associate not supported for WebSocket tunnel")
+		_ = proxy.SendSocks5Response(tunChannel.conn, false)
+		ts.closeWsTunnelChannel(tunnel, tunChannel, true)
+		return
+	}
+
+	// wsChannelID 已经在 handleTunChannelCreate 中生成
+	if tunChannel.wsChannelID == 0 {
+		logs.Error("", "[WS-Agent] wsChannelID is 0, this should not happen!")
+		_ = proxy.SendSocks5Response(tunChannel.conn, false)
+		ts.closeWsTunnelChannel(tunnel, tunChannel, false)
+		return
+	}
+
+	if tunChannel.wsReady == nil {
+		tunChannel.wsReady = make(chan struct{})
+	}
+	if tunChannel.wsClosed == nil {
+		tunChannel.wsClosed = make(chan struct{})
+	}
+
+	target := fmt.Sprintf("%s:%d", targetAddress, targetPort)
+	logs.Info("", "[WS-Agent] Sending target %s to agent %s (channel %d)", target, agent.Data.Id, tunChannel.wsChannelID)
+	logs.Debug("", "[WS-Agent] Channel state: channelId=%d, wsChannelID=%d, wsReady=%v, wsClosed=%v",
+		tunChannel.channelId, tunChannel.wsChannelID, tunChannel.wsReady != nil, tunChannel.wsClosed != nil)
+
+	if err := ts.AdaptixServer.WsTunnelSendTarget(agent.Data.Id, tunChannel.wsChannelID, target); err != nil {
+		logs.Error("", "[WS-Agent] Failed to send target to agent %s: %v", agent.Data.Id, err)
+		_ = proxy.SendSocks5Response(tunChannel.conn, false)
+		ts.closeWsTunnelChannel(tunnel, tunChannel, true)
+		return
+	}
+
+	// 等待 Agent 连接确认（最多 10 秒）
+	logs.Info("", "[WS-Agent] Waiting for Agent ACK (channel %d, timeout 10s)...", tunChannel.wsChannelID)
+	select {
+	case <-tunChannel.wsReady:
+		logs.Info("", "[WS-Agent] Agent ACK received, sending SOCKS5 success response")
+		if err := proxy.SendSocks5Response(tunChannel.conn, true); err != nil {
+			logs.Error("", "[WS-Agent] Failed to send SOCKS5 success response: %v", err)
+			ts.closeWsTunnelChannel(tunnel, tunChannel, true)
+			return
+		}
+		logs.Info("", "[WS-Agent] Channel %d → %s established successfully", tunChannel.wsChannelID, target)
+		go ts.wsTunnelClientToAgent(agent, tunnel, tunChannel)
+	case <-time.After(10 * time.Second):
+		logs.Error("", "[WS-Agent] Timeout waiting for Agent ACK (channel %d)", tunChannel.wsChannelID)
+		_ = proxy.SendSocks5Response(tunChannel.conn, false)
+		ts.closeWsTunnelChannel(tunnel, tunChannel, true)
+		return
+	case <-tunChannel.wsClosed:
+		logs.Error("", "[WS-Agent] Channel closed before ACK (channel %d)", tunChannel.wsChannelID)
+		_ = proxy.SendSocks5Response(tunChannel.conn, false)
+		return
+	}
+}
+
+func (tunChannel *TunnelChannel) wsEnsureControl() {
+	if tunChannel.wsReady == nil {
+		tunChannel.wsReady = make(chan struct{})
+	}
+	if tunChannel.wsClosed == nil {
+		tunChannel.wsClosed = make(chan struct{})
+	}
+}
+
+func (tunChannel *TunnelChannel) wsSignalReady() {
+	tunChannel.wsEnsureControl()
+	tunChannel.wsReadyOnce.Do(func() {
+		close(tunChannel.wsReady)
+	})
+}
+
+func (tunChannel *TunnelChannel) wsSignalClosed() {
+	tunChannel.wsEnsureControl()
+	tunChannel.wsClosedOnce.Do(func() {
+		close(tunChannel.wsClosed)
+	})
+}
+
+func (ts *Teamserver) closeWsTunnelChannel(tunnel *Tunnel, tunChannel *TunnelChannel, notifyAgent bool) {
+	if tunChannel == nil {
+		return
+	}
+
+	if tunnel != nil && notifyAgent && tunChannel.wsChannelID != 0 {
+		_ = ts.AdaptixServer.WsTunnelCloseChannel(tunnel.Data.AgentId, tunChannel.wsChannelID)
+	}
+
+	tunChannel.wsSignalReady()
+	tunChannel.wsSignalClosed()
+
+	if tunChannel.conn != nil {
+		_ = tunChannel.conn.Close()
+	}
+	tunChannel.conn = nil
+	if tunChannel.pwSrv != nil {
+		_ = tunChannel.pwSrv.Close()
+	}
+	if tunChannel.prSrv != nil {
+		_ = tunChannel.prSrv.Close()
+	}
+	if tunChannel.pwTun != nil {
+		_ = tunChannel.pwTun.Close()
+	}
+	if tunChannel.prTun != nil {
+		_ = tunChannel.prTun.Close()
+	}
+
+	if tunnel != nil {
+		tunnel.connections.Delete(strconv.Itoa(tunChannel.channelId))
+	}
+}
+
+func (ts *Teamserver) findWsChannel(agentId string, channelID uint32) (*Tunnel, *TunnelChannel) {
+	var (
+		resultTunnel  *Tunnel
+		resultChannel *TunnelChannel
+	)
+
+	logs.Debug("", "[WS-Agent] Searching for channel agent=%s channelID=%d", agentId, channelID)
+
+	ts.tunnels.ForEach(func(key string, value interface{}) bool {
+		tunnel, ok := value.(*Tunnel)
+		if !ok {
+			return true
+		}
+		if tunnel.Type != TUNNEL_WS_SOCKS5 || tunnel.Data.AgentId != agentId {
+			return true
+		}
+		tunnel.connections.ForEach(func(cKey string, cValue interface{}) bool {
+			ch, ok := cValue.(*TunnelChannel)
+			if !ok {
+				return true
+			}
+			logs.Debug("", "[WS-Agent] Checking channel: channelId=%d, wsChannelID=%d, target=%d", ch.channelId, ch.wsChannelID, channelID)
+			if ch.wsChannelID == channelID {
+				resultTunnel = tunnel
+				resultChannel = ch
+				logs.Debug("", "[WS-Agent] Found matching channel: channelId=%d, wsChannelID=%d", ch.channelId, ch.wsChannelID)
+				return false
+			}
+			return true
+		})
+		return resultChannel == nil
+	})
+
+	if resultChannel == nil {
+		logs.Debug("", "[WS-Agent] Channel not found: agent=%s channelID=%d", agentId, channelID)
+	}
+
+	return resultTunnel, resultChannel
+}
+
+func (ts *Teamserver) wsTunnelClientToAgent(agent *Agent, tunnel *Tunnel, tunChannel *TunnelChannel) {
+	if tunChannel == nil || agent == nil || tunnel == nil {
+		logs.Error("", "[WS-Agent] wsTunnelClientToAgent: nil parameters")
+		return
+	}
+
+	logs.Info("", "[WS-Agent] Starting data relay: Client -> Agent (channel %d)", tunChannel.wsChannelID)
+
+	buf := make([]byte, 0x8000)
+	for {
+		select {
+		case <-tunChannel.wsClosed:
+			logs.Info("", "[WS-Agent] Channel %d closed, stopping relay", tunChannel.wsChannelID)
+			return
+		default:
+		}
+
+		n, err := tunChannel.conn.Read(buf)
+		if n > 0 {
+			logs.Debug("", "[WS-Agent] Read %d bytes from client (channel %d), forwarding to agent", n, tunChannel.wsChannelID)
+			if err := ts.AdaptixServer.WsTunnelSendData(agent.Data.Id, tunChannel.wsChannelID, buf[:n]); err != nil {
+				logs.Error("", "[WS-Agent] Send data failed agent=%s channel=%d err=%v", agent.Data.Id, tunChannel.wsChannelID, err)
+				ts.closeWsTunnelChannel(tunnel, tunChannel, true)
+				return
+			}
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				logs.Debug("", "[WS-Agent] Client connection closed (agent=%s channel=%d): %v", agent.Data.Id, tunChannel.wsChannelID, err)
+			}
+			ts.closeWsTunnelChannel(tunnel, tunChannel, true)
+			return
+		}
+	}
 }
 
 func handleTunChannelCreateClient(agent *Agent, tunnel *Tunnel, wsconn *websocket.Conn, channelId int, targetAddress string, targetPort int, protocol string) {

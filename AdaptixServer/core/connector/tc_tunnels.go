@@ -17,6 +17,77 @@ func (tc *TsConnector) TcTunnelList(ctx *gin.Context) {
 	ctx.Data(http.StatusOK, "application/json; charset=utf-8", []byte(jsonTunnels))
 }
 
+type TunnelStartWsSocks5Action struct {
+	AgentId     string `json:"agent_id"`
+	Description string `json:"desc"`
+	Lhost       string `json:"l_host"`
+	Lport       int    `json:"l_port"`
+}
+
+func (tc *TsConnector) TcTunnelStartWsSocks5(ctx *gin.Context) {
+	var (
+		ta         TunnelStartWsSocks5Action
+		value      any
+		exists     bool
+		ok         bool
+		clientName string
+		tunnelId   string
+		token      string
+		err        error
+	)
+
+	if err = ctx.ShouldBindJSON(&ta); err != nil {
+		err = errors.New("invalid JSON data")
+		goto ERR
+	}
+
+	value, exists = ctx.Get("username")
+	if !exists {
+		err = errors.New("Server error: username not found in context")
+		goto ERR
+	}
+	clientName, ok = value.(string)
+	if !ok {
+		err = errors.New("Server error: invalid username type in context")
+		goto ERR
+	}
+
+	if ta.AgentId == "" {
+		err = errors.New("agent_id is required")
+		goto ERR
+	}
+	if ta.Lhost == "" {
+		err = errors.New("l_host is required")
+		goto ERR
+	}
+	if ta.Lport < 1 || ta.Lport > 65535 {
+		err = errors.New("l_port must be from 1 to 65535")
+		goto ERR
+	}
+
+	// type value 6 corresponds to TUNNEL_WS_SOCKS5 on server side
+	tunnelId, err = tc.teamserver.TsTunnelClientStart(ta.AgentId, true, 6, ta.Description, ta.Lhost, ta.Lport, clientName, "", 0, "", "")
+	if err != nil {
+		goto ERR
+	}
+
+	token, err = tc.teamserver.TsTunnelGetWsToken(tunnelId)
+	if err != nil {
+		goto ERR
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"ok":        true,
+		"message":   tunnelId,
+		"tunnel_id": tunnelId,
+		"token":     token,
+	})
+	return
+
+ERR:
+	ctx.JSON(http.StatusOK, gin.H{"message": err.Error(), "ok": false})
+}
+
 type TunnelStartSocks5Action struct {
 	AgentId     string `json:"agent_id"`
 	Listen      bool   `json:"listen"`

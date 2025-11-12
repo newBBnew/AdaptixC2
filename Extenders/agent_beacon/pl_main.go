@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 const (
@@ -67,6 +67,7 @@ type Teamserver interface {
 	TsTunnelStart(TunnelId string) (string, error)
 	TsTunnelCreateSocks4(AgentId string, Info string, Lhost string, Lport int) (string, error)
 	TsTunnelCreateSocks5(AgentId string, Info string, Lhost string, Lport int, UseAuth bool, Username string, Password string) (string, error)
+	TsTunnelCreateWsSocks5(AgentId string, Info string, Lhost string, Lport int) (string, string, error)
 	TsTunnelCreateLportfwd(AgentId string, Info string, Lhost string, Lport int, Thost string, Tport int) (string, error)
 	TsTunnelCreateRportfwd(AgentId string, Info string, Lport int, Thost string, Tport int) (string, error)
 	TsTunnelUpdateRportfwd(tunnelId int, result bool) (string, string, error)
@@ -79,6 +80,8 @@ type Teamserver interface {
 	TsTunnelConnectionResume(AgentId string, channelId int, ioDirect bool)
 	TsTunnelConnectionData(channelId int, data []byte)
 	TsTunnelConnectionAccept(tunnelId int, channelId int)
+
+	TsGetBofFile(bofPath string) ([]byte, error)
 }
 
 type ModuleExtender struct {

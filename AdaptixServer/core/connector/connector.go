@@ -118,6 +118,12 @@ type Teamserver interface {
 	TsTunnelConnectionClose(channelId int)
 	TsTunnelConnectionResume(AgentId string, channelId int, ioDirect bool)
 	TsTunnelConnectionData(channelId int, data []byte)
+	TsTunnelWsAgentAck(agentId string, channelID uint32)
+	TsTunnelWsAgentData(agentId string, channelID uint32, data []byte)
+	TsTunnelWsAgentClose(agentId string, channelID uint32)
+	TsTunnelWsAgentSessionOpened(agentId string)
+	TsTunnelWsAgentSessionClosed(agentId string)
+	TsTunnelGetWsToken(tunnelId string) (string, error)
 }
 
 type TsConnector struct {
@@ -133,6 +139,7 @@ type TsConnector struct {
 	Engine       *gin.Engine
 	teamserver   Teamserver
 	connectLocks safe.Map // 每个用户的连接锁，防止并发连接冲突
+	wsAgentMgr   *wsAgentManager
 }
 
 func default404Middleware(tsResponse profile.TsResponse) gin.HandlerFunc {
@@ -184,6 +191,23 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 	connector.Key = tsProfile.Key
 	connector.Cert = tsProfile.Cert
 	connector.connectLocks = safe.NewMap() // 初始化连接锁map
+	connector.wsAgentMgr = newWsAgentManager(wsAgentCallbacks{
+		onAck: func(agentId string, channelID uint32) {
+			connector.teamserver.TsTunnelWsAgentAck(agentId, channelID)
+		},
+		onData: func(agentId string, channelID uint32, data []byte) {
+			connector.teamserver.TsTunnelWsAgentData(agentId, channelID, data)
+		},
+		onClose: func(agentId string, channelID uint32) {
+			connector.teamserver.TsTunnelWsAgentClose(agentId, channelID)
+		},
+		onSessionOpened: func(agentId string) {
+			connector.teamserver.TsTunnelWsAgentSessionOpened(agentId)
+		},
+		onSessionClosed: func(agentId string) {
+			connector.teamserver.TsTunnelWsAgentSessionClosed(agentId)
+		},
+	})
 
 	connector.Engine.POST(tsProfile.Endpoint+"/login", default404Middleware(tsResponse), connector.tcLogin)
 	connector.Engine.POST(tsProfile.Endpoint+"/refresh", default404Middleware(tsResponse), token.RefreshTokenHandler)
@@ -195,6 +219,7 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 
 	connector.Engine.GET(tsProfile.Endpoint+"/connect", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.tcConnect)
 	connector.Engine.GET(tsProfile.Endpoint+"/channel", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.tcChannel)
+	connector.Engine.GET(tsProfile.Endpoint+"/ws/agent-tunnel", connector.tcWsAgentTunnel)
 
 	connector.Engine.GET(tsProfile.Endpoint+"/listener/list", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcListenerList)
 	connector.Engine.POST(tsProfile.Endpoint+"/listener/create", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcListenerStart)
@@ -243,6 +268,7 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 	connector.Engine.GET(tsProfile.Endpoint+"/tunnel/list", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcTunnelList)
 	connector.Engine.POST(tsProfile.Endpoint+"/tunnel/start/socks5", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcTunnelStartSocks5)
 	connector.Engine.POST(tsProfile.Endpoint+"/tunnel/start/socks4", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcTunnelStartSocks4)
+	connector.Engine.POST(tsProfile.Endpoint+"/tunnel/start/ws_socks5", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcTunnelStartWsSocks5)
 	connector.Engine.POST(tsProfile.Endpoint+"/tunnel/start/lportfwd", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcTunnelStartLpf)
 	connector.Engine.POST(tsProfile.Endpoint+"/tunnel/start/rportfwd", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcTunnelStartRpf)
 	connector.Engine.POST(tsProfile.Endpoint+"/tunnel/stop", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcTunnelStop)

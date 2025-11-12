@@ -757,9 +757,9 @@ void AdaptixWidget::LoadTerminalUI(const QString &AgentId)
         this->AddDockBottom( AgentsMap[AgentId]->Terminal->dock() );
 }
 
-void AdaptixWidget::ShowTunnelCreator(const QString &AgentId, const bool socks4, const bool socks5, const bool lportfwd, const bool rportfwd)
+void AdaptixWidget::ShowTunnelCreator(const QString &AgentId, const bool socks4, const bool socks5, const bool lportfwd, const bool rportfwd, const bool wsSocks5)
 {
-    DialogTunnel* dialogTunnel = new DialogTunnel(AgentId, socks4, socks5, lportfwd, rportfwd);
+    DialogTunnel* dialogTunnel = new DialogTunnel(AgentId, socks4, socks5, lportfwd, rportfwd, wsSocks5);
 
     while (true) {
         dialogTunnel->StartDialog();

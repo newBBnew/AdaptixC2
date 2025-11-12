@@ -156,7 +156,7 @@ public:
     void LoadFileBrowserUI(const QString &AgentId);
     void LoadProcessBrowserUI(const QString &AgentId);
     void LoadTerminalUI(const QString &AgentId);
-    void ShowTunnelCreator(const QString &AgentId, bool socks4, bool socks5, bool lportfwd, bool rportfwd);
+    void ShowTunnelCreator(const QString &AgentId, bool socks4, bool socks5, bool lportfwd, bool rportfwd, bool wsSocks5 = true);
 
 Q_SIGNALS:
     void SyncedSignal();

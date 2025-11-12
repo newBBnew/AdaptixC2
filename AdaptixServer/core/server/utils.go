@@ -39,6 +39,7 @@ const (
 	TUNNEL_SOCKS5_AUTH = 3
 	TUNNEL_LPORTFWD    = 4
 	TUNNEL_RPORTFWD    = 5
+	TUNNEL_WS_SOCKS5   = 6
 )
 
 // TeamServer
@@ -124,6 +125,12 @@ type TunnelChannel struct {
 
 	pwTun *io.PipeWriter
 	prTun *io.PipeReader
+
+	wsChannelID  uint32
+	wsReady      chan struct{}
+	wsReadyOnce  sync.Once
+	wsClosed     chan struct{}
+	wsClosedOnce sync.Once
 }
 
 type Tunnel struct {
@@ -134,6 +141,7 @@ type Tunnel struct {
 
 	listener    net.Listener
 	connections safe.Map
+	wsToken     string
 
 	handlerConnectTCP func(channelId int, addr string, port int) adaptix.TaskData
 	handlerConnectUDP func(channelId int, addr string, port int) adaptix.TaskData
