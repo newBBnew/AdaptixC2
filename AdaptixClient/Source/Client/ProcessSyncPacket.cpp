@@ -1030,6 +1030,9 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
         this->RegisterListenerConfig(name, protocol, type, ax);
         return;
     }
+
+    // DEBUG: Hardcode BeaconDNS registration for testing
+    this->RegisterListenerConfig("BeaconDNS", "dns", "external", "DNS listener configuration");
     if( spType == TYPE_AGENT_REG )
     {
         QString agentName         = jsonObj["agent"].toString();

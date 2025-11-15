@@ -41,6 +41,7 @@ var (
 	ObjectDir_http = "objects_http"
 	ObjectDir_smb  = "objects_smb"
 	ObjectDir_tcp  = "objects_tcp"
+	ObjectDir_dns  = "objects_dns"
 	ObjectFiles    = [...]string{"Agent", "AgentConfig", "AgentInfo", "ApiLoader", "beacon_functions", "Boffer", "Commander", "Crypt", "Downloader", "Encoders", "JobsController", "MainAgent", "MemorySaver", "Packer", "Pivotter", "ProcLoader", "Proxyfire", "std", "utils", "WaitMask"}
 	CFlags         = "-c -fno-builtin -fno-unwind-tables -fno-strict-aliasing -fno-ident -fno-stack-protector -fno-exceptions -fno-asynchronous-unwind-tables -fno-strict-overflow -fno-delete-null-pointer-checks -fpermissive -w -masm=intel -fPIC"
 	LFlags         = "-Os -s -Wl,-s,--gc-sections -static-libgcc -mwindows"
@@ -174,6 +175,22 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, int(lWatermark))
 		params = append(params, kill_date)
 
+	case "dns":
+		domain, _ := listenerMap["domain"].(string)
+		qtype, _ := listenerMap["qtype"].(string)
+		pkt_size, _ := listenerMap["pkt_size"].(float64)
+		ttl, _ := listenerMap["ttl"].(float64)
+
+		lWatermark, _ := strconv.ParseInt(listenerWM, 16, 64)
+
+		params = append(params, int(agentWatermark))
+		params = append(params, domain)
+		params = append(params, qtype)
+		params = append(params, int(pkt_size))
+		params = append(params, int(ttl))
+		params = append(params, int(lWatermark))
+		params = append(params, kill_date)
+
 	default:
 		return nil, errors.New("protocol unknown")
 	}
@@ -213,6 +230,7 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 		Filename       string
 		buildPath      string
 		cmdConfig      string
+		extraLibs      string
 		stdout         bytes.Buffer
 		stderr         bytes.Buffer
 	)
@@ -241,6 +259,12 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	} else if protocol == "bind_tcp" {
 		ObjectDir = ObjectDir_tcp
 		ConnectorFile = "ConnectorTCP"
+	} else if protocol == "dns" {
+		ObjectDir = ObjectDir_dns
+		ConnectorFile = "ConnectorDNS"
+		// ConnectorDNS uses Winsock APIs like htons/ntohs, so we must
+		// link against ws2_32 to resolve __imp_htons and related symbols.
+		extraLibs = "-lws2_32"
 	} else {
 		return nil, "", errors.New("protocol unknown")
 	}
@@ -318,7 +342,7 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 		return nil, "", errors.New("unknown file format")
 	}
 
-	cmdBuild := fmt.Sprintf("%s %s %s -o %s", Compiler, lFlags, Files, buildPath)
+	cmdBuild := fmt.Sprintf("%s %s %s %s -o %s", Compiler, lFlags, Files, extraLibs, buildPath)
 	runnerCmdBuild := exec.Command("sh", "-c", cmdBuild)
 	runnerCmdBuild.Dir = currentDir
 	runnerCmdBuild.Stdout = &stdout
@@ -326,7 +350,7 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	err = runnerCmdBuild.Run()
 	if err != nil {
 		_ = os.RemoveAll(tempDir)
-		return nil, "", err
+		return nil, "", errors.New(string(stderr.Bytes()))
 	}
 
 	buildContent, err := os.ReadFile(buildPath)

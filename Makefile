@@ -53,6 +53,7 @@ extenders: prepare
 	@ for dir in $(EXTENDER_DIRS); do \
 		(cd $$dir && $(MAKE) --no-print-directory); \
 		plugin_name=$$(basename $$dir); \
+		rm -rf $(DIST_DIR)/extenders/$$plugin_name; \
 		mv $$dir/dist $(DIST_DIR)/extenders/$$plugin_name; \
 	done
 	@ echo "[+] done"

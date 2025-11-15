@@ -100,11 +100,13 @@ func (ex *AdaptixExtender) LoadPluginListener(config_path string, config_data []
 		AX:       string(ax_content),
 	}
 
+	logs.Info("", "DEBUG: Loading listener plugin: %s (%s)", listenerInfo.Name, listenerInfo.Protocol)
 	err = ex.ts.TsListenerReg(listenerInfo)
 	if err != nil {
 		logs.Error("", "plugin %s does not registered: %s", plugin_path, err.Error())
 		return
 	}
+	logs.Info("", "DEBUG: Successfully registered listener: %s", listenerInfo.Name)
 
 	ex.listenerModules[listenerInfo.Name] = module
 }
@@ -123,6 +125,8 @@ func (ex *AdaptixExtender) LoadPluginAgent(config_path string, config_data []byt
 		logs.Error("", "failed to read ax file %s: %s", ax_path, err.Error())
 		return
 	}
+
+	logs.Info("", "DEBUG: Loading agent plugin: %s, ax_file: %s, ax_size: %d", configAgent.AgentName, ax_path, len(ax_content))
 
 	agentInfo := AgentInfo{
 		Name:      configAgent.AgentName,

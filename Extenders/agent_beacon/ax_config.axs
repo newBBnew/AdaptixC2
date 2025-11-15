@@ -267,7 +267,7 @@ function RegisterCommands(listenerType)
         ax.execute_alias(id, cmdline, "sleep 0");
     });
 
-    if(listenerType == "BeaconHTTP") {
+    if(listenerType == "BeaconHTTP" || listenerType == "BeaconDNS") {
         let commands_external = ax.create_commands_group("beacon", [cmd_cat, cmd_cd, cmd_cp, cmd_disks, cmd_download, cmd_execute, cmd_exfil, cmd_getuid,
             cmd_job, cmd_link, cmd_ls, cmd_lportfwd, cmd_mv, cmd_mkdir, cmd_profile, cmd_ps, cmd_pwd, cmd_rev2self, cmd_rm, cmd_rportfwd, cmd_sleep,
             cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact, cmd_wstunnel] );
@@ -285,9 +285,8 @@ function RegisterCommands(listenerType)
     return ax.create_commands_group("none",[]);
 }
 
-function GenerateUI(listenerType)
-{
-    let labelArch = form.create_label("Arch:");
+function GenerateUI(listenerType) {
+	let labelArch = form.create_label("Arch:");
     let comboArch = form.create_combo()
     comboArch.addItems(["x64", "x86"]);
 
@@ -306,6 +305,37 @@ function GenerateUI(listenerType)
         labelSleep.setVisible(false);
         textSleep.setVisible(false);
         spinJitter.setVisible(false);
+    }
+
+    // DNS configuration fields
+    let labelDomain = form.create_label("Domain:");
+    let textDomain = form.create_textline("example.com");
+    let labelQType = form.create_label("QType:");
+    let comboQType = form.create_combo();
+    comboQType.addItems(["TXT", "A", "AAAA"]);
+    comboQType.setCurrentIndex(0);
+    let labelPktSize = form.create_label("Pkt Size:");
+    let spinPktSize = form.create_spin();
+    spinPktSize.setRange(255, 512);
+    spinPktSize.setValue(255);
+    let labelTTL = form.create_label("TTL:");
+    let spinTTL = form.create_spin();
+    spinTTL.setRange(1, 3600);
+    spinTTL.setValue(60);
+    let labelEncryptKey = form.create_label("Encrypt Key:");
+    let textEncryptKey = form.create_textline("mydnskey123");
+
+    if(listenerType != "BeaconDNS") {
+        labelDomain.setVisible(false);
+        textDomain.setVisible(false);
+        labelQType.setVisible(false);
+        comboQType.setVisible(false);
+        labelPktSize.setVisible(false);
+        spinPktSize.setVisible(false);
+        labelTTL.setVisible(false);
+        spinTTL.setVisible(false);
+        labelEncryptKey.setVisible(false);
+        textEncryptKey.setVisible(false);
     }
 
     let checkKilldate = form.create_check("Set 'killdate'");
@@ -334,16 +364,26 @@ function GenerateUI(listenerType)
     layout.addWidget(labelSleep, 2, 0, 1, 1);
     layout.addWidget(textSleep, 2, 1, 1, 1);
     layout.addWidget(spinJitter, 2, 2, 1, 1);
-    layout.addWidget(checkKilldate, 3, 0, 1, 1);
-    layout.addWidget(dateKill, 3, 1, 1, 1);
-    layout.addWidget(timeKill, 3, 2, 1, 1);
-    layout.addWidget(checkWorkingTime, 4, 0, 1, 1);
-    layout.addWidget(timeStart, 4, 1, 1, 1);
-    layout.addWidget(timeFinish, 4, 2, 1, 1);
-    layout.addWidget(labelSvcName, 5, 0, 1, 1);
-    layout.addWidget(textSvcName, 5, 1, 1, 2);
-    layout.addWidget(checkSideloading, 6, 0, 1, 1);
-    layout.addWidget(sideloadingSelector, 6, 1, 1, 2);
+    layout.addWidget(labelDomain, 3, 0, 1, 1);
+    layout.addWidget(textDomain, 3, 1, 1, 2);
+    layout.addWidget(labelQType, 4, 0, 1, 1);
+    layout.addWidget(comboQType, 4, 1, 1, 2);
+    layout.addWidget(labelPktSize, 5, 0, 1, 1);
+    layout.addWidget(spinPktSize, 5, 1, 1, 2);
+    layout.addWidget(labelTTL, 6, 0, 1, 1);
+    layout.addWidget(spinTTL, 6, 1, 1, 2);
+    layout.addWidget(labelEncryptKey, 7, 0, 1, 1);
+    layout.addWidget(textEncryptKey, 7, 1, 1, 2);
+    layout.addWidget(checkKilldate, 8, 0, 1, 1);
+    layout.addWidget(dateKill, 8, 1, 1, 1);
+    layout.addWidget(timeKill, 8, 2, 1, 1);
+    layout.addWidget(checkWorkingTime, 9, 0, 1, 1);
+    layout.addWidget(timeStart, 9, 1, 1, 1);
+    layout.addWidget(timeFinish, 9, 2, 1, 1);
+    layout.addWidget(labelSvcName, 10, 0, 1, 1);
+    layout.addWidget(textSvcName, 10, 1, 1, 2);
+    layout.addWidget(checkSideloading, 11, 0, 1, 1);
+    layout.addWidget(sideloadingSelector, 11, 1, 1, 2);
 
     form.connect(comboFormat, "currentTextChanged", function(text) {
         if(text == "Service Exe") {
@@ -367,6 +407,11 @@ function GenerateUI(listenerType)
     container.put("format", comboFormat)
     container.put("sleep", textSleep)
     container.put("jitter", spinJitter)
+    container.put("domain", textDomain)
+    container.put("qtype", comboQType)
+    container.put("pkt_size", spinPktSize)
+    container.put("ttl", spinTTL)
+    container.put("encrypt_key", textEncryptKey)
     container.put("is_killdate", checkKilldate)
     container.put("kill_date", dateKill)
     container.put("kill_time", timeKill)
