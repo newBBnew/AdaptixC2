@@ -1,6 +1,6 @@
 module adaptix_agent_gopher
 
-go 1.24.4
+go 1.25
 
 require (
 	github.com/Adaptix-Framework/axc2 v0.9.0

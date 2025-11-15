@@ -1,6 +1,6 @@
 module gopher
 
-go 1.24.4
+go 1.25
 
 require (
 	github.com/creack/pty v1.1.24
