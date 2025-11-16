@@ -176,18 +176,35 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, kill_date)
 
 	case "dns":
+		// DNS transport profile layout is consumed on the C++ side (AgentConfig::AgentConfig)
+		// under BEACON_DNS as:
+		// [agent_type, domain, resolvers, qtype, pkt_size, label_size, ttl, listener_type, kill_date]
+		// NOTE: domain/qtype/pkt_size/ttl/resolvers/label_size all come from the listener
+		// configuration (listenerMap), not from the per-agent UI, to avoid duplicated
+		// configuration.
 		domain, _ := listenerMap["domain"].(string)
 		qtype, _ := listenerMap["qtype"].(string)
-		pkt_size, _ := listenerMap["pkt_size"].(float64)
-		ttl, _ := listenerMap["ttl"].(float64)
+		pkt_size_f, _ := listenerMap["pkt_size"].(float64)
+		ttl_f, _ := listenerMap["ttl"].(float64)
+		label_size_f, _ := listenerMap["label_size"].(float64)
+		resolvers, _ := listenerMap["resolvers"].(string)
+
+		pkt_size := int(pkt_size_f)
+		ttl := int(ttl_f)
+		label_size := int(label_size_f)
+		if label_size <= 0 || label_size > 63 {
+			label_size = 48
+		}
 
 		lWatermark, _ := strconv.ParseInt(listenerWM, 16, 64)
 
 		params = append(params, int(agentWatermark))
 		params = append(params, domain)
+		params = append(params, resolvers)
 		params = append(params, qtype)
-		params = append(params, int(pkt_size))
-		params = append(params, int(ttl))
+		params = append(params, pkt_size)
+		params = append(params, label_size)
+		params = append(params, ttl)
 		params = append(params, int(lWatermark))
 		params = append(params, kill_date)
 

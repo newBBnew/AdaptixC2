@@ -11,6 +11,7 @@ class ConnectorDNS
     CHAR  sid[17] = { 0 };       // 8 bytes agent_id as 16-char hex string
     BYTE  encryptKey[16] = { 0 };
     ULONG pktSize = 0;
+    ULONG labelSize = 0;
     CHAR  domain[256] = { 0 };
     CHAR  qtype[8] = { 0 };
     BOOL  initialized = FALSE;
