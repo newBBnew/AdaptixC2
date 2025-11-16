@@ -120,6 +120,33 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 		}
 
+		// basic anti-abuse validation: sid must be 8-char hex, and payload
+		// size should not grow unbounded beyond configured packet size.
+		if sid != "" {
+			validSid := len(sid) == 8
+			if validSid {
+				for i := 0; i < 8; i++ {
+					c := sid[i]
+					if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+						validSid = false
+						break
+					}
+				}
+			}
+			if !validSid {
+				// invalid sid: do not treat as a beacon frame
+				op = ""
+			}
+		}
+
+		maxPayload := d.Config.PktSize * 4
+		if maxPayload <= 0 {
+			maxPayload = 4096
+		}
+		if len(dataB) > maxPayload {
+			dataB = nil
+		}
+
 		if dnsDebug {
 			remote := ""
 			if addr, ok := w.RemoteAddr().(*net.UDPAddr); ok {

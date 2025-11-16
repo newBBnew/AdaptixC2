@@ -32,6 +32,14 @@ function ListenerUI(mode_create)
 	spinTTL.setRange(1, 3600);
 	spinTTL.setValue(10);
 
+	let labelResolvers = form.create_label("Resolvers (optional, comma-separated):");
+	let textResolvers = form.create_textline("");
+
+	let labelLabelSize = form.create_label("Max label length (Base32 chars):");
+	let spinLabelSize = form.create_spin();
+	spinLabelSize.setRange(8, 63);
+	spinLabelSize.setValue(48);
+
 	let labelEncryptKey = form.create_label("Encryption key (hex, 16 bytes):");
 	let textEncryptKey = form.create_textline(ax.random_string(32, "hex"));
 	textEncryptKey.setEnabled(mode_create);
@@ -52,9 +60,13 @@ function ListenerUI(mode_create)
 	layout.addWidget(spinPktSize,      3, 1, 1, 2);
 	layout.addWidget(labelTTL,         4, 0, 1, 1);
 	layout.addWidget(spinTTL,          4, 1, 1, 2);
-	layout.addWidget(labelEncryptKey,  5, 0, 1, 1);
-	layout.addWidget(textEncryptKey,   5, 1, 1, 1);
-	layout.addWidget(buttonEncryptKey, 5, 2, 1, 1);
+	layout.addWidget(labelResolvers,   5, 0, 1, 1);
+	layout.addWidget(textResolvers,    5, 1, 1, 2);
+	layout.addWidget(labelLabelSize,   6, 0, 1, 1);
+	layout.addWidget(spinLabelSize,    6, 1, 1, 2);
+	layout.addWidget(labelEncryptKey,  7, 0, 1, 1);
+	layout.addWidget(textEncryptKey,   7, 1, 1, 1);
+	layout.addWidget(buttonEncryptKey, 7, 2, 1, 1);
 
 	let container = form.create_container();
 	container.put("host_bind",   comboHostBind);
@@ -64,6 +76,8 @@ function ListenerUI(mode_create)
 	container.put("pkt_size",    spinPktSize);
 	container.put("ttl",         spinTTL);
 	container.put("encrypt_key", textEncryptKey);
+	container.put("resolvers",   textResolvers);
+	container.put("label_size",  spinLabelSize);
 
 	let panel = form.create_panel();
 	panel.setLayout(layout);
