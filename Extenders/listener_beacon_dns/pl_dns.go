@@ -211,7 +211,14 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			// 下行：从 TS 中取数据并映射到 A/AAAA/TXT RR
 			var payload []byte
 			if sid != "" {
-				if p, err := d.ts.TsAgentGetHostedTasks(sid, d.Config.PktSize); err == nil {
+				// maxDataSize 只限制打包后的任务总大小，不是单个 DNS 包大小；
+				// 具体分片仍由 PktSize 控制。因此这里给一个相对宽松的上限，
+				// 避免像 dir c:\ 这种输出被 TsTaskGetAvailableTasks 直接过滤掉。
+				maxDataSize := d.Config.PktSize * 256
+				if maxDataSize <= 0 || maxDataSize > 0x1900000 {
+					maxDataSize = 0x1900000
+				}
+				if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil {
 					payload = p
 					if dnsDebug {
 						fmt.Printf("[BeaconDNS] GET tasks sid=%s pkt=%d\n", sid, len(payload))

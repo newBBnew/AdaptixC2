@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (ts *Teamserver) TsTaskRunningExists(agentId string, taskId string) bool {
@@ -542,6 +542,13 @@ func (ts *Teamserver) TsTaskGetAvailableAll(agentId string, availableSize int) (
 			sendTasks = append(sendTasks, taskData.TaskId)
 			tasksSize += len(taskData.Data)
 		} else {
+			// if this single task is too large to ever fit into an empty buffer,
+			// discard it and emit a console error instead of blocking the queue
+			if tasksSize == 0 && len(taskData.Data) >= availableSize {
+				message := fmt.Sprintf("Task %s data size %d exceeds transport limit %d bytes; task discarded.", taskData.TaskId, len(taskData.Data), availableSize)
+				ts.TsAgentConsoleOutput(agent.Data.Id, CONSOLE_OUT_ERROR, message, "", true)
+				continue
+			}
 			agent.HostedTasks.PushFront(taskData)
 			break
 		}

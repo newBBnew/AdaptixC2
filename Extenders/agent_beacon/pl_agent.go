@@ -178,10 +178,11 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 	case "dns":
 		// DNS transport profile layout is consumed on the C++ side (AgentConfig::AgentConfig)
 		// under BEACON_DNS as:
-		// [agent_type, domain, resolvers, qtype, pkt_size, label_size, ttl, listener_type, kill_date]
+		// [agent_type, domain, resolvers, qtype, pkt_size, label_size, ttl,
+		//  listener_type, kill_date, working_time, sleep_seconds, jitter]
 		// NOTE: domain/qtype/pkt_size/ttl/resolvers/label_size all come from the listener
-		// configuration (listenerMap), not from the per-agent UI, to avoid duplicated
-		// configuration.
+		// configuration (listenerMap); kill_date/working_time/sleep/jitter come from the
+		// per-agent UI (GenerateConfig), to keep behavior consistent with HTTP.
 		domain, _ := listenerMap["domain"].(string)
 		qtype, _ := listenerMap["qtype"].(string)
 		pkt_size_f, _ := listenerMap["pkt_size"].(float64)
@@ -196,6 +197,11 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 			label_size = 48
 		}
 
+		seconds, err := parseDurationToSeconds(generateConfig.Sleep)
+		if err != nil {
+			return nil, err
+		}
+
 		lWatermark, _ := strconv.ParseInt(listenerWM, 16, 64)
 
 		params = append(params, int(agentWatermark))
@@ -207,6 +213,9 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, ttl)
 		params = append(params, int(lWatermark))
 		params = append(params, kill_date)
+		params = append(params, working_time)
+		params = append(params, seconds)
+		params = append(params, generateConfig.Jitter)
 
 	default:
 		return nil, errors.New("protocol unknown")

