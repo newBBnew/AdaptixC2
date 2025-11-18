@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"compress/flate"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"math/rand"
 	"time"
 
@@ -167,6 +171,48 @@ func (m *ModuleExtender) AgentProcessData(agentData adaptix.AgentData, packedDat
 		return nil, err
 	}
 
+	// 会话层解封装：[flags][orig_len_le][payload]
+	if len(decryptData) < 5 {
+		return nil, fmt.Errorf("invalid agent data")
+	}
+
+	flags := decryptData[0]
+	origLen := int(decryptData[1]) |
+		int(decryptData[2])<<8 |
+		int(decryptData[3])<<16 |
+		int(decryptData[4])<<24
+
+	if origLen <= 0 {
+		return nil, fmt.Errorf("invalid origLen")
+	}
+
+	payload := decryptData[5:]
+	var plain []byte
+
+	if (flags & 0x1) != 0 {
+		// 压缩路径：用 flate 解压
+		r := flate.NewReader(bytes.NewReader(payload))
+		if r == nil {
+			return nil, fmt.Errorf("flate reader nil")
+		}
+		var buf bytes.Buffer
+		_, err = io.Copy(&buf, r)
+		_ = r.Close()
+		if err != nil {
+			return nil, err
+		}
+		if buf.Len() != origLen {
+			return nil, fmt.Errorf("unexpected decompressed size")
+		}
+		plain = buf.Bytes()
+	} else {
+		// 未压缩路径
+		if len(payload) != origLen {
+			return nil, fmt.Errorf("unexpected payload size")
+		}
+		plain = payload
+	}
+
 	taskData := adaptix.TaskData{
 		Type:        TYPE_TASK,
 		AgentId:     agentData.Id,
@@ -176,7 +222,7 @@ func (m *ModuleExtender) AgentProcessData(agentData adaptix.AgentData, packedDat
 		Sync:        true,
 	}
 
-	resultTasks := ProcessTasksResult(m.ts, agentData, taskData, decryptData)
+	resultTasks := ProcessTasksResult(m.ts, agentData, taskData, plain)
 
 	for _, task := range resultTasks {
 		m.ts.TsTaskUpdate(agentData.Id, task)
