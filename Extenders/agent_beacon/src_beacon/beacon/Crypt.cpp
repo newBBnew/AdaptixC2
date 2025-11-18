@@ -1,5 +1,6 @@
 #include "Crypt.h"
 #include "ApiLoader.h"
+#include "utils.h"
 
 void RC4Init(unsigned char* key, unsigned char* S, int keyLength) {
     int i, j = 0;

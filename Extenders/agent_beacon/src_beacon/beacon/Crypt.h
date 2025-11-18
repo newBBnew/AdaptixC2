@@ -1,5 +1,7 @@
 #pragma once
 
+#include <windows.h>
+
 void RC4Init(unsigned char* key, unsigned char* S, int keyLength);
 
 void RC4EncryptDecrypt(unsigned char* data, int dataLength, unsigned char* S);

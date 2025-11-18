@@ -237,12 +237,12 @@ BOOL ApiLoad()
 			ApiNt->RtlExitUserProcess        = (decltype(RtlExitUserProcess)*)		  GetSymbolAddress(hNtdllModule, HASH_FUNC_RTLEXITUSERPROCESS);
 			ApiNt->RtlIpv4StringToAddressA   = (decltype(RtlIpv4StringToAddressA)*)	  GetSymbolAddress(hNtdllModule, HASH_FUNC_RTLIPV4STRINGTOADDRESSA);
 			ApiNt->RtlRandomEx               = (decltype(RtlRandomEx)*)				  GetSymbolAddress(hNtdllModule, HASH_FUNC_RTLRANDOMEX);
-			ApiNt->RtlNtStatusToDosError     = (DECL_API(RtlNtStatusToDosError))GetSymbolAddress(SysModules->Ntdll, HASH_FUNC_RTLNTSTATUSTODOSERROR);
+			ApiNt->RtlNtStatusToDosError     = (decltype(RtlNtStatusToDosError)*)     GetSymbolAddress(hNtdllModule, HASH_FUNC_RTLNTSTATUSTODOSERROR);
 
 			// 压缩相关 API
-			ApiNt->RtlGetCompressionWorkSpaceSize = (DECL_API(RtlGetCompressionWorkSpaceSize))GetSymbolAddress(SysModules->Ntdll, HASH_FUNC_RTLGETCOMPRESSIONWORKSPACESIZE);
-			ApiNt->RtlCompressBuffer            = (DECL_API(RtlCompressBuffer))GetSymbolAddress(SysModules->Ntdll, HASH_FUNC_RTLCOMPRESSBUFFER);
-			ApiNt->RtlDecompressBuffer          = (DECL_API(RtlDecompressBuffer))GetSymbolAddress(SysModules->Ntdll, HASH_FUNC_RTLDECOMPRESSBUFFER);
+			ApiNt->RtlGetCompressionWorkSpaceSize = (decltype(RtlGetCompressionWorkSpaceSize)*)GetSymbolAddress(hNtdllModule, HASH_FUNC_RTLGETCOMPRESSIONWORKSPACESIZE);
+			ApiNt->RtlCompressBuffer            = (decltype(RtlCompressBuffer)*)          GetSymbolAddress(hNtdllModule, HASH_FUNC_RTLCOMPRESSBUFFER);
+			ApiNt->RtlDecompressBuffer          = (decltype(RtlDecompressBuffer)*)        GetSymbolAddress(hNtdllModule, HASH_FUNC_RTLDECOMPRESSBUFFER);
 		}
 		else {
 			return FALSE;
