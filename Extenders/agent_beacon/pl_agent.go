@@ -101,18 +101,37 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		var Hosts []string
 		var Ports []int
 		hosts_agent, _ := listenerMap["callback_addresses"].(string)
-		lines := strings.Split(strings.TrimSpace(hosts_agent), ", ")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
+		raw := strings.TrimSpace(hosts_agent)
+		if raw != "" {
+			// 支持逗号和换行作为分隔符，然后对每一项 Trim 空白
+			seps := []string{",", "\n", "\r\n"}
+			lines := []string{raw}
+			for _, sep := range seps {
+				var tmp []string
+				for _, part := range lines {
+					for _, s := range strings.Split(part, sep) {
+						tmp = append(tmp, s)
+					}
+				}
+				lines = tmp
 			}
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				host, portStr, err := net.SplitHostPort(line)
+				if err != nil {
+					continue
+				}
+				port, err := strconv.Atoi(portStr)
+				if err != nil {
+					continue
+				}
 
-			host, portStr, _ := net.SplitHostPort(line)
-			port, _ := strconv.Atoi(portStr)
-
-			Hosts = append(Hosts, host)
-			Ports = append(Ports, port)
+				Hosts = append(Hosts, host)
+				Ports = append(Ports, port)
+			}
 		}
 		c2Count := len(Hosts)
 
