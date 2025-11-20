@@ -5,7 +5,6 @@ import (
 	"compress/flate"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"math/rand"
 	"time"
@@ -171,46 +170,44 @@ func (m *ModuleExtender) AgentProcessData(agentData adaptix.AgentData, packedDat
 		return nil, err
 	}
 
-	// 会话层解封装：[flags][orig_len_le][payload]
-	if len(decryptData) < 5 {
-		return nil, fmt.Errorf("invalid agent data")
-	}
-
-	flags := decryptData[0]
-	origLen := int(decryptData[1]) |
-		int(decryptData[2])<<8 |
-		int(decryptData[3])<<16 |
-		int(decryptData[4])<<24
-
-	if origLen <= 0 {
-		return nil, fmt.Errorf("invalid origLen")
-	}
-
-	payload := decryptData[5:]
 	var plain []byte
 
-	if (flags & 0x1) != 0 {
-		// 压缩路径：用 flate 解压
-		r := flate.NewReader(bytes.NewReader(payload))
-		if r == nil {
-			return nil, fmt.Errorf("flate reader nil")
+	// 优先尝试按新会话层格式 [flags][orig_len_le][payload] 解析；
+	// 若校验失败，则回退到旧格式（整个 decryptData 直接交给 ProcessTasksResult）。
+	if len(decryptData) >= 5 {
+		flags := decryptData[0]
+		origLen := int(decryptData[1]) |
+			int(decryptData[2])<<8 |
+			int(decryptData[3])<<16 |
+			int(decryptData[4])<<24
+
+		if origLen > 0 {
+			payload := decryptData[5:]
+
+			if (flags & 0x1) != 0 {
+				// 压缩路径：用 flate 解压
+				r := flate.NewReader(bytes.NewReader(payload))
+				if r != nil {
+					var buf bytes.Buffer
+					_, err = io.Copy(&buf, r)
+					_ = r.Close()
+					if err == nil && buf.Len() == origLen {
+						plain = buf.Bytes()
+					}
+				}
+			} else {
+				// 未压缩路径：payload 长度必须与 origLen 一致
+				if len(payload) == origLen {
+					plain = payload
+				}
+			}
 		}
-		var buf bytes.Buffer
-		_, err = io.Copy(&buf, r)
-		_ = r.Close()
-		if err != nil {
-			return nil, err
-		}
-		if buf.Len() != origLen {
-			return nil, fmt.Errorf("unexpected decompressed size")
-		}
-		plain = buf.Bytes()
-	} else {
-		// 未压缩路径
-		if len(payload) != origLen {
-			return nil, fmt.Errorf("unexpected payload size")
-		}
-		plain = payload
+	}
+
+	// 若未能成功按新会话头解析（plain 仍为 nil），则按旧格式处理：
+	// 直接将整个 decryptData 视为上层 payload，保持与 HTTP/TCP/SMB 旧行为兼容。
+	if plain == nil {
+		plain = decryptData
 	}
 
 	taskData := adaptix.TaskData{

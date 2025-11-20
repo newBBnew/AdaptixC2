@@ -64,6 +64,7 @@ class ConnectorHTTP
 	CHAR*  headers        = NULL;
 	ULONG  ans_size       = 0;
 	ULONG  ans_pre_size   = 0;
+	ULONG* server_fail_count = NULL;
 
 	BYTE* recvData = NULL;
 	int   recvSize = 0;
@@ -85,4 +86,5 @@ public:
 	BYTE* RecvData();
 	int   RecvSize();
 	void  RecvClear();
+	void  ReportProtocolResult(BOOL success);
 };

