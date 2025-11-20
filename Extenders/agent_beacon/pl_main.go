@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"compress/flate"
+	"compress/zlib"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -185,9 +185,8 @@ func (m *ModuleExtender) AgentProcessData(agentData adaptix.AgentData, packedDat
 			payload := decryptData[5:]
 
 			if (flags & 0x1) != 0 {
-				// 压缩路径：用 flate 解压
-				r := flate.NewReader(bytes.NewReader(payload))
-				if r != nil {
+				// 压缩路径：使用 zlib 流解压，与 C++ miniz compress2/uncompress 保持一致
+				if r, errR := zlib.NewReader(bytes.NewReader(payload)); errR == nil {
 					var buf bytes.Buffer
 					_, err = io.Copy(&buf, r)
 					_ = r.Close()

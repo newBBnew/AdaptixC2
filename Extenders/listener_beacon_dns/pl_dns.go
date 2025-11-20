@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"compress/flate"
+	"compress/zlib"
 	"context"
 	"encoding/base32"
 	"encoding/binary"
@@ -317,11 +317,11 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						flags := byte(0)
 						payload := p
 
-						// 针对较大的下行数据尝试使用 DEFLATE 压缩，减小 DNS 分片数量。
+						// 针对较大的下行数据尝试使用 zlib 流压缩，减小 DNS 分片数量，并与 C++ miniz 解压保持兼容。
 						const minCompressSize = 2048 // 仅对大于 2KB 的 payload 尝试压缩
 						if origLen > minCompressSize {
 							var zbuf bytes.Buffer
-							w, errW := flate.NewWriter(&zbuf, flate.BestCompression)
+							w, errW := zlib.NewWriterLevel(&zbuf, zlib.BestCompression)
 							if errW == nil {
 								if _, errC := w.Write(p); errC == nil && w.Close() == nil {
 									comp := zbuf.Bytes()
@@ -345,7 +345,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						buf[4] = byte((origLen >> 24) & 0xFF)
 						copy(buf[5:], payload)
 						df = &dnsDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
-													
+
 						d.mu.Lock()
 						d.downFrags[sid] = df
 						d.mu.Unlock()
