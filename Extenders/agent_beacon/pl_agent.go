@@ -352,6 +352,10 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	for _, ofile := range ObjectFiles {
 		Files += ObjectDir + "/" + ofile + Ext + " "
 	}
+	// 仅 DNS beacon 需要会话层压缩模块，其它协议不链接 DnsCompression，避免体积增加。
+	if protocol == "dns" {
+		Files += ObjectDir + "/DnsCompression" + Ext + " "
+	}
 
 	if generateConfig.Format == "Exe" {
 		Files += ObjectDir + "/main" + Ext
