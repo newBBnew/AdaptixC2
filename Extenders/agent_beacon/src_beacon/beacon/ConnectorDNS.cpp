@@ -663,6 +663,25 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     this->downTotal  = total;
                     this->downFilled = 0;
                 }
+
+                // Fix for Resend Logic (Hard Reset):
+                // If we receive offset 0 but already have some data, it means the Server 
+                // decided to restart the transfer. To allow a clean slate and avoid any 
+                // memory corruption or stale data issues, we assume the previous buffer is compromised.
+                if (offset == 0 && this->downFilled > 0) {
+                    if (this->downBuf && this->downTotal) {
+                        MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+                    }
+                    this->downBuf = (BYTE*)MemAllocLocal(total);
+                    if (!this->downBuf) {
+                        this->downTotal  = 0;
+                        this->downFilled = 0;
+                        return;
+                    }
+                    this->downTotal  = total;
+                    this->downFilled = 0;
+                }
+
                 ULONG end = offset + chunkLen;
                 if (end > total)
                     end = total;
