@@ -345,6 +345,41 @@ static BOOL BuildDataLabelsFromBytes(const BYTE* src, ULONG srcLen, ULONG labelS
 	return TRUE;
 }
 
+static int Base64Decode(const CHAR* src, int srcLen, BYTE* dst, int dstMax)
+{
+    static const int decodeTable[] = {
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
+        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
+        -1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
+        -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+        41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1
+    };
+
+    int i = 0;
+    int j = 0;
+    int val = 0;
+    int valb = -8;
+
+    for (i = 0; i < srcLen; i++) {
+        unsigned char c = src[i];
+        // Simple bounds check for table lookup
+        if (c > 127) continue;
+        int d = decodeTable[c];
+        if (d == -1) continue; // Skip invalid/padding
+
+        val = (val << 6) | d;
+        valb += 6;
+        if (valb >= 0) {
+            if (j < dstMax) dst[j++] = (BYTE)((val >> valb) & 0xFF);
+            valb -= 8;
+        }
+    }
+    return j;
+}
+
 ConnectorDNS::ConnectorDNS()
 {
 	// For now, just zero-initialized by the default member initializer list.
@@ -634,20 +669,32 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     BYTE respBuf[1024];
     ULONG respSize = 0;
     if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
+        // Check for simple ACK "OK"
+        if (respSize == 2 && respBuf[0] == 'O' && respBuf[1] == 'K') {
+            return;
+        }
+
+        // Base64 Decode the response (Server sends Base64 to ensure binary safety over TXT)
+        BYTE binBuf[1024];
+        int binLen = Base64Decode((const CHAR*)respBuf, respSize, binBuf, sizeof(binBuf));
+        if (binLen <= 0) {
+            return; // Invalid or empty payload
+        }
+
         const ULONG headerSize = 8;
         // 新协议：带有 [total_len][offset] 头部
-        if (respSize > headerSize) {
+        if (binLen > headerSize) {
             ULONG total = 0;
             ULONG offset = 0;
-            total |= ((ULONG)respBuf[0] << 24);
-            total |= ((ULONG)respBuf[1] << 16);
-            total |= ((ULONG)respBuf[2] << 8);
-            total |= ((ULONG)respBuf[3] << 0);
-            offset |= ((ULONG)respBuf[4] << 24);
-            offset |= ((ULONG)respBuf[5] << 16);
-            offset |= ((ULONG)respBuf[6] << 8);
-            offset |= ((ULONG)respBuf[7] << 0);
-            ULONG chunkLen = respSize - headerSize;
+            total |= ((ULONG)binBuf[0] << 24);
+            total |= ((ULONG)binBuf[1] << 16);
+            total |= ((ULONG)binBuf[2] << 8);
+            total |= ((ULONG)binBuf[3] << 0);
+            offset |= ((ULONG)binBuf[4] << 24);
+            offset |= ((ULONG)binBuf[5] << 16);
+            offset |= ((ULONG)binBuf[6] << 8);
+            offset |= ((ULONG)binBuf[7] << 0);
+            ULONG chunkLen = binLen - headerSize;
             const ULONG maxDownloadSize = 4 << 20; // 4MB
             if (total > 0 && total <= maxDownloadSize && offset < total) {
                 if (!this->downBuf || this->downTotal != total) {
@@ -686,7 +733,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 if (end > total)
                     end = total;
                 ULONG n = end - offset;
-                memcpy(this->downBuf + offset, respBuf + headerSize, n);
+                memcpy(this->downBuf + offset, binBuf + headerSize, n);
                 this->downFilled += n;
                 if (this->downFilled >= this->downTotal) {
                     // 解析会话头：[flags][orig_len_le]，然后将原始 payload 交给上层。
@@ -734,11 +781,11 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             }
         }
         // 兼容旧协议：无头部时视为完整单包，直接交给上层。
-        this->recvData = (BYTE*)MemAllocLocal(respSize);
+        this->recvData = (BYTE*)MemAllocLocal(binLen);
         if (!this->recvData)
             return;
-        memcpy(this->recvData, respBuf, respSize);
-        this->recvSize = (int)respSize;
+        memcpy(this->recvData, binBuf, binLen);
+        this->recvSize = (int)binLen;
     }
 }
 
