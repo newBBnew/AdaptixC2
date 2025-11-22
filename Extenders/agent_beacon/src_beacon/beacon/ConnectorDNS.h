@@ -51,4 +51,6 @@ public:
     ULONG GetLastUpTotal() const { return lastUpTotal; }
     ULONG GetLastDownTotal() const { return lastDownTotal; }
     void  ResetTrafficTotals() { lastUpTotal = 0; lastDownTotal = 0; }
+    
+    BOOL  IsBusy() const { return (downBuf != NULL); }
 };

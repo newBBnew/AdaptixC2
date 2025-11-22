@@ -39,7 +39,10 @@ COMMON_FLAGS := -I $(BEACON_DIR) \
 
 .PHONY: all clean pre x64 x86
 
-NPROC := $(shell nproc)
+# Cross-platform CPU core detection
+# nproc for Linux, sysctl for macOS, default to 1 if both fail
+NPROC := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+
 ifeq ($(MAKELEVEL), 0)
     MAKEFLAGS += -j$(NPROC) --no-print-directory
 endif
