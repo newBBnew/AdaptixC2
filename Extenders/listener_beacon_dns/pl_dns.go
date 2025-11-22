@@ -432,10 +432,12 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			} else {
 				// 如果是 TXT (或其他) 请求：返回实际数据分片
 				if df != nil && df.off < df.total {
-					// 为了兼容 TXT RDATA 255 字节长度限制
+					// 为了兼容 TXT RDATA 255 字节长度限制以及避免 UDP 碎片化
+					// 247 字节过于激进，导致大包（如 BOF 下发）极易丢包。
+					// 改为 180 字节，留足安全余量。
 					maxChunk := d.Config.PktSize
-					if maxChunk <= 0 || maxChunk > 247 {
-						maxChunk = 247
+					if maxChunk <= 0 || maxChunk > 180 {
+						maxChunk = 180
 					}
 					remaining := df.total - df.off
 					chunkLen := remaining
