@@ -143,7 +143,16 @@ func (d *DNS) handlePutFragment(sid string, seq int, data []byte) {
 	n := end - offset
 	copy(fb.buf[offset:end], chunk[:n])
 	fb.filled += n
+
+	if dnsDebug {
+		fmt.Printf("[BeaconDNS] [FRAG] Reassembling sid=%s | Got %d bytes (Offset: %d / Total: %d) | Progress: %d%%\n",
+			sid, n, offset, fb.total, (fb.filled*100)/fb.total)
+	}
+
 	if fb.filled >= fb.total {
+		if dnsDebug {
+			fmt.Printf("[BeaconDNS] [UP] Reassembly Complete! sid=%s | Total: %d bytes\n", sid, fb.total)
+		}
 		_ = d.ts.TsAgentProcessData(sid, fb.buf)
 		delete(d.upFrags, key)
 	}
@@ -258,8 +267,31 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			if addr, ok := w.RemoteAddr().(*net.UDPAddr); ok {
 				remote = addr.IP.String()
 			}
-			fmt.Printf("[BeaconDNS] q from %s name=%s qtype=%d op=%s sid=%s seq=%d idx=%d len=%d\n",
-				remote, q.Name, q.Qtype, op, sid, seq, idx, len(dataB))
+
+			// Enhanced Logging
+			logPrefix := "[???]"
+			logDetails := ""
+
+			if op == "HI" {
+				logPrefix = "[HI]"
+				logDetails = fmt.Sprintf("New Session Init (len=%d)", len(dataB))
+			} else if op == "PUT" {
+				logPrefix = "[UP]"
+				logDetails = fmt.Sprintf("Data Upload (len=%d)", len(dataB))
+			} else if op == "GET" {
+				if reqQType == dns.TypeA {
+					logPrefix = "[HB]" // Heartbeat
+					logDetails = "Keep-Alive (A)"
+				} else {
+					logPrefix = "[DOWN]"
+					logDetails = "Data Poll (TXT)"
+				}
+			}
+
+			if sid != "" {
+				fmt.Printf("[BeaconDNS] %s %s | sid=%s seq=%d idx=%d | src=%s\n",
+					logPrefix, logDetails, sid, seq, idx, remote)
+			}
 		}
 
 		switch op {
@@ -417,17 +449,8 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					copy(frame[8:], df.buf[df.off:df.off+chunkLen])
 
 					if dnsDebug {
-						firstEnd := 8 + 8
-						if firstEnd > len(frame) {
-							firstEnd = len(frame)
-						}
-						fmt.Printf("[BeaconDNS] GET frame sid=%s total=%d off=%d chunk=%d firstBytes=%x\n",
-							sid,
-							binary.BigEndian.Uint32(frame[0:4]),
-							binary.BigEndian.Uint32(frame[4:8]),
-							len(frame)-8,
-							frame[8:firstEnd],
-						)
+						fmt.Printf("[BeaconDNS] [DOWN] Sending Fragment | sid=%s | %d bytes (Offset: %d / Total: %d)\n",
+							sid, chunkLen, df.off, df.total)
 					}
 
 					df.off += chunkLen

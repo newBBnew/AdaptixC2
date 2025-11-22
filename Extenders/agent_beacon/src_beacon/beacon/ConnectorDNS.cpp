@@ -464,13 +464,16 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     CHAR qname[512];
     memset(qname, 0, sizeof(qname));
 
-    // HI：第一次带 beat 的调用仍然沿用原始打包方式（不做应用层分片），
-    // 以保持与现有 TsAgentCreate / beat 解析逻辑完全兼容。
+    // HI：第一次带 beat 的调用仍然沿用原始打包方式
     if (!this->hiSent && data && data_size) {
-        // 注意：BuildDataLabelsFromBytes 使用 1024 字节的 dataLabel 缓冲，并且
-        // 在内部先进行 Base32 编码（8/5 膨胀）。为避免编码后长度超出缓冲，
-        // 这里对原始帧大小施加一个保守上限（~600 字节），保证编码后始终可用。
-        const ULONG maxSafeFrame = 600;
+        // Base32 encoding expands data by ~1.6x. The total DNS QNAME length is limited to 253 bytes.
+        // Subtracting domain and prefix overhead, we have about 150-180 chars for data labels.
+        // 180 chars Base32 -> ~110 bytes raw data.
+        // We set a conservative limit of 60 bytes to leave ample room for the user's domain.
+        // 60 bytes raw -> 96 chars Base32.
+        // 96 + 31 (prefix) = 127 chars used.
+        // 253 - 127 = 126 chars remaining for the Domain. This is very safe.
+        const ULONG maxSafeFrame = 60;
         ULONG maxBuf = pkt;
         if (maxBuf > maxSafeFrame)
             maxBuf = maxSafeFrame;
@@ -507,11 +510,10 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             maxChunk = headerSize + 1;
         maxChunk -= headerSize;
 
-        // 为避免单个 frame 经 Base32 编码后超过 dataLabel 缓冲（1024 字节），
-        // 这里对原始 frame 总长度施加保守上限（~600 字节），对应原始 chunk 约 592 字节。
-        // 这样 BuildDataLabelsFromBytes 在编码/拼接 label 时不会返回 FALSE，
-        // 从而避免大上传任务在 Agent 端被静默丢弃。
-        const ULONG maxSafeFrame = 600;
+        // CRITICAL FIX: Enforce 253-byte QNAME limit.
+        // 60 bytes raw -> 96 chars Base32.
+        // 96 + 50 (domain/overhead) = 146 < 253. Very Safe.
+        const ULONG maxSafeFrame = 60;
         if (maxChunk + headerSize > maxSafeFrame)
             maxChunk = maxSafeFrame - headerSize;
 
