@@ -267,7 +267,7 @@ function RegisterCommands(listenerType)
         ax.execute_alias(id, cmdline, "sleep 0");
     });
 
-    if(listenerType == "BeaconHTTP" || listenerType == "BeaconDNS") {
+    if(listenerType == "BeaconHTTP" || listenerType == "BeaconDNS" || listenerType == "BeaconDoH") {
         let commands_external = ax.create_commands_group("beacon", [cmd_cat, cmd_cd, cmd_cp, cmd_disks, cmd_download, cmd_execute, cmd_exfil, cmd_getuid,
             cmd_job, cmd_link, cmd_ls, cmd_lportfwd, cmd_mv, cmd_mkdir, cmd_profile, cmd_ps, cmd_pwd, cmd_rev2self, cmd_rm, cmd_rportfwd, cmd_sleep,
             cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact, cmd_wstunnel] );
@@ -307,7 +307,7 @@ function GenerateUI(listenerType) {
 		spinJitter.setVisible(false);
     }
 
-    // DNS configuration fields
+    // DNS configuration fields (DNS-specific, inherited from listener profile for DoH)
     let labelDomain = form.create_label("Domain:");
     let textDomain = form.create_textline("example.com");
     let labelQType = form.create_label("QType:");
@@ -323,8 +323,9 @@ function GenerateUI(listenerType) {
     spinTTL.setRange(1, 3600);
     spinTTL.setValue(60);
     let labelEncryptKey = form.create_label("Encrypt Key:");
-    	let textEncryptKey = form.create_textline("mydnskey123");
+    let textEncryptKey = form.create_textline("mydnskey123");
 
+	// Only show DNS fields for BeaconDNS; DoH inherits all from listener profile
 	if(listenerType != "BeaconDNS") {
 		labelDomain.setVisible(false);
 		textDomain.setVisible(false);
