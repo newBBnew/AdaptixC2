@@ -150,7 +150,12 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 	defer d.mu.Unlock()
 
 	fb, ok := d.upFrags[key]
-	if !ok {
+	if !ok || fb.total != total || (offset == 0 && fb.filled > 0) {
+		// 新一轮上行会话：
+		//  - 第一次看到该 sid（!ok），或者
+		//  - total 发生变化（协议版本/任务大小变化），或者
+		//  - offset 回到 0 但之前已经有填充的数据（重传/新任务覆盖旧任务）。
+		// 为避免不同任务之间的缓冲区污染，始终重新分配缓冲并重置填充进度。
 		buf := make([]byte, total)
 		fb = &dohFragBuf{total: total, buf: buf}
 		d.upFrags[key] = fb

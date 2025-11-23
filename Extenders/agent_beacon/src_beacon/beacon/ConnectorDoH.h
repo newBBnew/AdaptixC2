@@ -46,12 +46,16 @@ private:
     CHAR* urlList[16] = { 0 };   // Pointers to individual URLs in rawUrls
     ULONG urlCount = 0;
     ULONG currentUrlIndex = 0;
+    ULONG urlFailCount[16] = { 0 };
+    ULONG urlDisabledUntil[16] = { 0 };
 
     BOOL  initialized = FALSE;
     BOOL  hiSent = FALSE;
     BYTE* hiBeat = NULL;
     ULONG hiBeatSize = 0;
     ULONG hiRetries = 3;
+    ULONG hiRetryDelayMs = 0;
+    ULONG hiNextAttemptTick = 0;
     ULONG seq = 0;
     ULONG idx = 0;
 
@@ -86,6 +90,7 @@ public:
     BYTE* RecvData();
     int   RecvSize();
     void  RecvClear();
+    void  ReportProtocolResult(BOOL success);
 
     ULONG GetLastUpTotal() const { return lastUpTotal; }
     ULONG GetLastDownTotal() const { return lastDownTotal; }
