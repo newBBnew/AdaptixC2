@@ -40,6 +40,16 @@ typedef struct {
 	BYTE* encrypt_key;  // RC4 key, same as listener_encrypt_key
 } ProfileDNS;
 
+typedef struct {
+	BYTE*  domain;       // e.g. "example.com" (the C2 domain)
+	BYTE*  urls;         // Comma-separated DoH URLs e.g. "https://dns.google/resolve,https://cloudflare-dns.com/dns-query"
+	BYTE*  user_agent;   // for the HTTPS connection
+	ULONG  pkt_size;     // max payload
+	ULONG  label_size;
+	ULONG  ttl;
+	BYTE*  encrypt_key;
+} ProfileDoH;
+
 #endif
 
 
@@ -72,6 +82,9 @@ public:
 
 #elif defined(BEACON_DNS)
 	ProfileDNS profile;
+
+#elif defined(BEACON_DOH)
+	ProfileDoH profile;
 
 #endif
 

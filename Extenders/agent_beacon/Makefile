@@ -11,6 +11,7 @@ all: clean
 	@ mv src_beacon/objects_smb ./dist/objects_smb
 	@ mv src_beacon/objects_tcp ./dist/objects_tcp
 	@ mv src_beacon/objects_dns ./dist/objects_dns
+	@ mv src_beacon/objects_doh ./dist/objects_doh
 	@ echo "      done..."
 
 clean:

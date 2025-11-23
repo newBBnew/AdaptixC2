@@ -295,16 +295,16 @@ function GenerateUI(listenerType) {
     comboFormat.addItems(["Exe", "Service Exe", "DLL", "Shellcode"]);
 
     let labelSleep = form.create_label("Sleep (Jitter %):");
-    let textSleep = form.create_textline("4s");
+	let textSleep = form.create_textline("4s");
     textSleep.setPlaceholder("1h 2m 5s")
-    let spinJitter = form.create_spin();
-    spinJitter.setRange(0, 100);
-    spinJitter.setValue(0);
+	let spinJitter = form.create_spin();
+	spinJitter.setRange(0, 100);
+	spinJitter.setValue(0);
 
-    if(listenerType != "BeaconHTTP") {
-        labelSleep.setVisible(false);
-        textSleep.setVisible(false);
-        spinJitter.setVisible(false);
+	if(listenerType != "BeaconHTTP" && listenerType != "BeaconDoH") {
+		labelSleep.setVisible(false);
+		textSleep.setVisible(false);
+		spinJitter.setVisible(false);
     }
 
     // DNS configuration fields
@@ -323,12 +323,12 @@ function GenerateUI(listenerType) {
     spinTTL.setRange(1, 3600);
     spinTTL.setValue(60);
     let labelEncryptKey = form.create_label("Encrypt Key:");
-    let textEncryptKey = form.create_textline("mydnskey123");
+    	let textEncryptKey = form.create_textline("mydnskey123");
 
-    if(listenerType != "BeaconDNS") {
-        labelDomain.setVisible(false);
-        textDomain.setVisible(false);
-        labelQType.setVisible(false);
+	if(listenerType != "BeaconDNS") {
+		labelDomain.setVisible(false);
+		textDomain.setVisible(false);
+		labelQType.setVisible(false);
         comboQType.setVisible(false);
         labelPktSize.setVisible(false);
         spinPktSize.setVisible(false);

