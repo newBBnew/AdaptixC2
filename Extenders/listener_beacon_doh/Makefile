@@ -5,6 +5,7 @@ all: clean
 	mkdir -p dist
 	go build -buildmode=plugin -o dist/$(PLUGIN_NAME) $(GO_FILES)
 	cp ax_config.axs dist/
+	cp config.json dist/
 
 clean:
 	rm -rf dist

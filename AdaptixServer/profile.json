@@ -13,6 +13,7 @@
     "key": "server.rsa.key",
     "extenders": [
       "extenders/listener_beacon_http/config.json",
+      "extenders/listener_beacon_doh/config.json",
       "extenders/listener_beacon_smb/config.json",
       "extenders/listener_beacon_tcp/config.json",
       "extenders/listener_beacon_dns/config.json",
