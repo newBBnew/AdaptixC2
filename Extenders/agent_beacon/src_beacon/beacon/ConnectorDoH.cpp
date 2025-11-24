@@ -1238,13 +1238,16 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		ULONG ipSize = 0;
 		if (DohQueryA(qnameA, ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
 			if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
+				DohConnectorLog("[DoH] Heartbeat: no tasks (A=0.0.0.0), returning");
 				// No tasks: advance seq and return immediately.
 				this->seq++;
 				return;
 			}
+			DohConnectorLog("[DoH] Heartbeat: tasks available (A!=0.0.0.0), will TXT GET");
 			// Non-zero IP: has tasks, fall through to TXT GET.
 		} else {
 			// A-record heartbeat failed; skip TXT this round and retry later.
+			DohConnectorLog("[DoH] Heartbeat: DohQueryA failed or short, skipping TXT");
 			return;
 		}
 	}
