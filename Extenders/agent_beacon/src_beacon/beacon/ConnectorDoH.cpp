@@ -1262,6 +1262,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		BYTE binBuf[1024];
 		int binLen = Base64Decode((const CHAR*)respBuf, (int)respSize, binBuf, (int)sizeof(binBuf));
 		if (binLen <= 0) {
+			DohConnectorLog("[DoH] Down: Base64Decode failed or empty");
 			return; // invalid or empty payload
 		}
 
@@ -1281,6 +1282,15 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			ULONG chunkLen = (ULONG)(binLen - (int)headerSize);
 			const ULONG maxDownloadSize = 4u << 20; // 4MB
 			if (total > 0 && total <= maxDownloadSize && offset < total) {
+				CHAR dbg[160];
+				_snprintf(dbg, sizeof(dbg),
+					"[DoH] Down: total=%lu offset=%lu chunkLen=%lu downFilled=%lu downTotal=%lu",
+					(unsigned long)total,
+					(unsigned long)offset,
+					(unsigned long)chunkLen,
+					(unsigned long)this->downFilled,
+					(unsigned long)this->downTotal);
+				DohConnectorLog(dbg);
 				if (!this->downBuf || this->downTotal != total) {
 					if (this->downBuf && this->downTotal) {
 						MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
@@ -1297,6 +1307,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 
 				// If we receive offset 0 but already have some data, reset buffer
 				if (offset == 0 && this->downFilled > 0) {
+					DohConnectorLog("[DoH] Down: offset==0 with existing data, resetting buffer");
 					if (this->downBuf && this->downTotal) {
 						MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
 					}
@@ -1316,6 +1327,14 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				ULONG n = end - offset;
 				memcpy(this->downBuf + offset, binBuf + headerSize, n);
 				this->downFilled += n;
+				{
+					CHAR dbg2[160];
+					_snprintf(dbg2, sizeof(dbg2),
+						"[DoH] Down: after copy downFilled=%lu/%lu",
+						(unsigned long)this->downFilled,
+						(unsigned long)this->downTotal);
+					DohConnectorLog(dbg2);
+				}
 				if (this->downFilled >= this->downTotal) {
 					// Session header: [flags][orig_len_le], followed by payload
 					BYTE* finalBuf = this->downBuf;

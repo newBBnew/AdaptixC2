@@ -590,12 +590,14 @@ void AgentMain()
 			}
 
 			if (burst) {
+				DohDebugLog("[DoH] Sleep: burst mode");
 				ULONG burstSleep = 50;
 				if (baseSleep < burstSleep)
 					burstSleep = baseSleep;
 				WaitMask(g_Agent->GetWorkingSleep(), burstSleep, 0);
 				g_Connector->ResetTrafficTotals();
 			} else {
+				DohDebugLog("[DoH] Sleep: normal mode");
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
 			}
 		}
