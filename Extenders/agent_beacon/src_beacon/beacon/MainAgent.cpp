@@ -627,6 +627,7 @@ void AgentMain()
 
 #include "ConnectorDNS.h"
 #include "ConnectorDoH.h"
+#include "DnsCompression.h"
 
 ConnectorDNS* g_DnsConnector;
 ConnectorDoH* g_DohConnector;

