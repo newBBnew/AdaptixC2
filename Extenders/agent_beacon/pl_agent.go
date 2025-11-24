@@ -927,6 +927,33 @@ func CreateTask(ts Teamserver, agent adaptix.AgentData, args map[string]any) (ad
 			goto RET
 		}
 
+	case "transport":
+		if subcommand == "mode" {
+			mode, ok := args["mode"].(string)
+			if !ok {
+				err = errors.New("parameter 'mode' must be set")
+				goto RET
+			}
+			array = []interface{}{COMMAND_TRANSPORT, 1, mode}
+		} else if subcommand == "dns.resolvers" {
+			resolvers, ok := args["resolvers"].(string)
+			if !ok {
+				err = errors.New("parameter 'resolvers' must be set")
+				goto RET
+			}
+			array = []interface{}{COMMAND_TRANSPORT, 2, resolvers}
+		} else if subcommand == "doh.urls" {
+			urls, ok := args["urls"].(string)
+			if !ok {
+				err = errors.New("parameter 'urls' must be set")
+				goto RET
+			}
+			array = []interface{}{COMMAND_TRANSPORT, 3, urls}
+		} else {
+			err = errors.New("subcommand for 'transport' not found")
+			goto RET
+		}
+
 	case "ps":
 		if subcommand == "list" {
 			array = []interface{}{COMMAND_PS_LIST}

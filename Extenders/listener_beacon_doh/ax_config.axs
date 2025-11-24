@@ -115,11 +115,11 @@ function ListenerUI(mode_create)
 function GetConfig()
 {
     var config = {
-        "name": "Beacon DoH",
+        "name": "Beacon DNSDoH",
         "type": "listener",
         "author": "Adaptix",
         "version": "1.0",
-        "description": "DNS Authority Listener (RFC 8484) for public DoH/recursive resolvers. Encapsulates DNS packets in HTTPS POST requests to bypass filtering.",
+        "description": "Combined DNS/DoH listener designed to sit behind public DoH/recursive resolvers. Encapsulates DNS beacon traffic in HTTPS (RFC 8484) to bypass filtering.",
         "options": [
             {
                 "name": "host_bind",

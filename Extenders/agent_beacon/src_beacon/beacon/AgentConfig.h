@@ -50,6 +50,12 @@ typedef struct {
 	BYTE*  encrypt_key;
 } ProfileDoH;
 
+typedef struct {
+	ProfileDNS dns;
+	ProfileDoH doh;
+	BYTE*      mode;   // "dns", "doh", or "auto"
+} ProfileDNSDoH;
+
 #endif
 
 
@@ -85,6 +91,9 @@ public:
 
 #elif defined(BEACON_DOH)
 	ProfileDoH profile;
+
+#elif defined(BEACON_DNS_DOH)
+	ProfileDNSDoH profile;
 
 #endif
 

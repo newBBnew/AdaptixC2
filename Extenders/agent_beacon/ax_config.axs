@@ -186,6 +186,19 @@ function RegisterCommands(listenerType)
     let cmd_profile = ax.create_command("profile", "Configure the payloads profile for current session");
     cmd_profile.addSubCommands([_cmd_profile_chunksize, _cmd_profile_killdate, _cmd_profile_workingtime]);
 
+    // DNS/DoH transport configuration (runtime-selectable transport for DNS+DoH beacon)
+    let _cmd_transport_mode = ax.create_command("mode", "Change beacon transport mode (dns/doh/auto)", "transport mode auto");
+    _cmd_transport_mode.addArgString("mode", true, "Transport mode: dns, doh, or auto");
+
+    let _cmd_transport_dns_resolvers = ax.create_command("dns.resolvers", "Update DNS recursive resolvers (comma-separated)", "transport dns.resolvers 8.8.8.8,1.1.1.1");
+    _cmd_transport_dns_resolvers.addArgString("resolvers", true, "Comma-separated list of recursive resolvers (e.g. 8.8.8.8,1.1.1.1)");
+
+    let _cmd_transport_doh_urls = ax.create_command("doh.urls", "Update DoH endpoints (comma-separated)", "transport doh.urls https://dns.google/resolve,https://cloudflare-dns.com/dns-query");
+    _cmd_transport_doh_urls.addArgString("urls", true, "Comma-separated list of DoH URLs");
+
+    let cmd_transport = ax.create_command("transport", "Configure beacon DNS/DoH transport");
+    cmd_transport.addSubCommands([_cmd_transport_mode, _cmd_transport_dns_resolvers, _cmd_transport_doh_urls]);
+
     let _cmd_ps_list = ax.create_command("list", "Show process list", "ps list", "Task: show process list");
     let _cmd_ps_kill = ax.create_command("kill", "Kill a process with a given PID", "ps kill 7865", "Task: kill process");
     _cmd_ps_kill.addArgInt("pid", true);
@@ -267,10 +280,10 @@ function RegisterCommands(listenerType)
         ax.execute_alias(id, cmdline, "sleep 0");
     });
 
-    if(listenerType == "BeaconHTTP" || listenerType == "BeaconDNS" || listenerType == "BeaconDoH") {
+    if(listenerType == "BeaconHTTP" || listenerType == "BeaconDNS" || listenerType == "BeaconDoH" || listenerType == "BeaconDNSDoH") {
         let commands_external = ax.create_commands_group("beacon", [cmd_cat, cmd_cd, cmd_cp, cmd_disks, cmd_download, cmd_execute, cmd_exfil, cmd_getuid,
             cmd_job, cmd_link, cmd_ls, cmd_lportfwd, cmd_mv, cmd_mkdir, cmd_profile, cmd_ps, cmd_pwd, cmd_rev2self, cmd_rm, cmd_rportfwd, cmd_sleep,
-            cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact, cmd_wstunnel] );
+            cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact, cmd_wstunnel, cmd_transport] );
 
         return { commands_windows: commands_external }
     }
