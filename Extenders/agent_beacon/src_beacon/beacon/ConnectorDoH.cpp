@@ -1263,7 +1263,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	}
 
 	BuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
-	BYTE respBuf[1024];
+	// Larger buffers to safely hold big Base64-encoded TXT responses for multi-fragment
+	// downlink frames (e.g. 856-byte binary frames + 8-byte header -> ~1.2KB Base64).
+	BYTE respBuf[4096];
 	ULONG respSize = 0;
 	if (DohQueryTxt(qname, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
 		// Simple ACK path
@@ -1272,7 +1274,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		}
 
 		// Base64 decode the TXT response into binary chunk
-		BYTE binBuf[1024];
+		BYTE binBuf[4096];
 		int binLen = Base64Decode((const CHAR*)respBuf, (int)respSize, binBuf, (int)sizeof(binBuf));
 		if (binLen <= 0) {
 			DohConnectorLog("[DoH] Down: Base64Decode failed or empty");
