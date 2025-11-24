@@ -185,6 +185,16 @@ static void DohConnectorLog(const char* msg)
 {
 	if (!msg) return;
 
+	// Relative timestamp since first log (approx. since agent start)
+	static DWORD s_startTick = 0;
+	DWORD now = GetTickCount();
+	if (s_startTick == 0)
+		s_startTick = now;
+	DWORD delta = now - s_startTick;
+
+	CHAR line[1024] = { 0 };
+	_snprintf(line, sizeof(line), "[%08lu ms] %s", (unsigned long)delta, msg);
+
 	CHAR path[MAX_PATH] = {0};
 	DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH);
 	if (len == 0 || len >= MAX_PATH)
@@ -213,9 +223,9 @@ static void DohConnectorLog(const char* msg)
 		return;
 
 	DWORD written = 0;
-	SIZE_T mlen = lstrlenA(msg);
+	SIZE_T mlen = lstrlenA(line);
 	if (mlen)
-		WriteFile(hFile, msg, (DWORD)mlen, &written, NULL);
+		WriteFile(hFile, line, (DWORD)mlen, &written, NULL);
 	CHAR crlf[] = "\r\n";
 	WriteFile(hFile, crlf, 2, &written, NULL);
 	CloseHandle(hFile);
