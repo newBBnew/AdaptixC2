@@ -76,6 +76,10 @@ all: clean pre x64 x86
 	@ cp $(FILES_DIR)/config.tpl $(DOH_DIST_DIR)/config.cpp
 	@ cp $(FILES_DIR)/stub.x64.bin $(DOH_DIST_DIR)/stub.x64.bin
 	@ cp $(FILES_DIR)/stub.x86.bin $(DOH_DIST_DIR)/stub.x86.bin
+	@ # dns_doh
+	@ cp $(FILES_DIR)/config.tpl $(DNS_DOH_DIST_DIR)/config.cpp
+	@ cp $(FILES_DIR)/stub.x64.bin $(DNS_DOH_DIST_DIR)/stub.x64.bin
+	@ cp $(FILES_DIR)/stub.x86.bin $(DNS_DOH_DIST_DIR)/stub.x86.bin
 
 clean:
 	@rm -rf $(HTTP_DIST_DIR) $(SMB_DIST_DIR) $(TCP_DIST_DIR) $(DNS_DIST_DIR) $(DOH_DIST_DIR) $(DNS_DOH_DIST_DIR)

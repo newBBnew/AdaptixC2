@@ -27,9 +27,11 @@ import (
 const dohDebug = true
 
 type dohFragBuf struct {
-	total  uint32
-	buf    []byte
-	filled uint32
+	total       uint32
+	buf         []byte
+	filled      uint32
+	expectedOff uint32 // expected next offset for gap detection
+	lastUpdate  time.Time
 }
 
 type dohDownBuf struct {
@@ -157,12 +159,26 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 		//  - offset 回到 0 但之前已经有填充的数据（重传/新任务覆盖旧任务）。
 		// 为避免不同任务之间的缓冲区污染，始终重新分配缓冲并重置填充进度。
 		buf := make([]byte, total)
-		fb = &dohFragBuf{total: total, buf: buf}
+		fb = &dohFragBuf{total: total, buf: buf, expectedOff: 0, lastUpdate: time.Now()}
 		d.upFrags[key] = fb
+		if dohDebug {
+			fmt.Printf("[BeaconDoH-DNS] [UP] New upload session | sid=%s | total=%d bytes\n", sid, total)
+		}
 	}
 	if offset >= fb.total {
+		if dohDebug {
+			fmt.Printf("[BeaconDoH-DNS] [UP] WARN: offset %d >= total %d | sid=%s\n", offset, fb.total, sid)
+		}
 		return
 	}
+
+	// Gap detection: check if we received out-of-order
+	if offset != fb.expectedOff {
+		if dohDebug {
+			fmt.Printf("[BeaconDoH-DNS] [UP] GAP DETECTED | sid=%s | expected offset %d, got %d\n", sid, fb.expectedOff, offset)
+		}
+	}
+
 	end := offset + uint32(len(chunk))
 	if end > fb.total {
 		end = fb.total
@@ -170,10 +186,13 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 	n := end - offset
 	copy(fb.buf[offset:end], chunk[:n])
 	fb.filled += n
+	fb.expectedOff = end // update expected next offset
+	fb.lastUpdate = time.Now()
 
 	if dohDebug {
-		fmt.Printf("[BeaconDoH-DNS] [FRAG] Reassembling sid=%s | Got %d bytes (Offset: %d / Total: %d) | Progress: %d%%\n",
-			sid, n, offset, fb.total, (fb.filled*100)/fb.total)
+		progress := float64(fb.filled) * 100.0 / float64(fb.total)
+		fmt.Printf("[BeaconDoH-DNS] [UP] Fragment received | sid=%s | offset=%d len=%d | progress=%d/%d (%.1f%%)\n",
+			sid, offset, n, fb.filled, fb.total, progress)
 	}
 
 	if fb.filled >= fb.total {
@@ -377,11 +396,27 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				_ = d.ts.TsAgentSetTick(sid)
 			}
 
+			// ACK mechanism: parse ack_offset from dataB (4-byte big-endian from base32 decode)
+			var ackOffset uint32 = 0
+			if len(dataB) == 4 {
+				ackOffset = binary.BigEndian.Uint32(dataB)
+				if dohDebug && ackOffset > 0 {
+					fmt.Printf("[BeaconDoH-DNS] [ACK] Received ack_offset=%d from sid=%s\n", ackOffset, sid)
+				}
+			}
+
 			var df *dohDownBuf
 			if sid != "" {
 				d.mu.Lock()
 				if buf, ok := d.downFrags[sid]; ok {
 					df = buf
+					// Apply ACK: if ackOffset is within valid range and greater than current off, update it
+					if ackOffset > 0 && ackOffset <= df.total && ackOffset > df.off {
+						if dohDebug {
+							fmt.Printf("[BeaconDoH-DNS] [ACK] Advancing offset from %d to %d (sid=%s)\n", df.off, ackOffset, sid)
+						}
+						df.off = ackOffset
+					}
 				}
 				d.mu.Unlock()
 
@@ -455,10 +490,19 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			} else {
 				if df != nil {
 					if df.off >= df.total {
-						if dohDebug {
-							fmt.Printf("[BeaconDoH-DNS] [RETRY] Agent requested data again | sid=%s | Resending from offset 0\n", sid)
+						// Agent is requesting more data but we've sent everything.
+						// Check if ACK offset indicates they want a retransmission from a specific point.
+						if ackOffset > 0 && ackOffset < df.total {
+							if dohDebug {
+								fmt.Printf("[BeaconDoH-DNS] [RETRY] Agent requested retransmission | sid=%s | Resending from ACK offset %d\n", sid, ackOffset)
+							}
+							df.off = ackOffset
+						} else {
+							if dohDebug {
+								fmt.Printf("[BeaconDoH-DNS] [RETRY] Agent requested data again | sid=%s | Resending from offset 0\n", sid)
+							}
+							df.off = 0
 						}
-						df.off = 0
 					}
 
 					if df.off < df.total {

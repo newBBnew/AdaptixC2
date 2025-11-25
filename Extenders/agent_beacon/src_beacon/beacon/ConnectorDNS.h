@@ -30,6 +30,7 @@ private:
     BYTE* downBuf    = NULL;
     ULONG downTotal  = 0;
     ULONG downFilled = 0;
+    ULONG downAckOffset = 0; // last acknowledged offset for ACK mechanism
 
     // compression / flow-control flags
     BOOL  compressEnabled = TRUE;   // allow payload compression for large frames
@@ -64,4 +65,5 @@ public:
     void        UpdateResolvers(BYTE* resolvers);
 
     BOOL  IsBusy() const { return (downBuf != NULL); }
+    ULONG GetDownAckOffset() const { return downAckOffset; }
 };

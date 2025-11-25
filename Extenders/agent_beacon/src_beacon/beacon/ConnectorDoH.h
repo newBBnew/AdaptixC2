@@ -66,6 +66,7 @@ private:
     BYTE* downBuf    = NULL;
     ULONG downTotal  = 0;
     ULONG downFilled = 0;
+    ULONG downAckOffset = 0; // last acknowledged offset for ACK mechanism
     ULONG lastDownTotal   = 0;
     ULONG lastUpTotal     = 0;
 
@@ -100,6 +101,7 @@ public:
     ULONG GetLastDownTotal() const { return lastDownTotal; }
     void  ResetTrafficTotals() { lastUpTotal = 0; lastDownTotal = 0; }
     BOOL  IsBusy() const { return (downBuf != NULL); }
+    ULONG GetDownAckOffset() const { return downAckOffset; }
 
     BOOL  WasLastQueryOk() const { return lastQueryOk; }
 

