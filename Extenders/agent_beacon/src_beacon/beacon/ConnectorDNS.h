@@ -64,6 +64,10 @@ public:
     const BYTE* GetResolvers() const { return profile.resolvers; }
     void        UpdateResolvers(BYTE* resolvers);
 
-    BOOL  IsBusy() const { return (downBuf != NULL); }
+    // IsBusy: TRUE if we're in the middle of a multi-chunk download OR heartbeat indicated pending tasks
+    BOOL  IsBusy() const { return (downBuf != NULL) || hasPendingTasks; }
     ULONG GetDownAckOffset() const { return downAckOffset; }
+    
+private:
+    BOOL  hasPendingTasks = FALSE; // Set when heartbeat says "has tasks" but GET hasn't completed yet
 };

