@@ -436,6 +436,7 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	if protocol == "dns" || protocol == "doh" {
 		Files += ObjectDir + "/DnsCompression" + Ext + " "
 		Files += ObjectDir + "/miniz" + Ext + " "
+		Files += ObjectDir + "/DnsUtils" + Ext + " "
 	}
 
 	if generateConfig.Format == "Exe" {
