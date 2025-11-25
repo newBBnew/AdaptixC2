@@ -259,6 +259,8 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				op = "PUT"
 			case "api", "get":
 				op = "GET"
+			case "hb":
+				op = "HB" // Heartbeat with ACK offset
 			default:
 				op = ""
 			}
@@ -322,13 +324,11 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				logPrefix = "[UP]"
 				logDetails = fmt.Sprintf("Data Upload (len=%d)", len(dataB))
 			} else if op == "GET" {
-				if reqQType == dns.TypeA {
-					logPrefix = "[HB]"
-					logDetails = "Keep-Alive (A)"
-				} else {
-					logPrefix = "[DOWN]"
-					logDetails = "Data Poll (TXT)"
-				}
+				logPrefix = "[DOWN]"
+				logDetails = "Data Poll (TXT)"
+			} else if op == "HB" {
+				logPrefix = "[HB]"
+				logDetails = "Heartbeat (A)"
 			}
 
 			if sid != "" {
@@ -393,13 +393,18 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				_ = d.ts.TsAgentSetTick(sid)
 			}
 
-			// ACK mechanism: parse ack_offset from dataB (4-byte big-endian from base32 decode)
+			// ACK mechanism: parse ack_offset from dataB
+			// APT format: [ackOffset:4][nonce:4] = 8 bytes
 			var ackOffset uint32 = 0
-			if len(dataB) == 4 {
-				ackOffset = binary.BigEndian.Uint32(dataB)
-				if dohDebug && ackOffset > 0 {
-					fmt.Printf("[BeaconDoH-DNS] [ACK] Received ack_offset=%d from sid=%s\n", ackOffset, sid)
-				}
+			var ackNonce uint32 = 0
+			if len(dataB) >= 4 {
+				ackOffset = binary.BigEndian.Uint32(dataB[0:4])
+			}
+			if len(dataB) >= 8 {
+				ackNonce = binary.BigEndian.Uint32(dataB[4:8])
+			}
+			if dohDebug && ackOffset > 0 {
+				fmt.Printf("[BeaconDoH-DNS] [ACK] ack=%d nonce=%08x | sid=%s\n", ackOffset, ackNonce, sid)
 			}
 
 			var df *dohDownBuf
@@ -494,18 +499,21 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				}
 			} else {
 				if df != nil {
-					// NEW DESIGN: Agent specifies requested offset in the TXT query's dataLabel.
-					// This makes each request unique (different QNAME = no DNS caching).
-					// dataB contains the 4-byte big-endian requested offset.
+					// APT DESIGN: dataB contains [offset:4][nonce:4]
+					// Nonce makes each query unique (anti-caching), we only use offset
 					var requestedOffset uint32 = 0
+					var nonce uint32 = 0
 					if len(dataB) >= 4 {
 						requestedOffset = binary.BigEndian.Uint32(dataB[0:4])
 					}
+					if len(dataB) >= 8 {
+						nonce = binary.BigEndian.Uint32(dataB[4:8])
+					}
 					if requestedOffset >= df.total {
-						requestedOffset = 0 // wrap around if invalid
+						requestedOffset = 0
 					}
 					if dohDebug {
-						fmt.Printf("[BeaconDoH-DNS] [DOWN] Agent requested offset %d | sid=%s\n", requestedOffset, sid)
+						fmt.Printf("[BeaconDoH-DNS] [DOWN] offset=%d nonce=%08x | sid=%s\n", requestedOffset, nonce, sid)
 					}
 
 					if df.total > 0 {
@@ -573,6 +581,49 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						m.Answer = append(m.Answer, rr)
 					}
 				}
+			}
+
+		case "HB":
+			// Dedicated heartbeat operation (A query with ack_offset + nonce)
+			if sid != "" {
+				_ = d.ts.TsAgentSetTick(sid)
+			}
+
+			// Parse [ackOffset:4][nonce:4] from dataB
+			var ackOffset uint32 = 0
+			var hbNonce uint32 = 0
+			if len(dataB) >= 4 {
+				ackOffset = binary.BigEndian.Uint32(dataB[0:4])
+			}
+			if len(dataB) >= 8 {
+				hbNonce = binary.BigEndian.Uint32(dataB[4:8])
+			}
+
+			// Check task completion and determine if there are pending tasks
+			d.mu.Lock()
+			df, hasDf := d.downFrags[sid]
+			if hasDf && ackOffset >= df.total && df.total > 0 {
+				// Agent confirmed receipt of entire task
+				delete(d.downFrags, sid)
+				df = nil
+				hasDf = false
+				if dohDebug {
+					fmt.Printf("[BeaconDoH-DNS] [HB] Task complete | sid=%s ack=%d nonce=%08x\n", sid, ackOffset, hbNonce)
+				}
+			}
+			d.mu.Unlock()
+
+			hasTasks := hasDf && df != nil && df.total > 0 && ackOffset < df.total
+			if dohDebug {
+				fmt.Printf("[BeaconDoH-DNS] [HB] sid=%s ack=%d nonce=%08x hasTasks=%v\n", sid, ackOffset, hbNonce, hasTasks)
+			}
+
+			if hasTasks {
+				rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.1").To4()}
+				m.Answer = append(m.Answer, rr)
+			} else {
+				rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
+				m.Answer = append(m.Answer, rr)
 			}
 
 		default:
