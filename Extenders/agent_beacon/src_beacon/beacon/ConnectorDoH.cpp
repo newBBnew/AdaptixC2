@@ -18,6 +18,11 @@ static ULONG DnsBuildWireSeq(ULONG logicalSeq, ULONG signalBits)
 	return (sig << 12) | seqCounter;
 }
 
+// High 4 bits of seq are used as signalBits. For DoH connector we set a
+// different non-zero marker so the server can distinguish logical DNS vs DoH
+// traffic at protocol level.
+static const ULONG kDnsSignalBitsDoH = 0x2;
+
 #pragma pack(push, 1)
 typedef struct _DNS_META_V1 {
 	BYTE  version;
@@ -1026,7 +1031,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			}
 			MemFreeLocal((LPVOID*)&frame, frameSize);
 
-			ULONG wireSeq = DnsBuildWireSeq(seqForSend, 0);
+			ULONG wireSeq = DnsBuildWireSeq(seqForSend, kDnsSignalBitsDoH);
 			DnsBuildQName(this->sid, "cdn", wireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 			BYTE tmp[512];
 			ULONG tmpSize = 0;
@@ -1110,7 +1115,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		}
 		MemFreeLocal((LPVOID*)&encBuf, retrySize);
 
-		ULONG wireSeq = DnsBuildWireSeq(this->seq, 0);
+		ULONG wireSeq = DnsBuildWireSeq(this->seq, kDnsSignalBitsDoH);
 		DnsBuildQName(this->sid, "www", wireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 		BYTE tmp[512];
 		ULONG tmpSize = 0;
@@ -1162,7 +1167,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		memset(hbLabel, 0, sizeof(hbLabel));
 		DnsBase32Encode(hbData, 8, hbLabel, sizeof(hbLabel));
 		ULONG hbSeqLogical = this->seq + 1;
-		ULONG hbWireSeq = DnsBuildWireSeq(hbSeqLogical, 0);
+		ULONG hbWireSeq = DnsBuildWireSeq(hbSeqLogical, kDnsSignalBitsDoH);
 		DnsBuildQName(this->sid, "hb", hbWireSeq, this->idx, hbLabel, this->domain, qnameA, sizeof(qnameA));
 		DnsDebugLogf("[DoH] HEARTBEAT(A): seq=%lu ack=%lu nonce=%08x", this->seq + 1, this->downAckOffset, hbNonce);
 		BYTE ipBuf[16];

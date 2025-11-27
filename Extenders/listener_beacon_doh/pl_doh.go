@@ -352,6 +352,7 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		var sid, op string
 		var seq, idx int
 		var signalBits, seqCounter int
+		transport := "UNK"
 		var dataB []byte
 
 		if len(base) >= 5 {
@@ -383,6 +384,13 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			} else {
 				signalBits = 0
 				seqCounter = 0
+			}
+			// Map signalBits to logical transport marker set by agent connectors.
+			// bit0 -> DNS connector, bit1 -> DoH connector. Others reserved.
+			if (signalBits & 0x1) != 0 {
+				transport = "DNS"
+			} else if (signalBits & 0x2) != 0 {
+				transport = "DoH"
 			}
 
 			dataLabel := strings.Join(base[4:], "")
@@ -426,11 +434,12 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 			if sid != "" {
 				ts := time.Now().UnixMilli()
-				fmt.Printf("[SRV-RX] t=%d op=%s sid=%s raw_seq=%s raw_idx=%s seq=%d idx=%d sig=0x%x ctr=%d data_len=%d src=%s\n",
+				fmt.Printf("[SRV-RX] t=%d op=%s sid=%s raw_seq=%s raw_idx=%s seq=%d idx=%d sig=0x%x ctr=%d transport=%s data_len=%d src=%s\n",
 					ts, op, sid,
 					base[2], base[3],
 					seq, idx,
 					signalBits, seqCounter,
+					transport,
 					len(dataB), remote)
 			}
 		}

@@ -40,6 +40,11 @@ static ULONG DnsBuildWireSeq(ULONG logicalSeq, ULONG signalBits)
 	return (sig << 12) | seqCounter;
 }
 
+// High 4 bits of seq are used as signalBits. For DNS connector we set a
+// constant non-zero marker so the server can distinguish logical DNS vs DoH
+// traffic at protocol level.
+static const ULONG kDnsSignalBitsDNS = 0x1;
+
 #pragma pack(push, 1)
 typedef struct _DNS_META_V1 {
 	BYTE  version;
@@ -219,13 +224,29 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 			return FALSE;
 
 		if (qtypeCode == 16 && type == 16 && rdlen > 0) {
-			// TXT RDATA: <len><data>
-			BYTE txtLen = resp[pos];
-			if (txtLen > rdlen - 1)
-				txtLen = (BYTE)(rdlen - 1);
-			if (txtLen > 0 && txtLen <= outBufSize) {
-				memcpy(outBuf, resp + pos + 1, txtLen);
-				*outSize = txtLen;
+			// TXT RDATA: one or more <len><data> segments; concatenate safely
+			USHORT consumed = 0;
+			ULONG txtWritten = 0;
+			while (consumed < rdlen) {
+				if (pos + consumed >= recvLen)
+					break;
+				BYTE txtLen = resp[pos + consumed];
+				consumed++;
+				if (consumed + txtLen > rdlen)
+					break;
+				if (txtLen > 0) {
+					if (txtWritten + txtLen <= outBufSize) {
+						memcpy(outBuf + txtWritten, resp + pos + consumed, txtLen);
+						txtWritten += txtLen;
+					} else {
+						// output buffer full
+						break;
+					}
+				}
+				consumed += txtLen;
+			}
+			if (txtWritten > 0) {
+				*outSize = txtWritten;
 				return TRUE;
 			}
 		} else if (qtypeCode == 1 && type == 1 && rdlen >= 4) {
@@ -408,7 +429,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         }
         MemFreeLocal((LPVOID*)&encBuf, maxBuf);
 
-        ULONG hiWireSeq = DnsBuildWireSeq(this->seq, 0);
+        ULONG hiWireSeq = DnsBuildWireSeq(this->seq, kDnsSignalBitsDNS);
         DnsBuildQName(this->sid, "www", hiWireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
@@ -483,7 +504,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             }
             MemFreeLocal((LPVOID*)&frame, frameSize);
 
-            ULONG putWireSeq = DnsBuildWireSeq(seqForSend, 0);
+            ULONG putWireSeq = DnsBuildWireSeq(seqForSend, kDnsSignalBitsDNS);
             DnsBuildQName(this->sid, "cdn", putWireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
             BYTE tmp[512];
             ULONG tmpSize = 0;
@@ -559,7 +580,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         }
         MemFreeLocal((LPVOID*)&encBuf, retrySize);
 
-        ULONG hiRetryWireSeq = DnsBuildWireSeq(this->seq, 0);
+        ULONG hiRetryWireSeq = DnsBuildWireSeq(this->seq, kDnsSignalBitsDNS);
         DnsBuildQName(this->sid, "www", hiRetryWireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
@@ -598,7 +619,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         memset(hbLabel, 0, sizeof(hbLabel));
         DnsBase32Encode(hbData, 8, hbLabel, sizeof(hbLabel));
         ULONG hbLogicalSeq = this->seq + 1;
-        ULONG hbWireSeq = DnsBuildWireSeq(hbLogicalSeq, 0);
+        ULONG hbWireSeq = DnsBuildWireSeq(hbLogicalSeq, kDnsSignalBitsDNS);
         DnsBuildQName(this->sid, "hb", hbWireSeq, this->idx, hbLabel, this->domain, qnameA, sizeof(qnameA));
         
         DnsDebugLogf("[DNS] [HB-REQ] sid=%s seq=%lu ack=%lu nonce=%08x", this->sid, this->seq + 1, this->downAckOffset, hbNonce);
@@ -652,7 +673,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     DnsBase32Encode(reqData, 8, reqLabel, sizeof(reqLabel));
     
     ULONG logicalSeq = ++this->seq;
-    ULONG getWireSeq = DnsBuildWireSeq(logicalSeq, 0);
+    ULONG getWireSeq = DnsBuildWireSeq(logicalSeq, kDnsSignalBitsDNS);
     DnsBuildQName(this->sid, "api", getWireSeq, this->idx, reqLabel, this->domain, qname, sizeof(qname));
     DnsDebugLogf("[DNS] [DOWN-REQ] sid=%s seq=%lu off=%lu nonce=%08x", this->sid, logicalSeq, reqOffset, nonce);
     BYTE respBuf[1024];
