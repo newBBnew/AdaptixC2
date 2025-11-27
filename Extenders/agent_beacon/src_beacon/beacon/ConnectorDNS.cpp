@@ -50,17 +50,17 @@ typedef struct _DNS_META_V1 {
 	BYTE  version;
 	BYTE  metaFlags;
 	USHORT reserved;
-	ULONG queryTaskId;
+	ULONG downAckOffset; // when metaFlags bit0 is set
 } DNS_META_V1, *PDNS_META_V1;
 #pragma pack(pop)
 
 static void MetaV1Init(DNS_META_V1* h)
 {
 	if (!h) return;
-	h->version     = 1;
-	h->metaFlags   = 0;
-	h->reserved    = 0;
-	h->queryTaskId = 0;
+	h->version      = 1;
+	h->metaFlags    = 0;
+	h->reserved     = 0;
+	h->downAckOffset = 0;
 }
 
 static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* qtypeStr, BYTE* outBuf, ULONG outBufSize, ULONG* outSize)
@@ -484,6 +484,11 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 
             DNS_META_V1 meta;
             MetaV1Init(&meta);
+            // If we have a meaningful downAckOffset, encode it into MetaHeader V1
+            if (this->downAckOffset > 0) {
+                meta.metaFlags |= 0x01; // bit0 = hasDownAckOffset
+                meta.downAckOffset = this->downAckOffset;
+            }
             memcpy(frame, &meta, metaSize);
             // total_len (big-endian) after MetaHeader
             frame[metaSize + 0] = (BYTE)((total >> 24) & 0xFF);

