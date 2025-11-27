@@ -42,6 +42,27 @@ type dohDownBuf struct {
 	buf   []byte
 }
 
+const metaV1Size = 8
+
+type metaV1 struct {
+	Version   byte
+	MetaFlags byte
+	Reserved  uint16
+	QueryTask uint32
+}
+
+func parseMetaV1(data []byte) (metaV1, []byte, bool) {
+	var m metaV1
+	if len(data) < metaV1Size {
+		return m, data, false
+	}
+	m.Version = data[0]
+	m.MetaFlags = data[1]
+	m.Reserved = binary.LittleEndian.Uint16(data[2:4])
+	m.QueryTask = binary.LittleEndian.Uint32(data[4:8])
+	return m, data[metaV1Size:], true
+}
+
 // DoHListener is a DNS authority-style listener that is designed to sit
 // behind public DoH / recursive resolvers. From the outside, it looks
 // like a normal authoritative DNS server on UDP/TCP (HostBind:PortBind).
@@ -73,6 +94,9 @@ func (d *DoHListener) Start(ts Teamserver) error {
 	// Initialize local RNG for TTL jitter (avoid deprecated global seed)
 	d.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
+	d.upFrags = make(map[string]*dohFragBuf)
+	d.downFrags = make(map[string]*dohDownBuf)
+
 	addr := net.JoinHostPort(d.Config.HostBind, strconv.Itoa(d.Config.PortBind))
 
 	mux := dns.NewServeMux()
@@ -81,8 +105,6 @@ func (d *DoHListener) Start(ts Teamserver) error {
 	d.udpServer = &dns.Server{Addr: addr, Net: "udp", Handler: mux}
 	d.tcpServer = &dns.Server{Addr: addr, Net: "tcp", Handler: mux}
 	d.ts = ts
-	d.upFrags = make(map[string]*dohFragBuf)
-	d.downFrags = make(map[string]*dohDownBuf)
 
 	go func() {
 		if err := d.udpServer.ListenAndServe(); err != nil {
@@ -165,9 +187,26 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 		return
 	}
 
-	total := binary.BigEndian.Uint32(data[0:4])
-	offset := binary.BigEndian.Uint32(data[4:8])
-	chunk := data[8:]
+	var total uint32
+	var offset uint32
+	var chunk []byte
+	meta, rest, hasMeta := parseMetaV1(data)
+	if hasMeta {
+		if dohDebug {
+			fmt.Printf("[SRV-UP] META v=%d flags=0x%x qtask=%d sid=%s len=%d\n", meta.Version, meta.MetaFlags, meta.QueryTask, sid, len(data))
+		}
+		if len(rest) <= 8 {
+			_ = d.ts.TsAgentProcessData(sid, rest)
+			return
+		}
+		total = binary.BigEndian.Uint32(rest[0:4])
+		offset = binary.BigEndian.Uint32(rest[4:8])
+		chunk = rest[8:]
+	} else {
+		total = binary.BigEndian.Uint32(data[0:4])
+		offset = binary.BigEndian.Uint32(data[4:8])
+		chunk = data[8:]
+	}
 
 	const maxUploadSize = 4 << 20 // 4MB 上行限制
 	if total == 0 || total > maxUploadSize {
@@ -312,6 +351,7 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		var sid, op string
 		var seq, idx int
+		var signalBits, seqCounter int
 		var dataB []byte
 
 		if len(base) >= 5 {
@@ -336,9 +376,14 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			if v, err := strconv.ParseUint(base[3], 16, 32); err == nil {
 				idx = int(v ^ 0x39913991)
 			}
-
-			_ = seq
-			_ = idx
+			// Derive signal bits and logical seq counter from decoded seq
+			if seq != 0 {
+				signalBits = (seq >> 12) & 0xF
+				seqCounter = seq & 0x0FFF
+			} else {
+				signalBits = 0
+				seqCounter = 0
+			}
 
 			dataLabel := strings.Join(base[4:], "")
 			enc := base32.StdEncoding.WithPadding(base32.NoPadding)
@@ -379,26 +424,14 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				remote = addr.IP.String()
 			}
 
-			logPrefix := "[???]"
-			logDetails := ""
-
-			if op == "HI" {
-				logPrefix = "[HI]"
-				logDetails = fmt.Sprintf("New Session Init (len=%d)", len(dataB))
-			} else if op == "PUT" {
-				logPrefix = "[UP]"
-				logDetails = fmt.Sprintf("Data Upload (len=%d)", len(dataB))
-			} else if op == "GET" {
-				logPrefix = "[DOWN]"
-				logDetails = "Data Poll (TXT)"
-			} else if op == "HB" {
-				logPrefix = "[HB]"
-				logDetails = "Heartbeat (A)"
-			}
-
 			if sid != "" {
-				fmt.Printf("[BeaconDoH-DNS] %s %s | sid=%s seq=%d idx=%d | src=%s\n",
-					logPrefix, logDetails, sid, seq, idx, remote)
+				ts := time.Now().UnixMilli()
+				fmt.Printf("[SRV-RX] t=%d op=%s sid=%s raw_seq=%s raw_idx=%s seq=%d idx=%d sig=0x%x ctr=%d data_len=%d src=%s\n",
+					ts, op, sid,
+					base[2], base[3],
+					seq, idx,
+					signalBits, seqCounter,
+					len(dataB), remote)
 			}
 		}
 
@@ -486,54 +519,54 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					}
 				}
 				d.mu.Unlock()
+			}
 
-				if df == nil || df.off >= df.total {
-					maxDataSize := d.Config.PktSize * 256
-					if maxDataSize <= 0 || maxDataSize > (4<<20) {
-						maxDataSize = 4 << 20
+			if df == nil || df.off >= df.total {
+				maxDataSize := d.Config.PktSize * 256
+				if maxDataSize <= 0 || maxDataSize > (4<<20) {
+					maxDataSize = 4 << 20
+				}
+				if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil && len(p) > 0 {
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] GET tasks sid=%s total=%d\n", sid, len(p))
 					}
-					if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil && len(p) > 0 {
-						if dohDebug {
-							fmt.Printf("[BeaconDoH-DNS] GET tasks sid=%s total=%d\n", sid, len(p))
-						}
-						origLen := len(p)
-						flags := byte(0)
-						payload := p
+					origLen := len(p)
+					flags := byte(0)
+					payload := p
 
-						const minCompressSize = 2048
-						if origLen > minCompressSize {
-							var zbuf bytes.Buffer
-							wz, errW := zlib.NewWriterLevel(&zbuf, zlib.BestCompression)
-							if errW == nil {
-								if _, errC := wz.Write(p); errC == nil && wz.Close() == nil {
-									comp := zbuf.Bytes()
-									if len(comp) > 0 && len(comp) < origLen {
-										payload = comp
-										flags = 1
-									}
-								} else {
-									_ = wz.Close()
+					const minCompressSize = 2048
+					if origLen > minCompressSize {
+						var zbuf bytes.Buffer
+						wz, errW := zlib.NewWriterLevel(&zbuf, zlib.BestCompression)
+						if errW == nil {
+							if _, errC := wz.Write(p); errC == nil && wz.Close() == nil {
+								comp := zbuf.Bytes()
+								if len(comp) > 0 && len(comp) < origLen {
+									payload = comp
+									flags = 1
 								}
+							} else {
+								_ = wz.Close()
 							}
 						}
-
-						totalLen := 1 + 4 + len(payload)
-						buf := make([]byte, totalLen)
-						buf[0] = flags
-						buf[1] = byte(origLen & 0xFF)
-						buf[2] = byte((origLen >> 8) & 0xFF)
-						buf[3] = byte((origLen >> 16) & 0xFF)
-						buf[4] = byte((origLen >> 24) & 0xFF)
-						copy(buf[5:], payload)
-						df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
-						if dohDebug {
-							fmt.Printf("[BeaconDoH-DNS] [DOWN] Prepared task | sid=%s orig=%d flags=%d framed=%d\n", sid, origLen, flags, len(buf))
-						}
-
-						d.mu.Lock()
-						d.downFrags[sid] = df
-						d.mu.Unlock()
 					}
+
+					totalLen := 1 + 4 + len(payload)
+					buf := make([]byte, totalLen)
+					buf[0] = flags
+					buf[1] = byte(origLen & 0xFF)
+					buf[2] = byte((origLen >> 8) & 0xFF)
+					buf[3] = byte((origLen >> 16) & 0xFF)
+					buf[4] = byte((origLen >> 24) & 0xFF)
+					copy(buf[5:], payload)
+					df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] [DOWN] Prepared task | sid=%s orig_len=%d flags=%d framed_len=%d\n", sid, origLen, flags, len(buf))
+					}
+
+					d.mu.Lock()
+					d.downFrags[sid] = df
+					d.mu.Unlock()
 				}
 			}
 
@@ -688,7 +721,9 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					}
 
 					d.mu.Lock()
-					d.downFrags[sid] = df
+					if df != nil {
+						d.downFrags[sid] = df
+					}
 					d.mu.Unlock()
 				}
 			}
