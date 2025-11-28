@@ -8,23 +8,25 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 // DoHConfig defines server-side configuration for the DoH listener.
 type DoHConfig struct {
-	HostBind   string `json:"host_bind"`
-	PortBind   int    `json:"port_bind"`
-	Mode       string `json:"mode"` // authoritative | direct
-	Domain     string `json:"domain"`
-	DoHUrls    string `json:"doh_urls"` // Comma separated URLs
-	UserAgent  string `json:"user_agent"`
-	PktSize    int    `json:"pkt_size"`
-	LabelSize  int    `json:"label_size"`
-	TTL        int    `json:"ttl"`
-	EncryptKey string `json:"encrypt_key"`
-	Protocol   string `json:"protocol"`
+	HostBind   string   `json:"host_bind"`
+	PortBind   int      `json:"port_bind"`
+	Mode       string   `json:"mode"`     // authoritative | direct
+	Domain     string   `json:"domain"`   // legacy single domain (for backward compat)
+	Domains    []string `json:"-"`        // parsed list of domains
+	DoHUrls    string   `json:"doh_urls"` // Comma separated URLs
+	UserAgent  string   `json:"user_agent"`
+	PktSize    int      `json:"pkt_size"`
+	LabelSize  int      `json:"label_size"`
+	TTL        int      `json:"ttl"`
+	EncryptKey string   `json:"encrypt_key"`
+	Protocol   string   `json:"protocol"`
 
 	// HTTPS Config
 	Ssl         bool   `json:"ssl"`
@@ -97,6 +99,18 @@ func (m *ModuleExtender) HandlerCreateListenerDataAndStart(name string, configDa
 	if conf.Protocol == "" {
 		conf.Protocol = "doh"
 	}
+
+	// Parse comma-separated domains into slice for multi-domain support
+	if conf.Domain != "" {
+		for _, d := range strings.Split(conf.Domain, ",") {
+			d = strings.TrimSpace(d)
+			d = strings.TrimSuffix(strings.ToLower(d), ".")
+			if d != "" {
+				conf.Domains = append(conf.Domains, d)
+			}
+		}
+	}
+
 	// Defaults
 	if conf.UserAgent == "" {
 		conf.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"

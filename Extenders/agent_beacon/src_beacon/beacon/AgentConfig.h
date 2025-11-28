@@ -48,12 +48,14 @@ typedef struct {
 	ULONG  label_size;
 	ULONG  ttl;
 	BYTE*  encrypt_key;
+	BYTE*  doh_mode;     // "recursive" (via public DNS, 512 limit) or "direct" (no limit)
 } ProfileDoH;
 
 typedef struct {
 	ProfileDNS dns;
 	ProfileDoH doh;
-	BYTE*      mode;   // "dns", "doh", or "auto"
+	BYTE*      mode;      // "dns", "doh", or "auto"
+	BYTE*      doh_mode;  // "recursive" or "direct" (mirrored from doh.doh_mode for convenience)
 } ProfileDNSDoH;
 
 #endif

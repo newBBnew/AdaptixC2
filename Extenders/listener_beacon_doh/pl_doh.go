@@ -26,6 +26,25 @@ import (
 // public DoH resolvers. You can turn it off for production if needed.
 const dohDebug = true
 
+// rc4Crypt applies RC4 encryption/decryption (symmetric operation)
+// Returns the result or original data if key is invalid
+func rc4Crypt(data []byte, keyHex string) []byte {
+	if len(data) == 0 {
+		return data
+	}
+	keyBytes, err := hex.DecodeString(keyHex)
+	if err != nil || len(keyBytes) != 16 {
+		return data // return original if key invalid
+	}
+	cipher, err := rc4.NewCipher(keyBytes)
+	if err != nil {
+		return data
+	}
+	result := make([]byte, len(data))
+	cipher.XORKeyStream(result, data)
+	return result
+}
+
 type dohFragBuf struct {
 	total       uint32
 	buf         []byte
@@ -389,7 +408,22 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		labels := dns.SplitDomainName(q.Name)
 		base := labels
 
-		if d.Config.Domain != "" {
+		// Multi-domain support: match any configured domain
+		if len(d.Config.Domains) > 0 {
+			for i := range labels {
+				tail := strings.ToLower(strings.Join(labels[i:], "."))
+				for _, dom := range d.Config.Domains {
+					if tail == dom {
+						base = labels[:i]
+						break
+					}
+				}
+				if len(base) < len(labels) {
+					break // found a match
+				}
+			}
+		} else if d.Config.Domain != "" {
+			// Legacy single domain fallback
 			dom := strings.TrimSuffix(strings.ToLower(d.Config.Domain), ".")
 			for i := range labels {
 				tail := strings.ToLower(strings.Join(labels[i:], "."))
@@ -524,10 +558,12 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					}
 				}
 				if op == "PUT" {
+					// RC4 decrypt the PUT payload
+					decrypted := rc4Crypt(dataB, d.Config.EncryptKey)
 					if dohDebug {
-						fmt.Printf("[BeaconDoH-DNS] %s payload len=%d sid=%s\n", op, len(dataB), sid)
+						fmt.Printf("[BeaconDoH-DNS] %s payload len=%d sid=%s\n", op, len(decrypted), sid)
 					}
-					d.handlePutFragment(sid, seq, dataB)
+					d.handlePutFragment(sid, seq, decrypted)
 					if sid != "" {
 						_ = d.ts.TsAgentSetTick(sid)
 					}
@@ -551,15 +587,18 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				_ = d.ts.TsAgentSetTick(sid)
 			}
 
-			// Parse requested offset from dataB (agent sends [offset:4][nonce:4])
+			// RC4 decrypt the GET query payload
+			decryptedGet := rc4Crypt(dataB, d.Config.EncryptKey)
+
+			// Parse requested offset from decrypted data (agent sends [offset:4][nonce:4])
 			// APT format: [offset:4][nonce:4] = 8 bytes
 			var reqOffset uint32 = 0
 			var reqNonce uint32 = 0
-			if len(dataB) >= 4 {
-				reqOffset = binary.BigEndian.Uint32(dataB[0:4])
+			if len(decryptedGet) >= 4 {
+				reqOffset = binary.BigEndian.Uint32(decryptedGet[0:4])
 			}
-			if len(dataB) >= 8 {
-				reqNonce = binary.BigEndian.Uint32(dataB[4:8])
+			if len(decryptedGet) >= 8 {
+				reqNonce = binary.BigEndian.Uint32(decryptedGet[4:8])
 			}
 			if dohDebug && reqOffset > 0 {
 				fmt.Printf("[BeaconDoH-DNS] [ACK] req_off=%d nonce=%08x | sid=%s\n", reqOffset, reqNonce, sid)
@@ -668,10 +707,16 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					isTCP := w.RemoteAddr().Network() == "tcp"
 
 					if !isTCP {
-						// DoH chunk size: 400 bytes binary = ~540 bytes Base64
-						// Most DoH resolvers can handle ~500-600 byte TXT responses over UDP.
-						// If truncation occurs, agent will detect offset mismatch and retry.
-						const dohSafeChunk = 400
+						// DNS UDP limit: 512 bytes total (RFC 1035)
+						// Breakdown:
+						//   - DNS header: 12 bytes
+						//   - Question section: ~60 bytes (domain + type)
+						//   - TXT RR header: 12 bytes + length bytes: ~2 bytes
+						//   - Available for Base64: ~426 bytes
+						//   - Max raw data: 426 * 3/4 ≈ 320 bytes
+						// Using 280 bytes for safety margin with Cloudflare and other public DNS resolvers
+						// 280 bytes raw → ~374 bytes Base64 → ~460 bytes total (under 512)
+						const dohSafeChunk = 280
 						if maxChunk <= 0 || maxChunk > dohSafeChunk {
 							maxChunk = dohSafeChunk
 						}
@@ -714,7 +759,9 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{""}}
 				m.Answer = append(m.Answer, rr)
 			} else {
-				b64Str := base64.StdEncoding.EncodeToString(frame)
+				// RC4 encrypt the response frame before Base64 encoding
+				encryptedFrame := rc4Crypt(frame, d.Config.EncryptKey)
+				b64Str := base64.StdEncoding.EncodeToString(encryptedFrame)
 				var chunks []string
 				for len(b64Str) > 255 {
 					chunks = append(chunks, b64Str[:255])
@@ -732,18 +779,21 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				_ = d.ts.TsAgentSetTick(sid)
 			}
 
-			// Parse [ackOffset:4][hbNonce:4][ackTaskNonce:4] from dataB (12 bytes total)
+			// RC4 decrypt the HB payload
+			decryptedHB := rc4Crypt(dataB, d.Config.EncryptKey)
+
+			// Parse [ackOffset:4][hbNonce:4][ackTaskNonce:4] from decrypted data (12 bytes total)
 			var ackOffset uint32 = 0
 			var hbNonce uint32 = 0
 			var ackTaskNonce uint32 = 0
-			if len(dataB) >= 4 {
-				ackOffset = binary.BigEndian.Uint32(dataB[0:4])
+			if len(decryptedHB) >= 4 {
+				ackOffset = binary.BigEndian.Uint32(decryptedHB[0:4])
 			}
-			if len(dataB) >= 8 {
-				hbNonce = binary.BigEndian.Uint32(dataB[4:8])
+			if len(decryptedHB) >= 8 {
+				hbNonce = binary.BigEndian.Uint32(decryptedHB[4:8])
 			}
-			if len(dataB) >= 12 {
-				ackTaskNonce = binary.BigEndian.Uint32(dataB[8:12])
+			if len(decryptedHB) >= 12 {
+				ackTaskNonce = binary.BigEndian.Uint32(decryptedHB[8:12])
 			}
 
 			// Check existing task and handle ACK

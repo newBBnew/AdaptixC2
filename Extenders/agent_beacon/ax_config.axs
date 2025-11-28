@@ -188,7 +188,7 @@ function RegisterCommands(listenerType)
 
     // DNS/DoH transport configuration (runtime-selectable transport for DNS+DoH beacon)
     let _cmd_transport_mode = ax.create_command("mode", "Change beacon transport mode (dns/doh/auto)", "transport mode auto");
-    _cmd_transport_mode.addArgString("mode", true, "Transport mode: dns, doh, or auto");
+    _cmd_transport_mode.addArgString("mode", true, "Transport mode: dns, doh, or auto (auto enables bi-directional failover)");
 
     let _cmd_transport_dns_resolvers = ax.create_command("dns.resolvers", "Update DNS recursive resolvers (comma-separated)", "transport dns.resolvers 8.8.8.8,1.1.1.1");
     _cmd_transport_dns_resolvers.addArgString("resolvers", true, "Comma-separated list of recursive resolvers (e.g. 8.8.8.8,1.1.1.1)");
@@ -196,8 +196,13 @@ function RegisterCommands(listenerType)
     let _cmd_transport_doh_urls = ax.create_command("doh.urls", "Update DoH endpoints (comma-separated)", "transport doh.urls https://dns.google/resolve,https://cloudflare-dns.com/dns-query");
     _cmd_transport_doh_urls.addArgString("urls", true, "Comma-separated list of DoH URLs");
 
+    let _cmd_transport_doh_mode = ax.create_command("doh.mode", "Set DoH connection mode (direct/recursive)", "transport doh.mode recursive");
+    _cmd_transport_doh_mode.addArgString("mode", true, "DoH mode: direct (large chunks, no 512 limit) or recursive (via public DNS, 512 limit)");
+
+    let _cmd_transport_status = ax.create_command("status", "Show current transport status", "transport status", "Task: show transport status");
+
     let cmd_transport = ax.create_command("transport", "Configure beacon DNS/DoH transport");
-    cmd_transport.addSubCommands([_cmd_transport_mode, _cmd_transport_dns_resolvers, _cmd_transport_doh_urls]);
+    cmd_transport.addSubCommands([_cmd_transport_mode, _cmd_transport_dns_resolvers, _cmd_transport_doh_urls, _cmd_transport_doh_mode, _cmd_transport_status]);
 
     let _cmd_ps_list = ax.create_command("list", "Show process list", "ps list", "Task: show process list");
     let _cmd_ps_kill = ax.create_command("kill", "Kill a process with a given PID", "ps kill 7865", "Task: kill process");
@@ -338,7 +343,27 @@ function GenerateUI(listenerType) {
     let labelEncryptKey = form.create_label("Encrypt Key:");
     let textEncryptKey = form.create_textline("mydnskey123");
 
-	// Only show DNS fields for BeaconDNS; DoH inherits all from listener profile
+    // DoH-specific configuration
+    let labelTransportMode = form.create_label("Transport Mode:");
+    let comboTransportMode = form.create_combo();
+    comboTransportMode.addItems(["dns", "doh", "auto"]);
+    comboTransportMode.setCurrentIndex(2); // default auto
+    let labelDohMode = form.create_label("DoH Mode:");
+    let comboDohMode = form.create_combo();
+    comboDohMode.addItems(["recursive", "direct"]);
+    comboDohMode.setCurrentIndex(0); // default recursive (via public DNS)
+
+    // DNS Resolvers (for recursive DNS queries)
+    let labelDnsResolvers = form.create_label("DNS Resolvers:");
+    let textDnsResolvers = form.create_textline("8.8.8.8,1.1.1.1,9.9.9.9");
+    textDnsResolvers.setPlaceholder("Comma-separated: 8.8.8.8,1.1.1.1,9.9.9.9");
+
+    // DoH URLs (for DoH mode)
+    let labelDohUrls = form.create_label("DoH URLs:");
+    let textDohUrls = form.create_textline("https://dns.google/dns-query,https://cloudflare-dns.com/dns-query,https://dns.quad9.net/dns-query");
+    textDohUrls.setPlaceholder("Comma-separated DoH endpoints");
+
+	// Only show DNS fields for BeaconDNS
 	if(listenerType != "BeaconDNS") {
 		labelDomain.setVisible(false);
 		textDomain.setVisible(false);
@@ -350,6 +375,18 @@ function GenerateUI(listenerType) {
         spinTTL.setVisible(false);
         labelEncryptKey.setVisible(false);
         textEncryptKey.setVisible(false);
+    }
+
+    // Show transport/DoH mode fields only for BeaconDoH
+    if(listenerType != "BeaconDoH") {
+        labelTransportMode.setVisible(false);
+        comboTransportMode.setVisible(false);
+        labelDohMode.setVisible(false);
+        comboDohMode.setVisible(false);
+        labelDnsResolvers.setVisible(false);
+        textDnsResolvers.setVisible(false);
+        labelDohUrls.setVisible(false);
+        textDohUrls.setVisible(false);
     }
 
     let checkKilldate = form.create_check("Set 'killdate'");
@@ -378,26 +415,36 @@ function GenerateUI(listenerType) {
     layout.addWidget(labelSleep, 2, 0, 1, 1);
     layout.addWidget(textSleep, 2, 1, 1, 1);
     layout.addWidget(spinJitter, 2, 2, 1, 1);
-    layout.addWidget(labelDomain, 3, 0, 1, 1);
-    layout.addWidget(textDomain, 3, 1, 1, 2);
-    layout.addWidget(labelQType, 4, 0, 1, 1);
-    layout.addWidget(comboQType, 4, 1, 1, 2);
-    layout.addWidget(labelPktSize, 5, 0, 1, 1);
-    layout.addWidget(spinPktSize, 5, 1, 1, 2);
-    layout.addWidget(labelTTL, 6, 0, 1, 1);
-    layout.addWidget(spinTTL, 6, 1, 1, 2);
-    layout.addWidget(labelEncryptKey, 7, 0, 1, 1);
-    layout.addWidget(textEncryptKey, 7, 1, 1, 2);
-    layout.addWidget(checkKilldate, 8, 0, 1, 1);
-    layout.addWidget(dateKill, 8, 1, 1, 1);
-    layout.addWidget(timeKill, 8, 2, 1, 1);
-    layout.addWidget(checkWorkingTime, 9, 0, 1, 1);
-    layout.addWidget(timeStart, 9, 1, 1, 1);
-    layout.addWidget(timeFinish, 9, 2, 1, 1);
-    layout.addWidget(labelSvcName, 10, 0, 1, 1);
-    layout.addWidget(textSvcName, 10, 1, 1, 2);
-    layout.addWidget(checkSideloading, 11, 0, 1, 1);
-    layout.addWidget(sideloadingSelector, 11, 1, 1, 2);
+    // DoH transport settings (row 3-6)
+    layout.addWidget(labelTransportMode, 3, 0, 1, 1);
+    layout.addWidget(comboTransportMode, 3, 1, 1, 2);
+    layout.addWidget(labelDohMode, 4, 0, 1, 1);
+    layout.addWidget(comboDohMode, 4, 1, 1, 2);
+    layout.addWidget(labelDnsResolvers, 5, 0, 1, 1);
+    layout.addWidget(textDnsResolvers, 5, 1, 1, 2);
+    layout.addWidget(labelDohUrls, 6, 0, 1, 1);
+    layout.addWidget(textDohUrls, 6, 1, 1, 2);
+    // DNS fields (row 7-13)
+    layout.addWidget(labelDomain, 7, 0, 1, 1);
+    layout.addWidget(textDomain, 7, 1, 1, 2);
+    layout.addWidget(labelQType, 8, 0, 1, 1);
+    layout.addWidget(comboQType, 8, 1, 1, 2);
+    layout.addWidget(labelPktSize, 9, 0, 1, 1);
+    layout.addWidget(spinPktSize, 9, 1, 1, 2);
+    layout.addWidget(labelTTL, 10, 0, 1, 1);
+    layout.addWidget(spinTTL, 10, 1, 1, 2);
+    layout.addWidget(labelEncryptKey, 11, 0, 1, 1);
+    layout.addWidget(textEncryptKey, 11, 1, 1, 2);
+    layout.addWidget(checkKilldate, 12, 0, 1, 1);
+    layout.addWidget(dateKill, 12, 1, 1, 1);
+    layout.addWidget(timeKill, 12, 2, 1, 1);
+    layout.addWidget(checkWorkingTime, 13, 0, 1, 1);
+    layout.addWidget(timeStart, 13, 1, 1, 1);
+    layout.addWidget(timeFinish, 13, 2, 1, 1);
+    layout.addWidget(labelSvcName, 14, 0, 1, 1);
+    layout.addWidget(textSvcName, 14, 1, 1, 2);
+    layout.addWidget(checkSideloading, 15, 0, 1, 1);
+    layout.addWidget(sideloadingSelector, 15, 1, 1, 2);
 
     form.connect(comboFormat, "currentTextChanged", function(text) {
         if(text == "Service Exe") {
@@ -421,6 +468,10 @@ function GenerateUI(listenerType) {
     container.put("format", comboFormat)
     container.put("sleep", textSleep)
     container.put("jitter", spinJitter)
+    container.put("transport_mode", comboTransportMode)  // dns/doh/auto
+    container.put("doh_mode", comboDohMode)              // recursive/direct
+    container.put("dns_resolvers", textDnsResolvers)     // e.g. "8.8.8.8,1.1.1.1,9.9.9.9"
+    container.put("doh_urls", textDohUrls)               // e.g. "https://dns.google/dns-query,..."
     container.put("domain", textDomain)
     container.put("qtype", comboQType)
     container.put("pkt_size", spinPktSize)

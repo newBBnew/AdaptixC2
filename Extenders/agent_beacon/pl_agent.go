@@ -35,6 +35,11 @@ type GenerateConfig struct {
 	EndTime            string `json:"end_time"`
 	IsSideloading      bool   `json:"is_sideloading"`
 	SideloadingContent string `json:"sideloading_content"`
+	// DoH-specific fields
+	TransportMode string `json:"transport_mode"` // dns/doh/auto
+	DohMode       string `json:"doh_mode"`       // recursive/direct
+	DnsResolvers  string `json:"dns_resolvers"`  // e.g. "8.8.8.8,1.1.1.1,9.9.9.9"
+	DohUrls       string `json:"doh_urls"`       // e.g. "https://dns.google/dns-query,..."
 }
 
 var (
@@ -241,15 +246,28 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 	case "doh":
 		// Upgrade "doh" protocol to be the full DNS+DoH combined beacon.
 		// ProfileDNSDoH structure on the C++ side:
-		//   struct ProfileDNSDoH { ProfileDNS dns; ProfileDoH doh; BYTE* mode; };
-		// Here we pack it as: [DNS fields...][DoH fields...][mode string][common timing fields...]
+		//   struct ProfileDNSDoH { ProfileDNS dns; ProfileDoH doh; BYTE* mode; BYTE* doh_mode; };
+		// Here we pack it as: [DNS fields...][DoH fields...][mode string][doh_mode string][common timing fields...]
 
 		domain, _ := listenerMap["domain"].(string)
 		// --- DNS params ---
-		resolvers, _ := listenerMap["resolvers"].(string)
+		// Prefer generateConfig values, fallback to listenerMap
+		resolvers := generateConfig.DnsResolvers
+		if resolvers == "" {
+			resolvers, _ = listenerMap["resolvers"].(string)
+		}
+		if resolvers == "" {
+			resolvers = "8.8.8.8,1.1.1.1,9.9.9.9" // default
+		}
 		qtype, _ := listenerMap["qtype"].(string)
 		// --- DoH params ---
-		doh_urls, _ := listenerMap["doh_urls"].(string)
+		doh_urls := generateConfig.DohUrls
+		if doh_urls == "" {
+			doh_urls, _ = listenerMap["doh_urls"].(string)
+		}
+		if doh_urls == "" {
+			doh_urls = "https://dns.google/dns-query,https://cloudflare-dns.com/dns-query,https://dns.quad9.net/dns-query" // default
+		}
 		user_agent, _ := listenerMap["user_agent"].(string)
 		// shared
 		pkt_size_f, _ := listenerMap["pkt_size"].(float64)
@@ -270,8 +288,17 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 
 		lWatermark, _ := strconv.ParseInt(listenerWM, 16, 64)
 
-		// Default mode is "auto" => start on DNS, auto-failover to DoH.
-		mode := "auto"
+		// Transport mode: dns/doh/auto (default: auto)
+		mode := generateConfig.TransportMode
+		if mode == "" {
+			mode = "auto"
+		}
+
+		// DoH connection mode: recursive/direct (default: recursive)
+		dohMode := generateConfig.DohMode
+		if dohMode == "" {
+			dohMode = "recursive"
+		}
 
 		params = append(params, int(agentWatermark))
 
@@ -290,9 +317,13 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, pkt_size)
 		params = append(params, label_size)
 		params = append(params, ttl)
+		params = append(params, dohMode) // doh_mode field
 
 		// --- Mode string ---
 		params = append(params, mode)
+
+		// --- doh_mode string (mirrored for ProfileDNSDoH) ---
+		params = append(params, dohMode)
 
 		// --- Common tail (listener watermark + timing) ---
 		params = append(params, int(lWatermark))

