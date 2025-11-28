@@ -67,6 +67,7 @@ private:
     ULONG downTotal  = 0;
     ULONG downFilled = 0;
     ULONG downAckOffset = 0; // last acknowledged offset for ACK mechanism
+    ULONG downTaskNonce = 0; // unique nonce for current task batch (detect new task)
     ULONG lastDownTotal   = 0;
     ULONG lastUpTotal     = 0;
 

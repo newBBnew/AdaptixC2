@@ -11,7 +11,7 @@ type Teamserver interface {
 	TsAgentCreate(agentCrc string, agentId string, beat []byte, listenerName string, ExternalIP string, Async bool) (adaptix.AgentData, error)
 	TsAgentProcessData(agentId string, bodyData []byte) error
 	TsAgentSetTick(agentId string) error
-	TsAgentGetHostedTasks(agentId string, maxDataSize int) ([]byte, error)
+	TsAgentGetHostedAll(agentId string, maxDataSize int) ([]byte, error)
 }
 
 type ModuleExtender struct {

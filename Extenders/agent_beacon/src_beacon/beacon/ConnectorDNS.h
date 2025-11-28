@@ -31,6 +31,7 @@ private:
     ULONG downTotal  = 0;
     ULONG downFilled = 0;
     ULONG downAckOffset = 0; // last acknowledged offset for ACK mechanism
+    ULONG downTaskNonce = 0; // unique nonce for current task batch (detect new task)
 
     // compression / flow-control flags
     BOOL  compressEnabled = TRUE;   // allow payload compression for large frames
