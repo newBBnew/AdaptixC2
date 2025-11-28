@@ -287,14 +287,13 @@ BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
     // cache profile
     this->profile = profile;
 
-    // copy encrypt key (expect up to 16 bytes)
+    // copy encrypt key (fixed 16 bytes binary, NOT null-terminated string)
     if (!profile.encrypt_key)
         return FALSE;
     memset(this->encryptKey, 0, sizeof(this->encryptKey));
-    ULONG keyLen = StrLenA((CHAR*)profile.encrypt_key);
-    if (keyLen > 16)
-        keyLen = 16;
-    memcpy(this->encryptKey, profile.encrypt_key, keyLen);
+    // encrypt_key is already hex-decoded to 16 bytes binary in pl_agent.go
+    // Do NOT use StrLenA - binary data may contain 0x00 bytes
+    memcpy(this->encryptKey, profile.encrypt_key, 16);
 
     // pkt size and basic bounds
     this->pktSize = profile.pkt_size ? profile.pkt_size : 1024;

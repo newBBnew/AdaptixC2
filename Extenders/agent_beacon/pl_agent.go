@@ -93,12 +93,14 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 
 	encrypt_key, _ := listenerMap["encrypt_key"].(string)
 
-	// encrypt_key 应该已经是监听器转换后的 32 位 hex 字符串
-	// 直接解码即可
-	encryptKey, err := hex.DecodeString(encrypt_key)
+	// encrypt_key 应该是 hex 字符串，解码后规范化为固定 16 字节
+	// 不足补 0，过长截断
+	rawKey, err := hex.DecodeString(encrypt_key)
 	if err != nil {
-		return nil, err
+		rawKey = []byte{} // 解码失败则为空
 	}
+	encryptKey := make([]byte, 16)
+	copy(encryptKey, rawKey) // 不足自动补 0，过长自动截断
 
 	protocol, _ := listenerMap["protocol"].(string)
 	switch protocol {
