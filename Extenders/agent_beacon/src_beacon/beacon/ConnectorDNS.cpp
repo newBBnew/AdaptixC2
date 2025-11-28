@@ -146,8 +146,12 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 	int recvLen = 0;
 	const int maxRetries = 3;
 	for (int attempt = 0; attempt < maxRetries; ++attempt) {
+		// Log readable QNAME (domain format)
+		DnsDebugLogf("[TX] QNAME: %s", qname);
+		
 		int sent = ApiWin->sendto(s, (const char*)query, offset, 0, (sockaddr*)&addr, sizeof(addr));
 		if (sent != offset) {
+			DnsDebugLogf("[DNS] sendto failed: sent=%d expected=%d", sent, offset);
 			ApiWin->closesocket(s);
 			ApiWin->WSACleanup();
 			return FALSE;
@@ -162,27 +166,34 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 
 		int selResult = ApiWin->select(0, &readfds, NULL, NULL, &timeout);
 		if (selResult == 0) {
-			// timeout, retry if attempts remain
+			DnsDebugLogf("[DNS] timeout attempt=%d", attempt);
 			continue;
 		}
 		if (selResult == SOCKET_ERROR) {
+			DnsDebugLog("[DNS] select error");
 			break;
 		}
 
 		int addrLen = sizeof(addr);
 		recvLen = ApiWin->recvfrom(s, (char*)resp, sizeof(resp), 0, (sockaddr*)&addr, &addrLen);
-		if (recvLen > 0)
+		if (recvLen > 0) {
+			DnsDebugLogf("[RX] len=%d", recvLen);
 			break;
+		}
 	}
 
 	ApiWin->closesocket(s);
 	ApiWin->WSACleanup();
-	if (recvLen <= 0)
+	if (recvLen <= 0) {
+		DnsDebugLog("[DNS] no response after retries");
 		return FALSE;
+	}
 
 	// 解析 answers，根据 qtypeCode 决定如何重组 payload
-	if (recvLen < 12)
+	if (recvLen < 12) {
+		DnsDebugLogf("[DNS] DnsQueryTxt: response too short (recvLen=%d)", recvLen);
 		return FALSE;
+	}
 	int qdcount = (resp[4] << 8) | resp[5];
 	int ancount = (resp[6] << 8) | resp[7];
 	int pos = 12;

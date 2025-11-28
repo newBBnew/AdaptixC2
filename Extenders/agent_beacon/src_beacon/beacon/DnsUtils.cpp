@@ -301,3 +301,32 @@ void DnsDebugLogf(const char* fmt, ...)
     
     DnsDebugLog(buf);
 }
+
+// Log raw hex data with direction indicator
+void DnsDebugLogHex(const char* direction, const BYTE* data, ULONG len)
+{
+    if (!data || len == 0) return;
+    
+    // Limit to first 128 bytes to avoid huge logs
+    ULONG maxShow = len > 128 ? 128 : len;
+    
+    // Each byte = 2 hex chars + space, plus prefix and suffix
+    CHAR buf[512] = {0};
+    _snprintf(buf, sizeof(buf), "%s len=%lu: ", direction, len);
+    
+    ULONG offset = lstrlenA(buf);
+    for (ULONG i = 0; i < maxShow && offset + 3 < sizeof(buf); i++) {
+        static const CHAR hex[] = "0123456789abcdef";
+        buf[offset++] = hex[(data[i] >> 4) & 0x0F];
+        buf[offset++] = hex[data[i] & 0x0F];
+        buf[offset++] = ' ';
+    }
+    if (len > maxShow && offset + 4 < sizeof(buf)) {
+        buf[offset++] = '.';
+        buf[offset++] = '.';
+        buf[offset++] = '.';
+    }
+    buf[offset] = '\0';
+    
+    DnsDebugLog(buf);
+}

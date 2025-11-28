@@ -48,4 +48,7 @@ void DnsDebugLog(const char* msg);
 // Formatted log with printf-style arguments
 void DnsDebugLogf(const char* fmt, ...);
 
+// Log raw hex data with direction indicator (TX/RX)
+void DnsDebugLogHex(const char* direction, const BYTE* data, ULONG len);
+
 #endif // DNS_UTILS_H
