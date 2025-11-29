@@ -834,14 +834,6 @@ void AgentMain()
 				burst = TRUE;
 			}
 
-			#if defined(BEACON_DNS) || defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
-			// Debug: log burst decision factors (only when something interesting happens)
-			if (burst || isBusy || lastUp > 0 || lastDown > 0) {
-				DbgPrint("[BURST] isBusy=%d lastUp=%lu lastDown=%lu => burst=%d", 
-				         isBusy, lastUp, lastDown, burst);
-			}
-			#endif
-
 			if (burst) {
 				// Burst mode: 20ms sleep for fast transfers (~50 QPS theoretical)
 				ULONG burstSleep = 20;
