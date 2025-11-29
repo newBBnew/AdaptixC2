@@ -954,3 +954,14 @@ void ConnectorDNS::RecvClear()
     this->recvData = NULL;
     this->recvSize = 0;
 }
+
+BOOL ConnectorDNS::IsBusy() const
+{
+    BOOL busy = (this->downBuf != NULL) || this->hasPendingTasks;
+    // 只有当状态发生变化或确实繁忙时才打印，避免刷屏
+    // 但为了调试那个该死的 10s 延迟，我们暂时允许它打印
+    if (busy) {
+        // DnsDebugLogf("[DNS] IsBusy=TRUE (downBuf=%p pending=%d)", this->downBuf, this->hasPendingTasks);
+    }
+    return busy;
+}

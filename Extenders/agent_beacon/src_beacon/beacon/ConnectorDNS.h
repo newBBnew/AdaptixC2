@@ -66,7 +66,7 @@ public:
     void        UpdateResolvers(BYTE* resolvers);
 
     // IsBusy: TRUE if we're in the middle of a multi-chunk download OR heartbeat indicated pending tasks
-    BOOL  IsBusy() const { return (downBuf != NULL) || hasPendingTasks; }
+    BOOL  IsBusy() const;
     ULONG GetDownAckOffset() const { return downAckOffset; }
     
 private:
