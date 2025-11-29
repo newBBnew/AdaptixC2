@@ -1030,6 +1030,15 @@ func CreateTask(ts Teamserver, agent adaptix.AgentData, args map[string]any) (ad
 				goto RET
 			}
 			array = []interface{}{COMMAND_TRANSPORT, 3, urls}
+		} else if subcommand == "doh.mode" {
+			mode, ok := args["mode"].(string)
+			if !ok {
+				err = errors.New("parameter 'mode' must be set")
+				goto RET
+			}
+			array = []interface{}{COMMAND_TRANSPORT, 4, mode}
+		} else if subcommand == "status" {
+			array = []interface{}{COMMAND_TRANSPORT, 5}
 		} else {
 			err = errors.New("subcommand for 'transport' not found")
 			goto RET

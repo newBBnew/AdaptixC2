@@ -534,12 +534,18 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				if op == "HI" {
 					keyBytes, _ := hex.DecodeString(d.Config.EncryptKey)
 					if len(keyBytes) == 16 && len(dataB) >= 8 {
+						if dohDebug {
+							fmt.Printf("[BeaconDoH-DNS] HI DEBUG: Key=%x... DataIn=%x... \n", keyBytes[:4], dataB[:8])
+						}
 						if c, e := rc4.NewCipher(keyBytes); e == nil {
 							fullBeat := make([]byte, len(dataB))
 							c.XORKeyStream(fullBeat, dataB)
 							if len(fullBeat) >= 8 {
 								agentType := fmt.Sprintf("%08x", binary.BigEndian.Uint32(fullBeat[:4]))
 								agentId := fmt.Sprintf("%08x", binary.BigEndian.Uint32(fullBeat[4:8]))
+								if dohDebug {
+									fmt.Printf("[BeaconDoH-DNS] HI DEBUG: Decrypted Type=%s ID=%s\n", agentType, agentId)
+								}
 								beat := fullBeat[8:]
 								if !d.ts.TsAgentIsExists(agentId) {
 									externalIP := ""

