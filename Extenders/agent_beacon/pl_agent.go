@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -93,14 +94,21 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 
 	encrypt_key, _ := listenerMap["encrypt_key"].(string)
 
-	// encrypt_key 应该是 hex 字符串，解码后规范化为固定 16 字节
-	// 不足补 0，过长截断
-	rawKey, err := hex.DecodeString(encrypt_key)
-	if err != nil {
-		rawKey = []byte{} // 解码失败则为空
+	// Normalize encrypt_key to 16 bytes binary (MUST match server-side logic in pl_listener_impl.go)
+	// - If input is exactly 32 hex chars AND valid hex, decode directly
+	// - Otherwise, SHA256(input)[:16] as the key
+	var encryptKey []byte
+	if len(encrypt_key) == 32 {
+		if decoded, err := hex.DecodeString(encrypt_key); err == nil && len(decoded) == 16 {
+			encryptKey = decoded
+		} else {
+			hash := sha256.Sum256([]byte(encrypt_key))
+			encryptKey = hash[:16]
+		}
+	} else {
+		hash := sha256.Sum256([]byte(encrypt_key))
+		encryptKey = hash[:16]
 	}
-	encryptKey := make([]byte, 16)
-	copy(encryptKey, rawKey) // 不足自动补 0，过长自动截断
 
 	protocol, _ := listenerMap["protocol"].(string)
 	switch protocol {

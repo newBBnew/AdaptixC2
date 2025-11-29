@@ -363,7 +363,29 @@ function GenerateUI(listenerType) {
     let textDohUrls = form.create_textline("https://dns.google/dns-query,https://cloudflare-dns.com/dns-query,https://dns.quad9.net/dns-query");
     textDohUrls.setPlaceholder("Comma-separated DoH endpoints");
 
-	// Only show DNS fields for BeaconDNS
+	// Hide fields that are inherited from listener (to avoid confusion)
+	// These are: domain, encrypt_key, qtype, pkt_size, ttl
+	// They are automatically taken from listener config in pl_agent.go
+	
+	// Always hide encrypt_key - it's inherited from listener
+	labelEncryptKey.setVisible(false);
+	textEncryptKey.setVisible(false);
+	
+	// For BeaconDoH: show transport settings, hide DNS-only fields
+	if(listenerType == "BeaconDoH") {
+		// Domain is inherited from listener
+		labelDomain.setVisible(false);
+		textDomain.setVisible(false);
+		// QType, PktSize, TTL are inherited from listener
+		labelQType.setVisible(false);
+        comboQType.setVisible(false);
+        labelPktSize.setVisible(false);
+        spinPktSize.setVisible(false);
+        labelTTL.setVisible(false);
+        spinTTL.setVisible(false);
+	}
+	
+	// For non-BeaconDNS: hide all DNS-specific fields
 	if(listenerType != "BeaconDNS") {
 		labelDomain.setVisible(false);
 		textDomain.setVisible(false);
@@ -373,8 +395,6 @@ function GenerateUI(listenerType) {
         spinPktSize.setVisible(false);
         labelTTL.setVisible(false);
         spinTTL.setVisible(false);
-        labelEncryptKey.setVisible(false);
-        textEncryptKey.setVisible(false);
     }
 
     // Show transport/DoH mode fields only for BeaconDoH
