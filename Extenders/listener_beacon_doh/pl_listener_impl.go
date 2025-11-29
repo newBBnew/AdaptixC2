@@ -53,9 +53,7 @@ func (m *ModuleExtender) HandlerListenerValid(data string) error {
 	if conf.Domain == "" {
 		return errors.New("domain is required")
 	}
-	if conf.DoHUrls == "" {
-		return errors.New("doh_urls is required")
-	}
+	// doh_urls is now agent-side only, no validation needed here
 
 	keyLen := len(conf.EncryptKey)
 	if keyLen < 6 || keyLen > 32 {
