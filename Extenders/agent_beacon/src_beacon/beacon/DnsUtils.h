@@ -37,18 +37,5 @@ BOOL DnsBuildDataLabels(const BYTE* src, ULONG srcLen, ULONG labelSize,
 // Returns decoded length
 int DnsBase64Decode(const CHAR* src, int srcLen, BYTE* dst, int dstMax);
 
-// ============================================================================
-// Debug Logging - Shared log function for DNS/DoH connectors
-// ============================================================================
-
-// Log a message to ax_dns_beacon.log in the executable directory
-// Includes relative timestamp since first log call
-void DnsDebugLog(const char* msg);
-
-// Formatted log with printf-style arguments
-void DnsDebugLogf(const char* fmt, ...);
-
-// Log raw hex data with direction indicator (TX/RX)
-void DnsDebugLogHex(const char* direction, const BYTE* data, ULONG len);
 
 #endif // DNS_UTILS_H

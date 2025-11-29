@@ -1909,6 +1909,30 @@ func ProcessTasksResult(ts Teamserver, agentData adaptix.AgentData, taskData ada
 				_ = ts.TsAgentUpdateData(agentData)
 			}
 
+		case COMMAND_TRANSPORT:
+			if false == packer.CheckPacker([]string{"int"}) {
+				return outTasks
+			}
+			subcommand := packer.ParseInt32()
+
+			if subcommand == 1 {
+				task.Message = "Transport mode changed successfully"
+			} else if subcommand == 2 {
+				task.Message = "DNS resolvers updated successfully"
+			} else if subcommand == 3 {
+				task.Message = "DoH URLs updated successfully"
+			} else if subcommand == 4 {
+				task.Message = "DoH mode changed successfully"
+			} else if subcommand == 5 {
+				// status: parse the status string
+				if false == packer.CheckPacker([]string{"array"}) {
+					return outTasks
+				}
+				statusStr := packer.ParseString()
+				task.Message = "Transport Status:"
+				task.ClearText = string(statusStr)
+			}
+
 		case COMMAND_PS_LIST:
 			if false == packer.CheckPacker([]string{"byte", "int"}) {
 				return outTasks

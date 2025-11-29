@@ -22,9 +22,7 @@ import (
 )
 
 // dohDebug controls verbose logging for the DoH-aware DNS listener.
-// It is enabled by default while we stabilise the new behaviour behind
-// public DoH resolvers. You can turn it off for production if needed.
-const dohDebug = true
+const dohDebug = false
 
 // rc4Crypt applies RC4 encryption/decryption (symmetric operation)
 // Returns the result or original data if key is invalid
