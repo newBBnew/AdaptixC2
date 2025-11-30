@@ -39,6 +39,11 @@ func main() {
 	}
 	flag.Parse()
 
+	// Set DOH_DEBUG environment variable for listener plugins
+	if *debug {
+		os.Setenv("DOH_DEBUG", "1")
+	}
+
 	logs.NewPrintLogger(*debug)
 	logs.RepoLogsInstance, err = logs.NewRepoLogs()
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,7 +23,8 @@ import (
 )
 
 // dohDebug controls verbose logging for the DoH-aware DNS listener.
-const dohDebug = true
+// Set via environment variable: DOH_DEBUG=1 ./adaptixserver ...
+var dohDebug = os.Getenv("DOH_DEBUG") == "1"
 
 // rc4Crypt applies RC4 encryption/decryption (symmetric operation)
 // Returns the result or original data if key is invalid
