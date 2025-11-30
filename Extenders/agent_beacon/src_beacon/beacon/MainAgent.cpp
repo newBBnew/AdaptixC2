@@ -394,7 +394,7 @@ void AgentMain()
 			}
 
 			if (burst) {
-				mySleep(30);
+				mySleep(50);
 				g_Connector->ResetTrafficTotals();
 			} else {
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
@@ -581,7 +581,7 @@ void AgentMain()
 			}
 
 			if (burst) {
-				mySleep(30);
+				mySleep(50);
 				g_Connector->ResetTrafficTotals();
 			} else {
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
@@ -821,7 +821,7 @@ void AgentMain()
 			}
 
 			if (burst) {
-				mySleep(30);
+				mySleep(50);
 				TX_RESET_TOTALS();
 			} else {
 				WaitMask(g_Agent->GetWorkingSleep(), baseSleep, jitter);
