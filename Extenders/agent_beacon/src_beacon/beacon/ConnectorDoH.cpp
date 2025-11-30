@@ -143,7 +143,7 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
     
     // Fallback: If no URLs provided, use Google DNS as default
     if (this->urlCount == 0) {
-        CHAR defaultUrl[] = "https://dns.google/dns-query";
+        CHAR defaultUrl[] = "https://cloudflare-dns.com/dns-query";
         lstrcpynA(this->rawUrls, defaultUrl, sizeof(this->rawUrls));
         this->urlList[0] = this->rawUrls;
         this->urlCount = 1;
@@ -278,7 +278,7 @@ void ConnectorDoH::UpdateUrls(BYTE* urls)
 	}
 
 	if (this->urlCount == 0) {
-		CHAR defaultUrl[] = "https://dns.google/dns-query";
+		CHAR defaultUrl[] = "https://cloudflare-dns.com/dns-query";
 		lstrcpynA(this->rawUrls, defaultUrl, sizeof(this->rawUrls));
 		this->urlList[0] = this->rawUrls;
 		this->urlCount = 1;

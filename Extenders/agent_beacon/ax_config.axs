@@ -360,7 +360,7 @@ function GenerateUI(listenerType) {
 
     // DoH URLs (for DoH mode)
     let labelDohUrls = form.create_label("DoH URLs:");
-    let textDohUrls = form.create_textline("https://dns.google/dns-query,https://cloudflare-dns.com/dns-query,https://dns.quad9.net/dns-query");
+    let textDohUrls = form.create_textline("https://cloudflare-dns.com/dns-query,https://dns.google/dns-query,https://dns.quad9.net/dns-query");
     textDohUrls.setPlaceholder("Comma-separated DoH endpoints");
 
 	// Hide fields that are inherited from listener (to avoid confusion)

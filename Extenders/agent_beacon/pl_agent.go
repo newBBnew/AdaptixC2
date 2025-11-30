@@ -276,7 +276,7 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 			doh_urls, _ = listenerMap["doh_urls"].(string)
 		}
 		if doh_urls == "" {
-			doh_urls = "https://dns.google/dns-query,https://cloudflare-dns.com/dns-query,https://dns.quad9.net/dns-query" // default
+			doh_urls = "https://cloudflare-dns.com/dns-query,https://dns.google/dns-query,https://dns.quad9.net/dns-query" // default
 		}
 		user_agent, _ := listenerMap["user_agent"].(string)
 		// shared

@@ -439,7 +439,7 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		var dataB []byte
 
 		if len(base) >= 5 {
-			sid = base[0]
+			sid = strings.ToLower(base[0]) // Normalize SID to lowercase (DNS 0x20 encoding from resolvers)
 			rawOp := strings.ToLower(base[1])
 			switch rawOp {
 			case "www", "hi":
