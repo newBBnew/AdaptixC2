@@ -107,7 +107,7 @@ func (ts *Teamserver) TsClientSync(username string) {
 					}
 					// Use channel for sending (Gorilla pattern)
 					select {
-					case client.Send <- buffer.Bytes():
+					case client.Send <- append([]byte(nil), buffer.Bytes()...):
 						// Successfully queued message
 					default:
 						// Send channel is full - shouldn't happen during sync but handle it

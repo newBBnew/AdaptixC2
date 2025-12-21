@@ -988,12 +988,15 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			ackData[9] = (BYTE)((this->downTaskNonce >> 16) & 0xFF);
 			ackData[10] = (BYTE)((this->downTaskNonce >> 8) & 0xFF);
 			ackData[11] = (BYTE)((this->downTaskNonce >> 0) & 0xFF);
+			// RC4 encrypt HB data before Base32 encoding (must match server-side HB parsing)
+			EncryptRC4(ackData, 12, this->encryptKey, 16);
 			CHAR ackLabel[32]; // Increased for 12 bytes base32 encoded
 			memset(ackLabel, 0, sizeof(ackLabel));
 			DnsBase32Encode(ackData, 12, ackLabel, sizeof(ackLabel));
 			
 			CHAR ackQname[256];
-			DnsBuildQName(this->sid, "hb", ++this->seq, this->idx, ackLabel, this->domain, ackQname, sizeof(ackQname));
+			ULONG hbWireSeq = DnsBuildWireSeq(++this->seq, kDnsSignalBitsDoH);
+			DnsBuildQName(this->sid, "hb", hbWireSeq, this->idx, ackLabel, this->domain, ackQname, sizeof(ackQname));
 			BYTE tmp[16];
 			ULONG tmpSize = 0;
 			DohQueryA(ackQname, tmp, sizeof(tmp), &tmpSize);
