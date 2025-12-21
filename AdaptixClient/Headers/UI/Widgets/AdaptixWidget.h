@@ -25,6 +25,7 @@ class CredentialsWidget;
 class TargetsWidget;
 class TasksWidget;
 class TunnelsWidget;
+class FileDeliveryWidget;
 class TunnelEndpoint;
 class DialogSyncPacket;
 class AuthProfile;
@@ -63,6 +64,7 @@ Q_OBJECT
     QPushButton*    credsButton       = nullptr;
     QPushButton*    screensButton     = nullptr;
     QPushButton*    keysButton        = nullptr;
+    QPushButton*    filedeliveryButton = nullptr;
     QPushButton*    reconnectButton   = nullptr;
     QSpacerItem*    horizontalSpacer1 = nullptr;
     QFrame*         line_1            = nullptr;
@@ -108,6 +110,7 @@ public:
     CredentialsWidget*   CredentialsDock    = nullptr;
     TasksWidget*         TasksDock         = nullptr;
     TargetsWidget*       TargetsDock        = nullptr;
+    FileDeliveryWidget*  FileDeliveryDock   = nullptr;
 
     QVector<RegListenerConfig>     RegisterListeners;
     QVector<RegAgentConfig>        RegisterAgents;
@@ -188,6 +191,7 @@ public Q_SLOTS:
     void LoadScreenshotsUI() const;
     void LoadCredentialsUI() const;
     void LoadTargetsUI() const;
+    void LoadFileDeliveryUI() const;
     void OnReconnect();
 };
 

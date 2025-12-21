@@ -180,6 +180,39 @@ func (dbms *DBMS) DatabaseInit() error {
     );`
 	_, err = dbms.database.Exec(createTableQuery)
 
+	createTableQuery = `CREATE TABLE IF NOT EXISTS "FileDeliveryFiles" (
+		"FileId" TEXT NOT NULL UNIQUE,
+		"FileName" TEXT NOT NULL,
+		"Sha256" TEXT NOT NULL,
+		"Size" INTEGER NOT NULL,
+		"Owner" TEXT NOT NULL,
+		"CreatedAt" BIGINT NOT NULL,
+		"StoredPath" TEXT NOT NULL
+	);`
+	_, err = dbms.database.Exec(createTableQuery)
+
+	createTableQuery = `CREATE TABLE IF NOT EXISTS "FileDeliveryLinks" (
+		"Token" TEXT NOT NULL UNIQUE,
+		"FileId" TEXT NOT NULL,
+		"CreatedAt" BIGINT NOT NULL,
+		"ExpiresAt" BIGINT NOT NULL,
+		"MaxUses" INTEGER NOT NULL,
+		"Uses" INTEGER NOT NULL,
+		"AllowedIP" TEXT
+	);`
+	_, err = dbms.database.Exec(createTableQuery)
+
+	createTableQuery = `CREATE TABLE IF NOT EXISTS "FileDeliveryDownloads" (
+		"Id" INTEGER PRIMARY KEY AUTOINCREMENT,
+		"Token" TEXT NOT NULL,
+		"FileId" TEXT NOT NULL,
+		"Ts" BIGINT NOT NULL,
+		"IP" TEXT,
+		"UserAgent" TEXT,
+		"Result" TEXT
+	);`
+	_, err = dbms.database.Exec(createTableQuery)
+
 	return err
 }
 

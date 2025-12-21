@@ -17,6 +17,7 @@
 #include <UI/Widgets/ScreenshotsWidget.h>
 #include <UI/Widgets/CredentialsWidget.h>
 #include <UI/Widgets/TargetsWidget.h>
+#include <UI/Widgets/FileDeliveryWidget.h>
 #include <UI/Widgets/TasksWidget.h>
 #include <UI/Widgets/TunnelsWidget.h>
 #include <UI/Graph/SessionsGraph.h>
@@ -103,6 +104,9 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     dockBottom->addDockWidgetAsTab( TargetsDock->dock() );
     TargetsDock->dock()->toggleAction()->trigger();
 
+    FileDeliveryDock = new FileDeliveryWidget(this);
+    dockBottom->addDockWidgetAsTab( FileDeliveryDock->dock() );
+
     dockTop->toggleAction()->trigger();
     dockBottom->toggleAction()->trigger();
 
@@ -178,6 +182,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     connect( screensButton,   &QPushButton::clicked, this, &AdaptixWidget::LoadScreenshotsUI);
     connect( credsButton,     &QPushButton::clicked, this, &AdaptixWidget::LoadCredentialsUI);
     connect( targetsButton,   &QPushButton::clicked, this, &AdaptixWidget::LoadTargetsUI);
+    connect( filedeliveryButton, &QPushButton::clicked, this, &AdaptixWidget::LoadFileDeliveryUI);
     connect( reconnectButton, &QPushButton::clicked, this, &AdaptixWidget::OnReconnect);
 
     connect( TickThread, &QThread::started, TickWorker, &LastTickWorker::run );
@@ -308,6 +313,11 @@ void AdaptixWidget::createUI()
     keysButton->setFixedSize(37, 28);
     keysButton->setToolTip("Keystrokes");
 
+    filedeliveryButton = new QPushButton( QIcon(":/icons/upload"), "", this );
+    filedeliveryButton->setIconSize( QSize( 24,24 ));
+    filedeliveryButton->setFixedSize(37, 28);
+    filedeliveryButton->setToolTip("FileDelivery");
+
     line_4 = new QFrame(this);
     line_4->setFrameShape(QFrame::VLine);
     line_4->setMinimumHeight(25);
@@ -341,6 +351,7 @@ void AdaptixWidget::createUI()
     topHLayout->addWidget(credsButton);
     topHLayout->addWidget(screensButton);
     topHLayout->addWidget(keysButton);
+    topHLayout->addWidget(filedeliveryButton);
     topHLayout->addWidget(line_4);
     topHLayout->addWidget(reconnectButton);
     topHLayout->addItem(horizontalSpacer1);
@@ -956,6 +967,8 @@ void AdaptixWidget::LoadScreenshotsUI() const { this->AddDockBottom( Screenshots
 void AdaptixWidget::LoadCredentialsUI() const { this->AddDockBottom( CredentialsDock->dock() ); }
 
 void AdaptixWidget::LoadTargetsUI() const { this->AddDockBottom( TargetsDock->dock() ); }
+
+void AdaptixWidget::LoadFileDeliveryUI() const { this->AddDockBottom( FileDeliveryDock->dock() ); }
 
 void AdaptixWidget::OnReconnect()
 {

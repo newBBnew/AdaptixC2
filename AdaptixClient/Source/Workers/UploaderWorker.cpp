@@ -5,6 +5,9 @@
 
 UploaderWorker::UploaderWorker(const QUrl &uploadUrl, const QString &otp, const QByteArray &data) : url(uploadUrl), otp(otp), data(data) {}
 
+UploaderWorker::UploaderWorker(const QUrl &uploadUrl, const QString &headerKey, const QString &headerValue, const QString &fileName, const QByteArray &data)
+    : url(uploadUrl), headerKey(headerKey), headerValue(headerValue), fileName(fileName), data(data) {}
+
 UploaderWorker::~UploaderWorker()
 {
     if (networkReply)
@@ -21,13 +24,18 @@ void UploaderWorker::start() {
 
     QHttpMultiPart* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     QHttpPart filePart;
-    filePart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"file\"; filename=\"command\""));
+    QString fname = fileName.isEmpty() ? QString("command") : fileName;
+    filePart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"file\"; filename=\"" + fname + "\""));
     filePart.setBody(data);
 
     multiPart->append(filePart);
 
     QNetworkRequest request(url);
-    request.setRawHeader("OTP", this->otp.toUtf8());
+    if (!headerKey.isEmpty()) {
+        request.setRawHeader(headerKey.toUtf8(), headerValue.toUtf8());
+    } else {
+        request.setRawHeader("OTP", this->otp.toUtf8());
+    }
     networkReply = networkManager->post(request, multiPart);
     multiPart->setParent(networkReply);
 

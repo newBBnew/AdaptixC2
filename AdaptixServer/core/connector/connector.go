@@ -124,6 +124,12 @@ type Teamserver interface {
 	TsTunnelWsAgentSessionOpened(agentId string)
 	TsTunnelWsAgentSessionClosed(agentId string)
 	TsTunnelGetWsToken(tunnelId string) (string, error)
+
+	TsFileDeliveryUpload(owner string, fileName string, fileData []byte) (interface{}, error)
+	TsFileDeliveryList(owner string) (interface{}, error)
+	TsFileDeliveryDelete(owner string, fileID string) error
+	TsFileDeliveryCreateLink(owner string, fileID string, expireHours int, maxUses int, allowedIP string) (string, string, error)
+	TsFileDeliveryResolveToken(token string, clientIP string) (string, string, string, error)
 }
 
 type TsConnector struct {
@@ -212,6 +218,13 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 	connector.Engine.POST(tsProfile.Endpoint+"/login", default404Middleware(tsResponse), connector.tcLogin)
 	connector.Engine.POST(tsProfile.Endpoint+"/refresh", default404Middleware(tsResponse), token.RefreshTokenHandler)
 	connector.Engine.POST(tsProfile.Endpoint+"/sync", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.tcSync)
+
+	connector.Engine.POST(tsProfile.Endpoint+"/filedelivery/files", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcFileDeliveryUpload)
+	connector.Engine.GET(tsProfile.Endpoint+"/filedelivery/files", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcFileDeliveryList)
+	connector.Engine.DELETE(tsProfile.Endpoint+"/filedelivery/files/:id", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcFileDeliveryDelete)
+	connector.Engine.POST(tsProfile.Endpoint+"/filedelivery/links", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.TcFileDeliveryCreateLink)
+
+	connector.Engine.GET("/download/:token", default404Middleware(tsResponse), connector.TcFileDeliveryDownload)
 
 	connector.Engine.POST(tsProfile.Endpoint+"/otp/generate", token.ValidateAccessToken(), default404Middleware(tsResponse), connector.tcOTP_Generate)
 	connector.Engine.POST(tsProfile.Endpoint+"/otp/upload/temp", ts.ValidateOTP(), default404Middleware(tsResponse), connector.tcOTP_UploadTemp)

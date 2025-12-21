@@ -7,6 +7,10 @@ class AuthProfile;
 
 QJsonObject HttpReq(const QString &sUrl, const QByteArray &jsonData, const QString &token, int timeout = 15000 );
 
+QJsonObject HttpReqGet(const QString &sUrl, const QString &token, int timeout = 15000 );
+
+QJsonObject HttpReqDelete(const QString &sUrl, const QString &token, int timeout = 15000 );
+
 QJsonObject HttpReqTimeout( int timeout, const QString &sUrl, const QByteArray &jsonData, const QString &token );
 
 ///CLIENT

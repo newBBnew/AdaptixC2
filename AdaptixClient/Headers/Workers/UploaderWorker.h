@@ -15,6 +15,9 @@ Q_OBJECT
     QElapsedTimer timer;
     QUrl url;
     QString otp;
+    QString headerKey;
+    QString headerValue;
+    QString fileName;
     QByteArray data;
     bool cancelled = false;
     bool error = false;
@@ -22,6 +25,7 @@ Q_OBJECT
 
 public:
     UploaderWorker(const QUrl &uploadUrl, const QString &otp, const QByteArray &data);
+    UploaderWorker(const QUrl &uploadUrl, const QString &headerKey, const QString &headerValue, const QString &fileName, const QByteArray &data);
     ~UploaderWorker() override;
 
     bool IsError() const;

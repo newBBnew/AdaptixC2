@@ -245,6 +245,7 @@ add_executable(AdaptixClient
         Source/UI/Dialogs/DialogCredential.cpp
         Source/UI/Widgets/AxConsoleWidget.cpp
         Source/UI/Widgets/TargetsWidget.cpp
+        Source/UI/Widgets/FileDeliveryWidget.cpp
         Source/UI/Dialogs/DialogTarget.cpp
         Source/UI/Dialogs/DialogSaveTask.cpp
         Source/UI/Widgets/ChatWidget.cpp

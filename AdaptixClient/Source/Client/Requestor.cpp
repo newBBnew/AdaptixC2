@@ -45,6 +45,92 @@ QJsonObject HttpReq(const QString &sUrl, const QByteArray &jsonData, const QStri
     return jsonObject;
 }
 
+QJsonObject HttpReqGet(const QString &sUrl, const QString &token, const int timeout)
+{
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    QSslConfiguration::setDefaultConfiguration(sslConfig);
+
+    QUrl url(sUrl);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if (!token.isEmpty()) {
+        QString bearerToken = "Bearer " + token;
+        request.setRawHeader("Authorization", bearerToken.toUtf8());
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkReply *reply = manager.get(request);
+
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+
+    QTimer timeoutTimer;
+    QObject::connect(&timeoutTimer, &QTimer::timeout, [&]() {
+        reply->abort();
+        eventLoop.quit();
+    });
+    timeoutTimer.start(timeout);
+
+    eventLoop.exec();
+
+    QJsonObject jsonObject;
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray response_data = reply->readAll();
+        QJsonParseError parseError;
+        QJsonDocument jsonResponse = QJsonDocument::fromJson(response_data, &parseError);
+        if (parseError.error == QJsonParseError::NoError && jsonResponse.isObject()) {
+            jsonObject = jsonResponse.object();
+        }
+    }
+    reply->deleteLater();
+    return jsonObject;
+}
+
+QJsonObject HttpReqDelete(const QString &sUrl, const QString &token, const int timeout)
+{
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    QSslConfiguration::setDefaultConfiguration(sslConfig);
+
+    QUrl url(sUrl);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if (!token.isEmpty()) {
+        QString bearerToken = "Bearer " + token;
+        request.setRawHeader("Authorization", bearerToken.toUtf8());
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkReply *reply = manager.sendCustomRequest(request, "DELETE");
+
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+
+    QTimer timeoutTimer;
+    QObject::connect(&timeoutTimer, &QTimer::timeout, [&]() {
+        reply->abort();
+        eventLoop.quit();
+    });
+    timeoutTimer.start(timeout);
+
+    eventLoop.exec();
+
+    QJsonObject jsonObject;
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray response_data = reply->readAll();
+        QJsonParseError parseError;
+        QJsonDocument jsonResponse = QJsonDocument::fromJson(response_data, &parseError);
+        if (parseError.error == QJsonParseError::NoError && jsonResponse.isObject()) {
+            jsonObject = jsonResponse.object();
+        }
+    }
+    reply->deleteLater();
+    return jsonObject;
+}
+
 bool HttpReqLogin(AuthProfile* profile)
 {
     QJsonObject dataJson;
