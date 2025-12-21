@@ -92,7 +92,10 @@ func (ts *Teamserver) TsSyncStored(client *Client) {
 	encoder.SetEscapeHTML(false) // Disable HTML escaping to preserve UTF-8
 	startPacket := CreateSpSyncStart(len(packets), ts.Parameters.Interfaces)
 	_ = encoder.Encode(startPacket)
-	client.Send <- buffer.Bytes()
+	// IMPORTANT: copy bytes before enqueueing.
+	// bytes.Buffer.Bytes() shares underlying storage that may be reused after Reset/Encode,
+	// which can corrupt already-queued websocket messages.
+	client.Send <- append([]byte(nil), buffer.Bytes()...)
 	buffer.Reset()
 
 	// Send all sync packets through channel
@@ -108,7 +111,7 @@ func (ts *Teamserver) TsSyncStored(client *Client) {
 	finishPacket := CreateSpSyncFinish()
 	buffer.Reset()
 	_ = encoder.Encode(finishPacket)
-	client.Send <- buffer.Bytes()
+	client.Send <- append([]byte(nil), buffer.Bytes()...)
 	buffer.Reset()
 }
 
