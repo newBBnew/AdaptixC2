@@ -113,6 +113,10 @@ public:
 
 private:
     BOOL  hasPendingTasks = FALSE; // Set when heartbeat says "has tasks" but GET hasn't completed yet
+	BOOL  forcePoll = FALSE;       // Force a GET poll (ignore heartbeat hasTasks signal)
+
+public:
+	void  ForcePollOnce() { this->forcePoll = TRUE; }
     BOOL  DohQueryTxt(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize);
     BOOL  DohQueryA(const CHAR* qname, BYTE* outBuf, ULONG outBufSize, ULONG* outSize);
     BOOL  PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** outData, ULONG* outLen);

