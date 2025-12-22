@@ -24,7 +24,20 @@ import (
 
 // dohDebug controls verbose logging for the DoH-aware DNS listener.
 // Set via environment variable: DOH_DEBUG=1 ./adaptixserver ...
-var dohDebug = os.Getenv("DOH_DEBUG") == "1"
+var dohDebug = func() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("DOH_DEBUG")))
+	if v == "" {
+		return false
+	}
+	switch v {
+	case "1", "true", "yes", "y", "on", "debug":
+		return true
+	default:
+		return false
+	}
+}()
+
+const dohPluginBuildTag = "BeaconDoH-DNS debug"
 
 // rc4Crypt applies RC4 encryption/decryption (symmetric operation)
 // Returns the result or original data if key is invalid
@@ -117,6 +130,9 @@ func (d *DoHListener) Start(ts Teamserver) error {
 	}
 	if d.Config.PktSize <= 0 || d.Config.PktSize > 64000 {
 		d.Config.PktSize = 1024
+	}
+	if dohDebug {
+		fmt.Printf("[BeaconDoH-DNS] DEBUG ENABLED (%s)\n", dohPluginBuildTag)
 	}
 
 	// Initialize local RNG for TTL jitter (avoid deprecated global seed)
@@ -681,9 +697,7 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				if maxDataSize <= 0 || maxDataSize > (4<<20) {
 					maxDataSize = 4 << 20
 				}
-				if p, err := d.ts.TsAgentGetHostedAll(sid, maxDataSize); err == nil && len(p) > 0 {
-					// Generate unique taskNonce for this task batch
-					taskNonce := d.rng.Uint32()
+				if p, taskNonce, err := d.ts.TsAgentGetHostedAllDelivery(sid, maxDataSize); err == nil && len(p) > 0 {
 					if dohDebug {
 						fmt.Printf("[BeaconDoH-DNS] GET tasks sid=%s total=%d taskNonce=%08x\n", sid, len(p), taskNonce)
 					}
