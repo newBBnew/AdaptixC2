@@ -10,6 +10,22 @@ import (
 	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
+const maxClientTmpStorePackets = 1024
+
+func tsTrySend(ch chan []byte, data []byte) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			ok = false
+		}
+	}()
+	select {
+	case ch <- data:
+		return true
+	default:
+		return false
+	}
+}
+
 func (ts *Teamserver) TsClientConnected(username string) bool {
 	_, found := ts.clients.Get(username)
 	return found
@@ -21,18 +37,14 @@ func (ts *Teamserver) TsSyncClient(username string, packet interface{}) {
 	encoder.SetEscapeHTML(false) // Disable HTML escaping to preserve UTF-8
 	err := encoder.Encode(packet)
 	if err != nil {
+		logs.Error("", "TsSyncClient encode failed (user=%s type=%T): %v", username, packet, err)
 		return
 	}
 
 	value, found := ts.clients.Get(username)
 	if found {
 		client := value.(*Client)
-		// Use channel for sending (Gorilla pattern)
-		select {
-		case client.Send <- buffer.Bytes():
-			// Successfully queued message
-		default:
-			// Send channel is full - client is too slow, disconnect it
+		if !tsTrySend(client.Send, buffer.Bytes()) {
 			logs.Error("", "Client %s send queue is full, disconnecting", username)
 			go ts.TsClientDisconnect(username)
 		}
@@ -45,6 +57,7 @@ func (ts *Teamserver) TsSyncAllClients(packet interface{}) {
 	encoder.SetEscapeHTML(false) // Disable HTML escaping to preserve UTF-8
 	err := encoder.Encode(packet)
 	if err != nil {
+		logs.Error("", "TsSyncAllClients encode failed (type=%T): %v", packet, err)
 		return
 	}
 	data := buffer.Bytes()
@@ -52,17 +65,16 @@ func (ts *Teamserver) TsSyncAllClients(packet interface{}) {
 	ts.clients.ForEach(func(key string, value interface{}) bool {
 		client := value.(*Client)
 		if client.Synced {
-			// Use channel for sending (Gorilla pattern)
-			// Non-blocking send with default case to detect slow clients
-			select {
-			case client.Send <- data:
-				// Successfully queued message
-			default:
-				// Send channel is full - client is too slow, disconnect it
+			if !tsTrySend(client.Send, data) {
 				logs.Error("", "Client %s send queue is full, disconnecting", key)
 				go ts.TsClientDisconnect(key)
 			}
 		} else {
+			if client.TmpStore.Len() >= maxClientTmpStorePackets {
+				logs.Error("", "Client %s tmp store is full, disconnecting", key)
+				go ts.TsClientDisconnect(key)
+				return true
+			}
 			client.TmpStore.Put(packet)
 		}
 		return true
@@ -91,11 +103,16 @@ func (ts *Teamserver) TsSyncStored(client *Client) {
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false) // Disable HTML escaping to preserve UTF-8
 	startPacket := CreateSpSyncStart(len(packets), ts.Parameters.Interfaces)
-	_ = encoder.Encode(startPacket)
+	if err := encoder.Encode(startPacket); err != nil {
+		logs.Error("", "TsSyncStored encode failed (user=%s type=%T): %v", client.Username, startPacket, err)
+		return
+	}
 	// IMPORTANT: copy bytes before enqueueing.
 	// bytes.Buffer.Bytes() shares underlying storage that may be reused after Reset/Encode,
 	// which can corrupt already-queued websocket messages.
-	client.Send <- append([]byte(nil), buffer.Bytes()...)
+	if !tsTrySend(client.Send, append([]byte(nil), buffer.Bytes()...)) {
+		return
+	}
 	buffer.Reset()
 
 	// Send all sync packets through channel
@@ -103,15 +120,25 @@ func (ts *Teamserver) TsSyncStored(client *Client) {
 		var pBuffer bytes.Buffer
 		pEncoder := json.NewEncoder(&pBuffer)
 		pEncoder.SetEscapeHTML(false) // Disable HTML escaping to preserve UTF-8
-		_ = pEncoder.Encode(p)
-		client.Send <- pBuffer.Bytes()
+		if err := pEncoder.Encode(p); err != nil {
+			logs.Error("", "TsSyncStored encode failed (user=%s type=%T): %v", client.Username, p, err)
+			return
+		}
+		if !tsTrySend(client.Send, pBuffer.Bytes()) {
+			return
+		}
 	}
 
 	// Send finish packet
 	finishPacket := CreateSpSyncFinish()
 	buffer.Reset()
-	_ = encoder.Encode(finishPacket)
-	client.Send <- append([]byte(nil), buffer.Bytes()...)
+	if err := encoder.Encode(finishPacket); err != nil {
+		logs.Error("", "TsSyncStored encode failed (user=%s type=%T): %v", client.Username, finishPacket, err)
+		return
+	}
+	if !tsTrySend(client.Send, append([]byte(nil), buffer.Bytes()...)) {
+		return
+	}
 	buffer.Reset()
 }
 

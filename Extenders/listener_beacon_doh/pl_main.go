@@ -12,6 +12,8 @@ type Teamserver interface {
 	TsAgentProcessData(agentId string, bodyData []byte) error
 	TsAgentSetTick(agentId string) error
 	TsAgentGetHostedAll(agentId string, maxDataSize int) ([]byte, error)
+	TsAgentGetHostedAllDelivery(agentId string, maxDataSize int) ([]byte, uint32, error)
+	TsAgentAckDelivery(agentId string, deliveryNonce uint32) error
 }
 
 type ModuleExtender struct {

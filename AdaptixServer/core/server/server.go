@@ -16,7 +16,7 @@ func NewTeamserver() *Teamserver {
 
 	dbms, err := database.NewDatabase(logs.RepoLogsInstance.DbPath)
 	if err != nil {
-		logs.Error("", "Failed to create a DBMS: "+err.Error())
+		logs.Error("", "Failed to create a DBMS: %v", err)
 		return nil
 	}
 
@@ -107,18 +107,19 @@ func (ts *Teamserver) RestoreData() {
 	for _, agentData := range restoreAgents {
 
 		agent := &Agent{
-			Data:              agentData,
-			OutConsole:        safe.NewSlice(),
-			HostedTunnelData:  safe.NewSafeQueue(0x1000),
-			HostedTasks:       safe.NewSafeQueue(0x100),
-			HostedTunnelTasks: safe.NewSafeQueue(0x100),
-			RunningTasks:      safe.NewMap(),
-			RunningJobs:       safe.NewMap(),
-			CompletedTasks:    safe.NewMap(),
-			PivotParent:       nil,
-			PivotChilds:       safe.NewSlice(),
-			Tick:              false,
-			Active:            true,
+			Data:               agentData,
+			OutConsole:         safe.NewSlice(),
+			HostedTunnelData:   safe.NewSafeQueue(0x1000),
+			HostedTasks:        safe.NewSafeQueue(0x100),
+			HostedTunnelTasks:  safe.NewSafeQueue(0x100),
+			InflightDeliveries: safe.NewMap(),
+			RunningTasks:       safe.NewMap(),
+			RunningJobs:        safe.NewMap(),
+			CompletedTasks:     safe.NewMap(),
+			PivotParent:        nil,
+			PivotChilds:        safe.NewSlice(),
+			Tick:               false,
+			Active:             true,
 		}
 
 		if agent.Data.Mark == "Terminated" {
@@ -263,6 +264,9 @@ func (ts *Teamserver) Start() {
 		err     error
 	)
 
+	// Ensure the stopped channel is initialized so startup failures can signal back.
+	stopped = make(chan bool, 1)
+
 	// 使用 map 去重，确保每个 IP 只添加一次
 	ipMap := make(map[string]bool)
 	ipMap["0.0.0.0"] = true
@@ -299,7 +303,7 @@ func (ts *Teamserver) Start() {
 
 	ts.AdaptixServer, err = connector.NewTsConnector(ts, *ts.Profile.Server, *ts.Profile.ServerResponse)
 	if err != nil {
-		logs.Error("", "Failed to init HTTP handler: "+err.Error())
+		logs.Error("", "Failed to init HTTP handler: %v", err)
 		return
 	}
 
@@ -310,6 +314,7 @@ func (ts *Teamserver) Start() {
 	logs.Success("", "The AdaptixC2 server is ready")
 
 	go ts.TsAgentTickUpdate()
+	go ts.TsInflightRequeueLoop()
 
 	<-stopped
 	logs.Warn("", "Teamserver finished")

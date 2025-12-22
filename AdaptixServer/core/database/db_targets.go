@@ -39,7 +39,7 @@ func (dbms *DBMS) DbTargetsAdd(targetsData []*adaptix.TargetData) error {
 		_, err := dbms.database.Exec(insertQuery, targetData.TargetId, targetData.Computer, targetData.Domain, targetData.Address, targetData.Os,
 			targetData.OsDesk, targetData.Tag, targetData.Info, targetData.Date, targetData.Alive, strings.Join(targetData.Agents, ","))
 		if err != nil {
-			logs.Error("", err.Error())
+			logs.Error("", "%v", err)
 			continue
 		}
 	}
@@ -104,7 +104,7 @@ func (dbms *DBMS) DbTargetsAll() []*adaptix.TargetData {
 				targets = append(targets, targetData)
 			}
 		} else {
-			logs.Debug("", "Failed to query targets: "+err.Error())
+			logs.Debug("", "Failed to query targets: %v", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()

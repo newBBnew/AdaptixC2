@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -62,11 +63,14 @@ type HTTP struct {
 	Active    bool
 }
 
+const httpMaxBodySize = 30 << 20 // 30MB
+
 func (handler *HTTP) Start(ts Teamserver) error {
 	var err error = nil
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	router.Use(gin.Recovery())
 	router.NoRoute(handler.pageError)
 
 	router.Use(func(c *gin.Context) {
@@ -85,8 +89,13 @@ func (handler *HTTP) Start(ts Teamserver) error {
 	handler.Active = true
 
 	handler.Server = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", handler.Config.HostBind, handler.Config.PortBind),
-		Handler: router,
+		Addr:              fmt.Sprintf("%s:%d", handler.Config.HostBind, handler.Config.PortBind),
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	if handler.Config.Ssl {
@@ -128,7 +137,7 @@ func (handler *HTTP) Start(ts Teamserver) error {
 				fmt.Printf("Error starting HTTPS server: %v\n", err)
 				return
 			}
-			handler.Active = true
+			handler.Active = false
 		}()
 
 	} else {
@@ -140,7 +149,7 @@ func (handler *HTTP) Start(ts Teamserver) error {
 				fmt.Printf("Error starting HTTP server: %v\n", err)
 				return
 			}
-			handler.Active = true
+			handler.Active = false
 		}()
 	}
 
@@ -208,7 +217,14 @@ func (handler *HTTP) processRequest(ctx *gin.Context) {
 	}
 
 	if handler.Config.TrustXForwardedFor && ctx.Request.Header.Get("X-Forwarded-For") != "" {
-		ExternalIP = ctx.Request.Header.Get("X-Forwarded-For")
+		xff := ctx.Request.Header.Get("X-Forwarded-For")
+		// Take the first hop, which is the original client in the common case
+		part := strings.TrimSpace(strings.Split(xff, ",")[0])
+		if ip := net.ParseIP(part); ip != nil {
+			ExternalIP = part
+		} else {
+			ExternalIP = strings.Split(ctx.Request.RemoteAddr, ":")[0]
+		}
 	} else {
 		ExternalIP = strings.Split(ctx.Request.RemoteAddr, ":")[0]
 	}
@@ -290,6 +306,9 @@ func (handler *HTTP) parseBeatAndData(ctx *gin.Context) (string, string, []byte,
 	agentInfo = agentInfo[4:]
 
 	bodyData, err = io.ReadAll(ctx.Request.Body)
+	if err == nil && len(bodyData) > httpMaxBodySize {
+		return "", "", nil, nil, errors.New("agent data too large")
+	}
 	if err != nil {
 		return "", "", nil, nil, errors.New("missing agent data")
 	}
@@ -341,7 +360,7 @@ func (handler *HTTP) generateSelfSignedCert(certFile, keyFile string) error {
 	}
 
 	handler.Config.SslCert = certBuffer.Bytes()
-	err = os.WriteFile(certFile, handler.Config.SslCert, 0644)
+	err = os.WriteFile(certFile, handler.Config.SslCert, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create certificate file: %v", err)
 	}
@@ -353,7 +372,7 @@ func (handler *HTTP) generateSelfSignedCert(certFile, keyFile string) error {
 	}
 
 	handler.Config.SslKey = keyBuffer.Bytes()
-	err = os.WriteFile(keyFile, handler.Config.SslKey, 0644)
+	err = os.WriteFile(keyFile, handler.Config.SslKey, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create key file: %v", err)
 	}

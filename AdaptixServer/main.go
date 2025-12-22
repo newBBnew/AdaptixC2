@@ -47,7 +47,7 @@ func main() {
 	logs.NewPrintLogger(*debug)
 	logs.RepoLogsInstance, err = logs.NewRepoLogs()
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("", "%v", err)
 		os.Exit(0)
 	}
 
@@ -56,7 +56,7 @@ func main() {
 	if *profilePath != "" {
 		err := ts.SetProfile(*profilePath)
 		if err != nil {
-			logs.Error("", err.Error())
+			logs.Error("", "%v", err)
 			os.Exit(1)
 		}
 	} else if *port > 1 && *port < 65535 && *endpoint != "" && *password != "" {
@@ -69,7 +69,7 @@ func main() {
 
 	err = ts.Profile.IsValid()
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("", "%v", err)
 		os.Exit(0)
 	}
 

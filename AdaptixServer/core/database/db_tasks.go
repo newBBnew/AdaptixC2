@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (dbms *DBMS) DbTaskExist(taskId string) bool {
@@ -90,7 +90,7 @@ func (dbms *DBMS) DbTasksAll(agentId string) []adaptix.TaskData {
 				tasks = append(tasks, taskData)
 			}
 		} else {
-			logs.Debug("", "Failed to query tasks: "+err.Error())
+			logs.Debug("", "Failed to query tasks: %v", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()

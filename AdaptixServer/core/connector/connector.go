@@ -324,7 +324,7 @@ func (tc *TsConnector) Start(finished *chan bool) {
 
 	err := server.ListenAndServeTLS(tc.Cert, tc.Key)
 	if err != nil {
-		logs.Error("", "Failed to start HTTP Server: "+err.Error())
+		logs.Error("", "Failed to start HTTP Server: %v", err)
 		return
 	}
 	*finished <- true

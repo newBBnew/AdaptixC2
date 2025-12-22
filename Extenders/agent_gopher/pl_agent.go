@@ -12,15 +12,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	mrand "math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 	"github.com/google/shlex"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -37,6 +39,49 @@ type GenerateConfig struct {
 var (
 	SrcPath = "src_gopher"
 )
+
+func copyDir(srcDir string, dstDir string) error {
+	return filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return os.MkdirAll(dstDir, 0755)
+		}
+
+		dstPath := filepath.Join(dstDir, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, dstPath)
+		}
+
+		if d.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode().Perm())
+		}
+
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(dstPath, b, info.Mode().Perm())
+	})
+}
 
 func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map[string]any) ([]byte, error) {
 	var (
@@ -180,8 +225,15 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	}
 	buildPath = tempDir + "/" + Filename
 
+	tempSrcDir := tempDir + "/" + SrcPath
+	err = copyDir(currentDir+"/"+SrcPath, tempSrcDir)
+	if err != nil {
+		_ = os.RemoveAll(tempDir)
+		return nil, "", err
+	}
+
 	config := fmt.Sprintf("package main\n\nvar encProfile = []byte(\"%s\")\n", string(agentProfile))
-	configPath := currentDir + "/" + SrcPath + "/config.go"
+	configPath := tempSrcDir + "/config.go"
 	err = os.WriteFile(configPath, []byte(config), 0644)
 	if err != nil {
 		_ = os.RemoveAll(tempDir)
@@ -197,7 +249,7 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 		cmdBuild = fmt.Sprintf("CGO_ENABLED=0 GOOS=%s GOARCH=%s GOROOT=/usr/lib/go-win7/ /usr/lib/go-win7/go build -trimpath -ldflags=\"%s\" -o %s", GoOs, GoArch, LdFlags, buildPath)
 	}
 	runnerCmdBuild := exec.Command("sh", "-c", cmdBuild)
-	runnerCmdBuild.Dir = currentDir + "/" + SrcPath
+	runnerCmdBuild.Dir = tempSrcDir
 	runnerCmdBuild.Stdout = &stdout
 	runnerCmdBuild.Stderr = &stderr
 	err = runnerCmdBuild.Run()

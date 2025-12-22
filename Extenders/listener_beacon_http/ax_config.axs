@@ -28,7 +28,7 @@ function ListenerUI(mode_create)
     textlineUri.setPlaceholder("/uri.php");
 
     let labelUserAgent = form.create_label("User-Agent:");
-    let textlineUserAgent = form.create_textline("Mozilla/5.0 (Windows NT 6.2; rv:20.0) Gecko/20121202 Firefox/20.0");
+    let textlineUserAgent = form.create_textline("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
     let labelHB = form.create_label("Heartbeat Header:");
     let textlineHB = form.create_textline("X-Beacon-Id");

@@ -6,15 +6,20 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/kbinani/screenshot"
 	"image/png"
 	"io"
 	"io/fs"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
+
+	"github.com/kbinani/screenshot"
 )
+
+const maxMsgSize = 0x2000000 // 32MB
 
 /// FS
 
@@ -113,6 +118,41 @@ func ZipBytes(data []byte, name string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func safeZipRelPath(zipName string) (string, error) {
+	// Zip format mandates forward slashes. Normalize and block traversal.
+	clean := path.Clean("/" + zipName)
+	clean = strings.TrimPrefix(clean, "/")
+	if clean == "." || clean == "" {
+		return "", fmt.Errorf("invalid zip entry name: %q", zipName)
+	}
+	// Disallow any attempt to traverse upwards.
+	if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
+		return "", fmt.Errorf("invalid zip entry path: %q", zipName)
+	}
+	return filepath.FromSlash(clean), nil
+}
+
+func safeZipJoin(targetDir, zipName string) (string, error) {
+	root, err := filepath.Abs(targetDir)
+	if err != nil {
+		return "", err
+	}
+	rel, err := safeZipRelPath(zipName)
+	if err != nil {
+		return "", err
+	}
+	dest := filepath.Join(root, rel)
+	destAbs, err := filepath.Abs(dest)
+	if err != nil {
+		return "", err
+	}
+	rootWithSep := root + string(os.PathSeparator)
+	if destAbs != root && !strings.HasPrefix(destAbs, rootWithSep) {
+		return "", fmt.Errorf("zip entry escapes target dir: %q", zipName)
+	}
+	return destAbs, nil
+}
+
 func UnzipBytes(zipData []byte) (map[string][]byte, error) {
 	result := make(map[string][]byte)
 	reader := bytes.NewReader(zipData)
@@ -123,19 +163,23 @@ func UnzipBytes(zipData []byte) (map[string][]byte, error) {
 	}
 
 	for _, file := range zipReader.File {
+		rel, err := safeZipRelPath(file.Name)
+		if err != nil {
+			return nil, err
+		}
 		rc, err := file.Open()
 		if err != nil {
 			return nil, err
 		}
-		defer rc.Close()
 
 		var buf bytes.Buffer
 		_, err = io.Copy(&buf, rc)
+		_ = rc.Close()
 		if err != nil {
 			return nil, err
 		}
 
-		result[file.Name] = buf.Bytes()
+		result[rel] = buf.Bytes()
 	}
 
 	return result, nil
@@ -188,7 +232,10 @@ func UnzipFile(zipPath string, targetDir string) error {
 	defer r.Close()
 
 	for _, f := range r.File {
-		destPath := filepath.Join(targetDir, f.Name)
+		destPath, err := safeZipJoin(targetDir, f.Name)
+		if err != nil {
+			return err
+		}
 
 		// Создание директорий
 		if f.FileInfo().IsDir() {
@@ -209,15 +256,16 @@ func UnzipFile(zipPath string, targetDir string) error {
 		if err != nil {
 			return err
 		}
-		defer dstFile.Close()
 
 		srcFile, err := f.Open()
 		if err != nil {
+			_ = dstFile.Close()
 			return err
 		}
-		defer srcFile.Close()
 
 		_, err = io.Copy(dstFile, srcFile)
+		_ = srcFile.Close()
+		_ = dstFile.Close()
 		if err != nil {
 			return err
 		}
@@ -252,7 +300,6 @@ func ZipDirectory(srcDir string) ([]byte, error) {
 		if err != nil {
 			return err
 		}
-		defer file.Close()
 
 		header, err := zip.FileInfoHeader(info)
 		if err != nil {
@@ -267,6 +314,7 @@ func ZipDirectory(srcDir string) ([]byte, error) {
 		}
 
 		_, err = io.Copy(writer, file)
+		_ = file.Close()
 		return err
 	})
 	if err != nil {
@@ -288,7 +336,10 @@ func UnzipDirectory(zipData []byte, targetDir string) error {
 	}
 
 	for _, f := range zipReader.File {
-		destPath := filepath.Join(targetDir, f.Name)
+		destPath, err := safeZipJoin(targetDir, f.Name)
+		if err != nil {
+			return err
+		}
 
 		if f.FileInfo().IsDir() {
 			err := os.MkdirAll(destPath, os.ModePerm)
@@ -298,7 +349,7 @@ func UnzipDirectory(zipData []byte, targetDir string) error {
 			continue
 		}
 
-		err := os.MkdirAll(filepath.Dir(destPath), os.ModePerm)
+		err = os.MkdirAll(filepath.Dir(destPath), os.ModePerm)
 		if err != nil {
 			return err
 		}
@@ -307,15 +358,16 @@ func UnzipDirectory(zipData []byte, targetDir string) error {
 		if err != nil {
 			return err
 		}
-		defer dstFile.Close()
 
 		srcFile, err := f.Open()
 		if err != nil {
+			_ = dstFile.Close()
 			return err
 		}
-		defer srcFile.Close()
 
 		_, err = io.Copy(dstFile, srcFile)
+		_ = srcFile.Close()
+		_ = dstFile.Close()
 		if err != nil {
 			return err
 		}
@@ -378,6 +430,9 @@ func RecvMsg(conn net.Conn) ([]byte, error) {
 		return nil, err
 	}
 	msgLen := binary.BigEndian.Uint32(bufLen)
+	if msgLen == 0 || msgLen > maxMsgSize {
+		return nil, fmt.Errorf("msg too big: %d", msgLen)
+	}
 
 	return ConnRead(conn, int(msgLen))
 }

@@ -45,6 +45,7 @@ type Connection struct {
 	conn         net.Conn
 	ctx          context.Context
 	handleCancel context.CancelFunc
+	prefetch     []byte
 }
 
 type TCP struct {
@@ -63,6 +64,8 @@ const (
 	TUNNEL_PACK   = 4
 	TERMINAL_PACK = 5
 )
+
+const maxMsgSize = 0x2000000 // 32MB
 
 type StartMsg struct {
 	Type int    `msgpack:"id"`
@@ -173,7 +176,7 @@ func (handler *TCP) handleConnection(conn net.Conn, ts Teamserver) {
 	connection.ctx, connection.handleCancel = context.WithCancel(context.Background())
 
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	recvData, err = recvMsg(conn)
+	recvData, err = recvMsg(&connection)
 	_ = conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		goto ERR
@@ -230,7 +233,7 @@ func (handler *TCP) handleConnection(conn net.Conn, ts Teamserver) {
 					break
 				}
 
-				recvData, err = recvMsg(conn)
+				recvData, err = recvMsg(&connection)
 				if err != nil {
 					break
 				}
@@ -239,7 +242,7 @@ func (handler *TCP) handleConnection(conn net.Conn, ts Teamserver) {
 
 				_ = ModuleObject.ts.TsAgentProcessData(agentId, recvData)
 			} else {
-				if !isClientConnected(conn, handler.Config.Ssl) {
+				if !isClientConnected(&connection, handler.Config.Ssl) {
 					break
 				}
 			}
@@ -268,7 +271,7 @@ func (handler *TCP) handleConnection(conn net.Conn, ts Teamserver) {
 		handler.JobConnects.Put(jcId, connection)
 
 		for {
-			recvData, err = recvMsg(conn)
+			recvData, err = recvMsg(&connection)
 			if err != nil {
 				break
 			}
@@ -297,7 +300,7 @@ func (handler *TCP) handleConnection(conn net.Conn, ts Teamserver) {
 		handler.JobConnects.Put(jcId, connection)
 
 		for {
-			recvData, err = recvMsg(conn)
+			recvData, err = recvMsg(&connection)
 			if err != nil {
 				break
 			}
@@ -503,14 +506,43 @@ func connRead(conn net.Conn, size int) ([]byte, error) {
 	return message, nil
 }
 
-func recvMsg(conn net.Conn) ([]byte, error) {
-	bufLen, err := connRead(conn, 4)
+func connReadConn(c *Connection, size int) ([]byte, error) {
+	if size <= 0 {
+		return nil, fmt.Errorf("incorrected size: %d", size)
+	}
+
+	if len(c.prefetch) > 0 {
+		if len(c.prefetch) >= size {
+			out := c.prefetch[:size]
+			c.prefetch = c.prefetch[size:]
+			return out, nil
+		}
+		out := make([]byte, 0, size)
+		out = append(out, c.prefetch...)
+		need := size - len(c.prefetch)
+		c.prefetch = nil
+		rest, err := connRead(c.conn, need)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rest...)
+		return out, nil
+	}
+
+	return connRead(c.conn, size)
+}
+
+func recvMsg(c *Connection) ([]byte, error) {
+	bufLen, err := connReadConn(c, 4)
 	if err != nil {
 		return nil, err
 	}
 	msgLen := binary.BigEndian.Uint32(bufLen)
+	if msgLen == 0 || msgLen > maxMsgSize {
+		return nil, fmt.Errorf("msg too big: %d", msgLen)
+	}
 
-	return connRead(conn, int(msgLen))
+	return connReadConn(c, int(msgLen))
 }
 
 func sendMsg(conn net.Conn, data []byte) error {
@@ -525,27 +557,35 @@ func sendMsg(conn net.Conn, data []byte) error {
 	return err
 }
 
-func isClientConnected(conn net.Conn, ssl bool) bool {
+func isClientConnected(c *Connection, ssl bool) bool {
 	var err error = nil
 	if ssl {
-		tcpConn, ok := conn.(*tls.Conn)
+		tcpConn, ok := c.conn.(*tls.Conn)
 		if !ok {
 			return false
 		}
 		_ = tcpConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		buf := make([]byte, 1)
-		_, err = conn.Read(buf)
+		n, rerr := c.conn.Read(buf)
 		_ = tcpConn.SetReadDeadline(time.Time{})
+		if rerr == nil && n == 1 {
+			c.prefetch = append([]byte{buf[0]}, c.prefetch...)
+		}
+		err = rerr
 
 	} else {
-		tcpConn, ok := conn.(*net.TCPConn)
+		tcpConn, ok := c.conn.(*net.TCPConn)
 		if !ok {
 			return false
 		}
 		_ = tcpConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		buf := make([]byte, 1)
-		_, err = conn.Read(buf)
+		n, rerr := c.conn.Read(buf)
 		_ = tcpConn.SetReadDeadline(time.Time{})
+		if rerr == nil && n == 1 {
+			c.prefetch = append([]byte{buf[0]}, c.prefetch...)
+		}
+		err = rerr
 	}
 
 	if err != nil {

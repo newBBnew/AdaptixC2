@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (dbms *DBMS) DbAgentExist(agentId string) bool {
@@ -123,7 +123,7 @@ func (dbms *DBMS) DbAgentAll() []adaptix.AgentData {
 				agents = append(agents, agentData)
 			}
 		} else {
-			logs.Debug("", "Failed to query agents: "+err.Error())
+			logs.Debug("", "Failed to query agents: %v", err)
 		}
 
 		defer func(query *sql.Rows) {

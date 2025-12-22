@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (dbms *DBMS) DbPivotExist(pivotId string) bool {
@@ -72,7 +72,7 @@ func (dbms *DBMS) DbPivotAll() []*adaptix.PivotData {
 				pivots = append(pivots, pivotData)
 			}
 		} else {
-			logs.Debug("", "Failed to query pivots: "+err.Error())
+			logs.Debug("", "Failed to query pivots: %v", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()

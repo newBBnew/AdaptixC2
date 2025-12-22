@@ -37,7 +37,7 @@ func (dbms *DBMS) DbChatAll() []adaptix.ChatData {
 				messages = append(messages, chatData)
 			}
 		} else {
-			logs.Debug("", err.Error()+" --- Clear database file!")
+			logs.Debug("", "%v --- Clear database file!", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()

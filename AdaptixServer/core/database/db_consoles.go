@@ -52,7 +52,7 @@ func (dbms *DBMS) DbConsoleAll(agentId string) [][]byte {
 				consoles = append(consoles, message)
 			}
 		} else {
-			logs.Debug("", "Failed to query consoles: "+err.Error())
+			logs.Debug("", "Failed to query consoles: %v", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()

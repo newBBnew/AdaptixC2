@@ -4,7 +4,7 @@ import (
 	"AdaptixServer/core/utils/logs"
 	"fmt"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (ts *Teamserver) TsGetPivotInfoByName(pivotName string) (string, string, string) {
@@ -88,7 +88,7 @@ func (ts *Teamserver) TsPivotCreate(pivotId string, pAgentId string, chAgentId s
 	if !isRestore {
 		err := ts.DBMS.DbPivotInsert(*pivotData)
 		if err != nil {
-			logs.Error("", err.Error())
+			logs.Error("", "%v", err)
 		}
 	}
 
@@ -138,7 +138,7 @@ func (ts *Teamserver) TsPivotDelete(pivotId string) error {
 
 	err := ts.DBMS.DbPivotDelete(pivotId)
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("", "%v", err)
 	}
 
 	packet := CreateSpPivotDelete(pivotId)

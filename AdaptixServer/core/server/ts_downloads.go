@@ -5,7 +5,6 @@ import (
 	"AdaptixServer/core/utils/logs"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -13,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 const (
@@ -110,7 +109,7 @@ func (ts *Teamserver) TsDownloadClose(fileId string, reason int) error {
 
 	err := downloadData.File.Close()
 	if err != nil {
-		logs.Debug("", fmt.Sprintf("Failed to finish download [%x] file: %v", downloadData.FileId, err))
+		logs.Debug("", "Failed to finish download [%x] file: %v", downloadData.FileId, err)
 	}
 
 	if reason == DOWNLOAD_STATE_FINISHED {
@@ -118,7 +117,7 @@ func (ts *Teamserver) TsDownloadClose(fileId string, reason int) error {
 		ts.downloads.Put(downloadData.FileId, downloadData)
 		err = ts.DBMS.DbDownloadInsert(downloadData)
 		if err != nil {
-			logs.Error("", err.Error())
+			logs.Error("", "%v", err)
 		}
 
 		go ts.TsEventCallbackDownloads(downloadData)
@@ -186,7 +185,7 @@ func (ts *Teamserver) TsDownloadSave(agentId string, fileId string, filename str
 
 	err = ts.DBMS.DbDownloadInsert(downloadData)
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("", "%v", err)
 	}
 
 	go ts.TsEventCallbackDownloads(downloadData)

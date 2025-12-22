@@ -103,7 +103,7 @@ func (tc *TsConnector) tcConnect(ctx *gin.Context) {
 	}
 	wsConn, err := wsUpgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
-		logs.Error("", "WebSocket upgrade error: "+err.Error())
+		logs.Error("", "WebSocket upgrade error: %v", err)
 		return
 	}
 
@@ -258,7 +258,7 @@ func (tc *TsConnector) tcChannel(ctx *gin.Context) {
 	}
 	wsConn, err := wsUpgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
-		logs.Error("", "WebSocket upgrade error: "+err.Error())
+		logs.Error("", "WebSocket upgrade error: %v", err)
 		return
 	}
 

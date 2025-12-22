@@ -87,7 +87,7 @@ func (dbms *DBMS) DbScreenshotAll() []adaptix.ScreenData {
 				screens = append(screens, screenData)
 			}
 		} else {
-			logs.Debug("", "Failed to query screenshots: "+err.Error())
+			logs.Debug("", "Failed to query screenshots: %v", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()

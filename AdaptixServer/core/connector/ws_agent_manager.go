@@ -1,7 +1,9 @@
 package connector
 
 import (
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -51,6 +53,8 @@ type wsAgentChannel struct {
 	acked bool
 }
 
+const wsAgentMaxMessageBytes = 8 * 1024 * 1024
+
 func newWsAgentManager(cb wsAgentCallbacks) *wsAgentManager {
 	return &wsAgentManager{
 		sessions: make(map[string]*wsAgentSession),
@@ -59,11 +63,19 @@ func newWsAgentManager(cb wsAgentCallbacks) *wsAgentManager {
 	}
 }
 
+func wsFallbackToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err == nil {
+		return "fallback-" + hex.EncodeToString(b)
+	}
+	return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+}
+
 func (m *wsAgentManager) registerPending(agentId string, ttl time.Duration) string {
 	token, err := krypt.GenerateUID(16)
 	if err != nil {
 		logs.Error("", "[WS-Agent] GenerateUID failed: %v", err)
-		token = fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+		token = wsFallbackToken()
 	}
 
 	m.mu.Lock()
@@ -271,6 +283,7 @@ func (tc *TsConnector) tcWsAgentTunnel(ctx *gin.Context) {
 }
 
 func (s *wsAgentSession) start() {
+	s.conn.SetReadLimit(wsAgentMaxMessageBytes)
 	go s.writer()
 	go s.reader()
 }

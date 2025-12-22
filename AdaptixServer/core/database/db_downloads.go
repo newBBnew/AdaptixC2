@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (dbms *DBMS) DbDownloadExist(fileId string) bool {
@@ -77,7 +77,7 @@ func (dbms *DBMS) DbDownloadAll() []adaptix.DownloadData {
 				downloads = append(downloads, downloadData)
 			}
 		} else {
-			logs.Debug("", "Failed to query downloads: "+err.Error())
+			logs.Debug("", "Failed to query downloads: %v", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()

@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (m *ModuleExtender) HandlerListenerValid(data string) error {
@@ -206,6 +206,10 @@ func (m *ModuleExtender) HandlerListenerInteralHandler(name string, data []byte,
 
 		agentInfo = make([]byte, len(data))
 		rc4crypt.XORKeyStream(agentInfo, data)
+
+		if len(agentInfo) < 8 {
+			return "", errors.New("invalid agent data: too short"), true
+		}
 
 		agentType = fmt.Sprintf("%08x", uint(binary.BigEndian.Uint32(agentInfo[:4])))
 		agentInfo = agentInfo[4:]

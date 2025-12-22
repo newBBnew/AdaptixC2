@@ -38,7 +38,7 @@ func (dbms *DBMS) DbCredentialsAdd(credsData []*adaptix.CredsData) error {
 		_, err := dbms.database.Exec(insertQuery, creds.CredId, creds.Username, creds.Password, creds.Realm, creds.Type,
 			creds.Tag, creds.Date, creds.Storage, creds.AgentId, creds.Host)
 		if err != nil {
-			logs.Error("", err.Error())
+			logs.Error("", "%v", err)
 			continue
 		}
 	}
@@ -98,7 +98,7 @@ func (dbms *DBMS) DbCredentialsAll() []*adaptix.CredsData {
 				creds = append(creds, credsData)
 			}
 		} else {
-			logs.Debug("", "Failed to query credentials: "+err.Error())
+			logs.Debug("", "Failed to query credentials: %v", err)
 		}
 		defer func(query *sql.Rows) {
 			_ = query.Close()
