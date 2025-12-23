@@ -303,6 +303,24 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 					meta.Version, meta.MetaFlags, sid, len(data))
 			}
 		}
+		if dohDebug && (meta.MetaFlags&0x1) != 0 {
+			d.mu.Lock()
+			df, hasDf := d.downFrags[sid]
+			if hasDf && df != nil {
+				fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s downAckOffset=%d df.total=%d df.taskNonce=%08x\n",
+					sid, meta.DownAckOffset, df.total, df.taskNonce)
+				if meta.DownAckOffset < df.total {
+					fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s not complete (need %d)\n", sid, df.total)
+				} else if meta.DownAckOffset > df.total {
+					fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s overshoot (df.total=%d)\n", sid, df.total)
+				} else {
+					fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s complete-offset observed; waiting for HB ackTaskNonce to finalize\n", sid)
+				}
+			} else {
+				fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s downAckOffset=%d but no inflight downFrags\n", sid, meta.DownAckOffset)
+			}
+			d.mu.Unlock()
+		}
 		if len(rest) <= 8 {
 			_ = d.ts.TsAgentProcessData(sid, rest)
 			return
@@ -855,6 +873,19 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 				ackTaskNonce = binary.BigEndian.Uint32(decryptedHB[8:12])
 			}
 
+			if dohDebug {
+				d.mu.Lock()
+				dfPeek, hasDfPeek := d.downFrags[sid]
+				if hasDfPeek && dfPeek != nil {
+					fmt.Printf("[BeaconDoH-DNS] [HB-ACK] sid=%s ack=%d ackTaskNonce=%08x df.total=%d df.taskNonce=%08x\n",
+						sid, ackOffset, ackTaskNonce, dfPeek.total, dfPeek.taskNonce)
+				} else {
+					fmt.Printf("[BeaconDoH-DNS] [HB-ACK] sid=%s ack=%d ackTaskNonce=%08x no inflight\n",
+						sid, ackOffset, ackTaskNonce)
+				}
+				d.mu.Unlock()
+			}
+
 			// Check existing task and handle ACK
 			// CRITICAL: Only delete task if ackTaskNonce matches df.taskNonce.
 			// Also ignore nonsensical ack offsets for the current task.
@@ -880,6 +911,20 @@ func (d *DoHListener) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 					// ackTaskNonce mismatch: this is likely a cached old ACK, ignore
 					fmt.Printf("[BeaconDoH-DNS] [HB] IGNORE stale ACK | sid=%s ack=%d ackTaskNonce=%08x != df.taskNonce=%08x\n",
 						sid, ackOffset, ackTaskNonce, df.taskNonce)
+				}
+			} else if dohDebug {
+				if !hasDf || df == nil {
+					if ackOffset > 0 || ackTaskNonce != 0 {
+						fmt.Printf("[BeaconDoH-DNS] [HB-ACK] sid=%s IGNORE: no inflight (ack=%d ackTaskNonce=%08x)\n", sid, ackOffset, ackTaskNonce)
+					}
+				} else if df.total == 0 {
+					fmt.Printf("[BeaconDoH-DNS] [HB-ACK] sid=%s IGNORE: df.total=0 (ack=%d ackTaskNonce=%08x df.taskNonce=%08x)\n", sid, ackOffset, ackTaskNonce, df.taskNonce)
+				} else if ackOffset < df.total {
+					fmt.Printf("[BeaconDoH-DNS] [HB-ACK] sid=%s IGNORE: incomplete offset (ack=%d need=%d ackTaskNonce=%08x df.taskNonce=%08x)\n", sid, ackOffset, df.total, ackTaskNonce, df.taskNonce)
+				} else if ackOffset > df.total {
+					fmt.Printf("[BeaconDoH-DNS] [HB-ACK] sid=%s IGNORE: overshoot offset (ack=%d df.total=%d ackTaskNonce=%08x df.taskNonce=%08x)\n", sid, ackOffset, df.total, ackTaskNonce, df.taskNonce)
+				} else if ackTaskNonce == 0 {
+					fmt.Printf("[BeaconDoH-DNS] [HB-ACK] sid=%s IGNORE: ackTaskNonce=0 (ack=%d df.total=%d df.taskNonce=%08x)\n", sid, ackOffset, df.total, df.taskNonce)
 				}
 			}
 			d.mu.Unlock()
