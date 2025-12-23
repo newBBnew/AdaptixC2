@@ -76,6 +76,10 @@ private:
     // from the connector's perspective (HTTP request + DNS parse both OK).
     BOOL  lastQueryOk     = FALSE;
 
+    // Backoff tuning: adapt provider disable duration to agent sleep
+    // (stored as seconds, as configured by the agent)
+    ULONG sleepDelaySeconds = 0;
+
 public:
     ConnectorDoH();
     // IMPORTANT:
@@ -90,7 +94,7 @@ public:
     // corruption and crashes when WinINet APIs are later invoked.
     ~ConnectorDoH();
 
-    BOOL SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize);
+    BOOL SetConfig(ProfileDoH profile, BYTE* beat, ULONG beatSize, ULONG sleepDelaySeconds);
     void CloseConnector();
 
     void  SendData(BYTE* data, ULONG data_size);
