@@ -2,14 +2,42 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
+	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/adaptix/adaptix_mcp/pkg/client"
 	"github.com/adaptix/adaptix_mcp/pkg/mcp"
+	"github.com/adaptix/adaptix_mcp/pkg/playbook"
 	"github.com/adaptix/adaptix_mcp/pkg/utils"
 	"gopkg.in/yaml.v3"
 )
+
+var lockFile *os.File
+
+func acquireSingletonLock() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return true
+	}
+	lockPath := filepath.Join(home, ".adaptix", "adaptix_mcp.lock")
+	_ = os.MkdirAll(filepath.Dir(lockPath), 0o755)
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return true
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		return false
+	}
+	_, _ = f.Seek(0, 0)
+	_ = f.Truncate(0)
+	_, _ = f.WriteString(fmt.Sprintf("pid=%d\n", os.Getpid()))
+	lockFile = f
+	return true
+}
 
 // Config 配置结构体
 type Config struct {
@@ -63,6 +91,10 @@ func loadConfig(configPath string) (*Config, error) {
 }
 
 func main() {
+	if !acquireSingletonLock() {
+		return
+	}
+
 	// 命令行参数
 	configPath := flag.String("config", "configs/default.yaml", "Path to config file")
 	clientURL := flag.String("url", "", "Client MCP Bridge URL (overrides config)")
@@ -89,8 +121,18 @@ func main() {
 	connector.SetReconnectInterval(config.Client.ReconnectInterval)
 	connector.SetTimeout(config.Client.Timeout)
 
+	if err := playbook.EnsureWorkspace(); err != nil {
+		utils.ErrorLogger.Printf("❌ Failed to initialize playbook workspace: %v", err)
+	}
+
 	// 创建MCP Server
 	server := mcp.NewMCPServer(connector)
+
+	// 设置触发器执行器并加载规则
+	playbook.SetTriggerExecutor(server)
+	if err := playbook.GetTriggerManager().LoadRules(); err != nil {
+		utils.ErrorLogger.Printf("⚠️ Failed to load trigger rules: %v", err)
+	}
 
 	// 启动Server
 	if err := server.Start(); err != nil {

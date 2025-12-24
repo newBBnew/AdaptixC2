@@ -1,0 +1,63 @@
+category: privesc
+name: 权限提升
+icon: shield
+os: windows
+
+templates:
+  - id: check_privs
+    name: 当前权限
+    cmd: whoami /priv
+    tags: [quick, check]
+    description: 显示当前用户的权限令牌
+
+  - id: check_groups
+    name: 用户组
+    cmd: whoami /groups
+    tags: [quick, check]
+
+  - id: uac_status
+    name: UAC 状态
+    cmd: reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v EnableLUA
+    tags: [uac, check]
+
+  - id: always_elevated
+    name: AlwaysInstallElevated
+    cmd: reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated & reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+    tags: [privesc, msi]
+
+  - id: unquoted_services
+    name: 未引用服务路径
+    cmd: wmic service get name,displayname,pathname,startmode | findstr /i "auto" | findstr /i /v "c:\windows\\"
+    tags: [services, privesc]
+
+  - id: writable_services
+    name: 可写服务目录
+    cmd: for /f "tokens=2 delims='='" %a in ('wmic service list full^|find /i "pathname"^|find /i /v "system32"') do @echo %a >> services.txt & icacls %a 2>nul | findstr /i "(F) (M) (W) :\" | findstr /i ":\\ everyone authenticated users todos %username%"
+    tags: [services, privesc]
+    timeout: 120
+
+  - id: stored_creds
+    name: 存储的凭据
+    cmd: cmdkey /list
+    tags: [credentials, check]
+
+  - id: autologon
+    name: 自动登录凭据
+    cmd: reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName & reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword
+    tags: [credentials, autologon]
+
+  - id: sam_backup
+    name: SAM 备份检查
+    cmd: dir C:\Windows\repair\SAM C:\Windows\System32\config\RegBack\SAM 2>nul
+    tags: [credentials, sam]
+
+  - id: sensitive_files
+    name: 敏感文件搜索
+    cmd: dir /s /b C:\*pass*.txt C:\*vnc*.ini C:\*config*.ini 2>nul
+    tags: [files, credentials]
+    timeout: 180
+
+  - id: powershell_history
+    name: PowerShell 历史
+    cmd: type %APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt 2>nul
+    tags: [history, credentials]

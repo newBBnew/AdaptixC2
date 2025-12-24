@@ -120,6 +120,7 @@ SET( HEADERS
         Headers/Utils/CustomElements.h
         Headers/Client/Settings.h
         Headers/UI/Widgets/TunnelsWidget.h
+        Headers/UI/Widgets/TacticalWidget.h
         Headers/Utils/KeyPressHandler.h
         Headers/Agent/Task.h
         Headers/Agent/TaskTableWidgetItem.h
@@ -130,6 +131,7 @@ SET( HEADERS
         Headers/UI/Graph/LayoutTreeLeft.h
         Headers/UI/Widgets/ScreenshotsWidget.h
         Headers/UI/Dialogs/DialogTunnel.h
+        Headers/UI/Dialogs/CommandPaletteDialog.h
         Headers/Client/TunnelEndpoint.h
         Headers/Workers/TunnelWorker.h
         Headers/UI/Widgets/TerminalWidget.h
@@ -216,6 +218,7 @@ add_executable(AdaptixClient
         Source/Utils/CustomElements.cpp
         Source/Client/Settings.cpp
         Source/UI/Widgets/TunnelsWidget.cpp
+        Source/UI/Widgets/TacticalWidget.cpp
         Source/Agent/Task.cpp
         Source/Agent/TaskTableWidgetItem.cpp
         Source/UI/Graph/SessionsGraph.cpp
@@ -225,6 +228,7 @@ add_executable(AdaptixClient
         Source/UI/Graph/LayoutTreeLeft.cpp
         Source/UI/Widgets/ScreenshotsWidget.cpp
         Source/UI/Dialogs/DialogTunnel.cpp
+        Source/UI/Dialogs/CommandPaletteDialog.cpp
         Source/Client/TunnelEndpoint.cpp
         Source/Workers/TunnelWorker.cpp
         Source/UI/Widgets/TerminalWidget.cpp

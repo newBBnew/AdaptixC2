@@ -1,0 +1,65 @@
+category: lateral
+name: 横向移动
+icon: arrow-right
+os: windows
+
+templates:
+  - id: net_view
+    name: 网络邻居
+    cmd: net view
+    tags: [discovery, smb]
+    description: 发现网络中的其他计算机
+
+  - id: net_view_domain
+    name: 域计算机列表
+    cmd: net view /domain
+    tags: [discovery, domain]
+
+  - id: nltest_dc
+    name: 域控制器
+    cmd: nltest /dclist:{{input:domain}}
+    tags: [domain, dc]
+
+  - id: nslookup_dc
+    name: DNS 查询 DC
+    cmd: nslookup -type=SRV _ldap._tcp.dc._msdcs.{{input:domain}}
+    tags: [domain, dns, dc]
+
+  - id: ping_sweep
+    name: Ping 扫描
+    cmd: for /L %i in (1,1,254) do @ping -n 1 -w 100 {{input:subnet}}.%i | find "TTL"
+    tags: [discovery, network]
+    timeout: 300
+
+  - id: port_scan_single
+    name: 端口扫描 (单主机)
+    cmd: powershell -c "1..1024 | % { $sock = New-Object System.Net.Sockets.TcpClient; $async = $sock.BeginConnect('{{input:target}}', $_, $null, $null); $wait = $async.AsyncWaitHandle.WaitOne(100, $false); if($sock.Connected) { $_ }; $sock.Close() }"
+    tags: [discovery, ports]
+    timeout: 120
+
+  - id: smb_check
+    name: SMB 连接测试
+    cmd: net use \\{{input:target}}\IPC$ /user:{{input:user}} {{input:password}}
+    tags: [smb, auth]
+    sensitive: true
+
+  - id: wmi_process
+    name: WMI 远程进程
+    cmd: wmic /node:{{input:target}} process list brief
+    tags: [wmi, remote]
+
+  - id: psexec_cmd
+    name: PsExec 命令
+    cmd: psexec \\{{input:target}} -accepteula cmd /c {{input:command}}
+    tags: [psexec, remote]
+    sensitive: true
+
+  - id: rdp_check
+    name: RDP 端口检查
+    cmd: powershell -c "Test-NetConnection -ComputerName {{input:target}} -Port 3389"
+    tags: [rdp, check]
+
+  - id: winrm_check
+    name: WinRM 检查
+    cmd: powershell -c "Test-WSMan -ComputerName {{input:target}}"
+    tags: [winrm, check]

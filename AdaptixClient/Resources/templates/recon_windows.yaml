@@ -1,0 +1,113 @@
+category: recon
+name: 信息收集
+icon: search
+os: windows
+
+templates:
+  - id: whoami
+    name: 当前用户
+    cmd: whoami /all
+    tags: [quick, identity]
+    description: 显示当前用户及权限信息
+
+  - id: hostname
+    name: 主机名
+    cmd: hostname
+    tags: [quick, identity]
+
+  - id: ipconfig
+    name: 网络配置
+    cmd: ipconfig /all
+    tags: [network]
+    description: 显示所有网络适配器配置
+
+  - id: systeminfo
+    name: 系统信息
+    cmd: systeminfo
+    tags: [system]
+    timeout: 60
+    description: 详细的操作系统和硬件信息
+
+  - id: tasklist
+    name: 进程列表
+    cmd: tasklist /v
+    tags: [process]
+
+  - id: netstat
+    name: 网络连接
+    cmd: netstat -ano
+    tags: [network, connections]
+    description: 显示所有网络连接和监听端口
+
+  - id: arp
+    name: ARP 缓存
+    cmd: arp -a
+    tags: [network, discovery]
+
+  - id: route
+    name: 路由表
+    cmd: route print
+    tags: [network]
+
+  - id: net_users
+    name: 本地用户
+    cmd: net user
+    tags: [users, identity]
+
+  - id: net_localgroup
+    name: 本地组
+    cmd: net localgroup
+    tags: [users, identity]
+
+  - id: net_admins
+    name: 管理员组成员
+    cmd: net localgroup administrators
+    tags: [users, identity, privesc]
+
+  - id: net_share
+    name: 共享目录
+    cmd: net share
+    tags: [network, smb]
+
+  - id: net_session
+    name: 网络会话
+    cmd: net session
+    tags: [network, smb]
+
+  - id: wmic_os
+    name: 操作系统详情
+    cmd: wmic os get Caption,Version,BuildNumber,OSArchitecture
+    tags: [system]
+
+  - id: env_vars
+    name: 环境变量
+    cmd: set
+    tags: [system, config]
+
+  - id: installed_software
+    name: 已安装软件
+    cmd: wmic product get name,version
+    tags: [software]
+    timeout: 120
+
+  - id: services
+    name: 服务列表
+    cmd: sc query state= all
+    tags: [services]
+    timeout: 60
+
+  - id: scheduled_tasks
+    name: 计划任务
+    cmd: schtasks /query /fo LIST /v
+    tags: [persistence, tasks]
+    timeout: 60
+
+  - id: firewall_status
+    name: 防火墙状态
+    cmd: netsh advfirewall show allprofiles
+    tags: [security, firewall]
+
+  - id: defender_status
+    name: Defender 状态
+    cmd: powershell -c "Get-MpComputerStatus | Select-Object AntivirusEnabled,RealTimeProtectionEnabled,IoavProtectionEnabled"
+    tags: [security, av]

@@ -3,7 +3,7 @@
 #include <Agent/Task.h>
 #include <Workers/LastTickWorker.h>
 #include <Workers/WebSocketWorker.h>
-#include <UI/Widgets/AdaptixWidget.h>
+#include "UI/Widgets/AdaptixWidget.h"
 #include <UI/Widgets/ConsoleWidget.h>
 #include <UI/Widgets/AxConsoleWidget.h>
 #include <UI/Widgets/BrowserFilesWidget.h>
@@ -20,9 +20,12 @@
 #include <UI/Widgets/FileDeliveryWidget.h>
 #include <UI/Widgets/TasksWidget.h>
 #include <UI/Widgets/TunnelsWidget.h>
+#include <UI/Widgets/TacticalWidget.h>
 #include <UI/Graph/SessionsGraph.h>
 #include <UI/Dialogs/DialogSyncPacket.h>
 #include <UI/Dialogs/DialogTunnel.h>
+#include <UI/Dialogs/CommandPaletteDialog.h>
+#include <QShortcut>
 #include <Client/Requestor.h>
 #include <Client/AuthProfile.h>
 #include <Client/TunnelEndpoint.h>
@@ -100,6 +103,15 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     dockBottom->addDockWidgetAsTab( CredentialsDock->dock() );
     CredentialsDock->dock()->toggleAction()->trigger();
 
+    // 战术向导
+    TacticalDock = new TacticalWidget(this);
+    dockBottom->addDockWidgetAsTab( TacticalDock->dock() );
+
+    // 快捷命令板
+    CommandPalette = new CommandPaletteDialog(this);
+    auto paletteShortcut = new QShortcut(QKeySequence("Ctrl+P"), this);
+    connect(paletteShortcut, &QShortcut::activated, this, &AdaptixWidget::ShowCommandPalette);
+
     TargetsDock = new TargetsWidget(this);
     dockBottom->addDockWidgetAsTab( TargetsDock->dock() );
     TargetsDock->dock()->toggleAction()->trigger();
@@ -150,9 +162,6 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
         
         // Connect signals
         connect(MCPBridgeThread, &QThread::started, MCPBridge, &MCPBridgeWorker::start);
-        connect(MCPBridge, &MCPBridgeWorker::started, this, [](quint16 port) {
-            // qInfo() << "[MCP] ✅ MCP Bridge started successfully on port" << port;
-        });
         connect(MCPBridge, &MCPBridgeWorker::errorOccurred, this, [](QString error) {
             qCritical() << "[MCP] ❌ Error:" << error;
         });
@@ -183,6 +192,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     connect( credsButton,     &QPushButton::clicked, this, &AdaptixWidget::LoadCredentialsUI);
     connect( targetsButton,   &QPushButton::clicked, this, &AdaptixWidget::LoadTargetsUI);
     connect( filedeliveryButton, &QPushButton::clicked, this, &AdaptixWidget::LoadFileDeliveryUI);
+    connect( tacticalButton, &QPushButton::clicked, this, &AdaptixWidget::LoadTacticalUI);
     connect( reconnectButton, &QPushButton::clicked, this, &AdaptixWidget::OnReconnect);
 
     connect( TickThread, &QThread::started, TickWorker, &LastTickWorker::run );
@@ -318,6 +328,13 @@ void AdaptixWidget::createUI()
     filedeliveryButton->setFixedSize(37, 28);
     filedeliveryButton->setToolTip("FileDelivery");
 
+    // playbooksButton 已移除
+    
+    tacticalButton = new QPushButton( QIcon(":/icons/start"), "", this );
+    tacticalButton->setIconSize( QSize( 24,24 ));
+    tacticalButton->setFixedSize(37, 28);
+    tacticalButton->setToolTip("Tactical Playbook");
+
     line_4 = new QFrame(this);
     line_4->setFrameShape(QFrame::VLine);
     line_4->setMinimumHeight(25);
@@ -352,6 +369,7 @@ void AdaptixWidget::createUI()
     topHLayout->addWidget(screensButton);
     topHLayout->addWidget(keysButton);
     topHLayout->addWidget(filedeliveryButton);
+    topHLayout->addWidget(tacticalButton);
     topHLayout->addWidget(line_4);
     topHLayout->addWidget(reconnectButton);
     topHLayout->addItem(horizontalSpacer1);
@@ -969,6 +987,28 @@ void AdaptixWidget::LoadCredentialsUI() const { this->AddDockBottom( Credentials
 void AdaptixWidget::LoadTargetsUI() const { this->AddDockBottom( TargetsDock->dock() ); }
 
 void AdaptixWidget::LoadFileDeliveryUI() const { this->AddDockBottom( FileDeliveryDock->dock() ); }
+
+void AdaptixWidget::LoadTacticalUI() const { this->AddDockBottom( TacticalDock->dock() ); }
+
+void AdaptixWidget::ShowCommandPalette()
+{
+    if (!CommandPalette) return;
+    
+    // 尝试获取第一个可用的 Agent
+    QString agentId;
+    QString agentOs;
+    
+    if (!AgentsVector.isEmpty()) {
+        agentId = AgentsVector.first();
+        Agent* agent = AgentsMap.value(agentId, nullptr);
+        if (agent) {
+            agentOs = (agent->data.Os == 1) ? "windows" : "linux";
+        }
+    }
+    
+    CommandPalette->setAgentContext(agentId, agentOs);
+    CommandPalette->show();
+}
 
 void AdaptixWidget::OnReconnect()
 {

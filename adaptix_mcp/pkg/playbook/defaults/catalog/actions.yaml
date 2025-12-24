@@ -1,0 +1,260 @@
+apiVersion: adaptix.actions/v1
+kind: ActionCatalog
+metadata:
+  id: default
+  version: "2025.12"
+
+actions:
+  # === Agent Management ===
+  adaptix.list_agents:
+    description: List all connected agents
+    transport:
+      type: mcp_tool
+      tool: list_agents
+    ui:
+      icon: "lucide:users"
+      danger: low
+      category: agents
+
+  adaptix.get_agent_info:
+    description: Get detailed information about a specific agent
+    transport:
+      type: mcp_tool
+      tool: get_agent_info
+    ui:
+      icon: "lucide:info"
+      danger: low
+      category: agents
+
+  adaptix.update_agent_config:
+    description: Update agent configuration (sleep/jitter)
+    transport:
+      type: mcp_tool
+      tool: update_agent_config
+    ui:
+      icon: "lucide:settings"
+      danger: medium
+      category: agents
+
+  adaptix.update_agent_metadata:
+    description: Update agent metadata (tag or mark)
+    transport:
+      type: mcp_tool
+      tool: update_agent_metadata
+    ui:
+      icon: "lucide:tag"
+      danger: low
+      category: agents
+
+  # === Command Execution ===
+  adaptix.execute_command:
+    description: Execute a command on an agent console
+    transport:
+      type: mcp_tool
+      tool: execute_command
+    ui:
+      icon: "lucide:terminal"
+      danger: high
+      confirm: true
+      confirmScope: run
+      confirmationText: "This workflow will send commands to agents."
+      category: execution
+
+  adaptix.get_task_output:
+    description: Get the full output of a specific task
+    transport:
+      type: mcp_tool
+      tool: get_task_output
+    ui:
+      icon: "lucide:file-text"
+      danger: low
+      category: execution
+
+  adaptix.list_tasks:
+    description: List all tasks (optionally filtered by agent_id)
+    transport:
+      type: mcp_tool
+      tool: list_tasks
+    ui:
+      icon: "lucide:list"
+      danger: low
+      category: execution
+
+  adaptix.delete_tasks:
+    description: Delete one or more tasks
+    transport:
+      type: mcp_tool
+      tool: delete_tasks
+    ui:
+      icon: "lucide:trash"
+      danger: medium
+      category: execution
+
+  # === Console ===
+  adaptix.get_console_output:
+    description: Get the console output of an agent
+    transport:
+      type: mcp_tool
+      tool: get_console_output
+    ui:
+      icon: "lucide:terminal-square"
+      danger: low
+      category: console
+
+  adaptix.clear_console:
+    description: Clear the console output of an agent
+    transport:
+      type: mcp_tool
+      tool: clear_console
+    ui:
+      icon: "lucide:eraser"
+      danger: low
+      category: console
+
+  # === Listeners ===
+  adaptix.list_listeners:
+    description: List all listeners
+    transport:
+      type: mcp_tool
+      tool: list_listeners
+    ui:
+      icon: "lucide:radio"
+      danger: low
+      category: listeners
+
+  adaptix.manage_listener:
+    description: Manage listener (create, edit, or stop)
+    transport:
+      type: mcp_tool
+      tool: manage_listener
+    ui:
+      icon: "lucide:settings-2"
+      danger: medium
+      confirm: true
+      confirmScope: step
+      category: listeners
+
+  # === Tunnels ===
+  adaptix.list_tunnels:
+    description: List all tunnels
+    transport:
+      type: mcp_tool
+      tool: list_tunnels
+    ui:
+      icon: "lucide:network"
+      danger: low
+      category: tunnels
+
+  adaptix.manage_tunnel:
+    description: Manage tunnel (create or stop)
+    transport:
+      type: mcp_tool
+      tool: manage_tunnel
+    ui:
+      icon: "lucide:git-branch"
+      danger: medium
+      category: tunnels
+
+  # === Data Collection ===
+  adaptix.list_collected_data:
+    description: List collected data (credentials, downloads, or screenshots)
+    transport:
+      type: mcp_tool
+      tool: list_collected_data
+    ui:
+      icon: "lucide:database"
+      danger: low
+      category: data
+
+  adaptix.list_targets:
+    description: List all targets
+    transport:
+      type: mcp_tool
+      tool: list_targets
+    ui:
+      icon: "lucide:target"
+      danger: low
+      category: data
+
+  # === Pivots ===
+  adaptix.list_pivots:
+    description: List all pivots
+    transport:
+      type: mcp_tool
+      tool: list_pivots
+    ui:
+      icon: "lucide:git-fork"
+      danger: low
+      category: pivots
+
+  # === Playbooks ===
+  adaptix.list_playbooks:
+    description: List all playbooks
+    transport:
+      type: mcp_tool
+      tool: list_playbooks
+    ui:
+      icon: "lucide:book-open"
+      danger: low
+      category: playbooks
+
+  adaptix.run_playbook:
+    description: Create a playbook run record (plan only)
+    transport:
+      type: mcp_tool
+      tool: run_playbook
+    ui:
+      icon: "lucide:play"
+      danger: medium
+      category: playbooks
+
+  adaptix.get_playbook_run:
+    description: Read a playbook run record by path
+    transport:
+      type: mcp_tool
+      tool: get_playbook_run
+    ui:
+      icon: "lucide:file-check"
+      danger: low
+      category: playbooks
+
+  # === Utility Actions (no MCP tool, handled internally) ===
+  core.log:
+    description: Log a message (for debugging/auditing)
+    transport:
+      type: internal
+      handler: log
+    ui:
+      icon: "lucide:message-square"
+      danger: low
+      category: utility
+
+  core.sleep:
+    description: Wait for a specified duration
+    transport:
+      type: internal
+      handler: sleep
+    ui:
+      icon: "lucide:clock"
+      danger: low
+      category: utility
+
+  core.set_var:
+    description: Set a variable in the context
+    transport:
+      type: internal
+      handler: set_var
+    ui:
+      icon: "lucide:variable"
+      danger: low
+      category: utility
+
+  core.fail:
+    description: Fail the playbook with an error message
+    transport:
+      type: internal
+      handler: fail
+    ui:
+      icon: "lucide:x-circle"
+      danger: low
+      category: utility

@@ -306,6 +306,22 @@ void TasksWidget::SetAgentFilter(const QString &agentId)
     this->SetData();
 }
 
+void TasksWidget::SelectTask(const QString &taskId)
+{
+    // 在表格中查找并选中指定的任务
+    for (int row = 0; row < tableWidget->rowCount(); ++row) {
+        QTableWidgetItem* item = tableWidget->item(row, ColumnTaskId);
+        if (item && item->text() == taskId) {
+            tableWidget->selectRow(row);
+            tableWidget->scrollToItem(item);
+            // 触发选择事件以显示任务详情
+            QModelIndex index = tableWidget->model()->index(row, 0);
+            onTableItemSelection(index, QModelIndex());
+            break;
+        }
+    }
+}
+
 void TasksWidget::UpdateColumnsVisible() const
 {
     for(int i = 0; i < 11; i++) {

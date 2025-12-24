@@ -1,0 +1,86 @@
+workflows:
+  - id: windows_initial_recon
+    name: Windows 初始侦察
+    description: Agent 上线后的基础信息收集
+    os: windows
+    icon: zap
+    steps:
+      - template: recon.whoami
+      - template: recon.ipconfig
+        delay: 1
+      - template: recon.systeminfo
+        delay: 2
+      - template: recon.netstat
+      - template: recon.tasklist
+
+  - id: windows_privesc_check
+    name: Windows 提权检查
+    description: 检查常见的提权向量
+    os: windows
+    icon: shield
+    steps:
+      - template: privesc.check_privs
+      - template: privesc.check_groups
+      - template: privesc.uac_status
+      - template: privesc.stored_creds
+      - template: privesc.autologon
+
+  - id: windows_full_recon
+    name: Windows 完整侦察
+    description: 全面的系统信息收集
+    os: windows
+    icon: search
+    steps:
+      - template: recon.whoami
+      - template: recon.systeminfo
+        delay: 2
+      - template: recon.ipconfig
+      - template: recon.netstat
+      - template: recon.arp
+      - template: recon.route
+      - template: recon.net_users
+      - template: recon.net_admins
+      - template: recon.services
+        delay: 3
+      - template: recon.scheduled_tasks
+      - template: recon.firewall_status
+      - template: recon.defender_status
+
+  - id: linux_initial_recon
+    name: Linux 初始侦察
+    description: Linux Agent 上线后的基础信息收集
+    os: linux
+    icon: zap
+    steps:
+      - template: recon.whoami
+      - template: recon.uname
+      - template: recon.ifconfig
+      - template: recon.netstat
+      - template: recon.ps
+
+  - id: linux_privesc_check
+    name: Linux 提权检查
+    description: 检查 Linux 提权向量
+    os: linux
+    icon: shield
+    steps:
+      - template: recon.sudo_l
+      - template: recon.suid
+        delay: 2
+      - template: recon.crontab
+      - template: recon.cat_shadow
+
+triggers:
+  - event: agent.online
+    filter:
+      os: windows
+    workflow: windows_initial_recon
+    delay: 3
+    enabled: true
+
+  - event: agent.online
+    filter:
+      os: linux
+    workflow: linux_initial_recon
+    delay: 3
+    enabled: true

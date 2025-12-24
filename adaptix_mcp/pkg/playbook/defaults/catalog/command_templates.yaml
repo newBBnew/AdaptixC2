@@ -1,0 +1,33 @@
+apiVersion: adaptix.commands/v1
+kind: CommandTemplates
+metadata:
+  version: "2025.12"
+
+templates:
+  diag.whoami:
+    name: WhoAmI
+    description: Basic identity check
+    danger: low
+    command: "whoami"
+    paramsSchema:
+      type: object
+      additionalProperties: false
+    extractors:
+      - id: username
+        key: username
+        from: output
+        type: regex
+        options:
+          pattern: "^(.*)$"
+          group: 1
+          flags: "m"
+        required: true
+
+  diag.echo_username:
+    name: Echo Username
+    description: Demonstrate chaining with extracted.username
+    danger: low
+    command: "echo user=${{ steps.step_whoami.extracted.username }}"
+    paramsSchema:
+      type: object
+      additionalProperties: false

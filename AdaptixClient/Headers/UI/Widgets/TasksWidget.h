@@ -76,6 +76,7 @@ public:
     void RemoveAgentTasksItem(const QString &agentId) const;
 
     void SetAgentFilter(const QString &agentId);
+    void SelectTask(const QString &taskId);
     void SetData() const;
     void UpdateColumnsVisible() const;
     void ClearTableContent() const;

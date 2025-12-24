@@ -1,0 +1,77 @@
+apiVersion: adaptix.playbook/v1
+kind: Playbook
+metadata:
+  id: pb.trigger.agent-online
+  name: Auto Recon on Agent Online
+  version: 1.0.0
+  description: Automatically gather basic info when a new agent comes online
+  labels:
+    category: automation
+    maturity: stable
+  annotations:
+    ui.icon: "lucide:zap"
+    ui.color: "#F59E0B"
+
+# Event-driven triggers
+triggers:
+  - event: agent.online
+    filter:
+      os: "*"
+    delay: 3
+    dedupe: 300
+
+spec:
+  inputs:
+    type: object
+    required: [agent_id]
+    properties:
+      agent_id:
+        type: string
+        title: Agent ID
+        description: Automatically populated from event
+        ui:
+          widget: agentPicker
+
+  vars:
+    trigger_time: "${{ now() }}"
+
+  steps:
+    - id: log_trigger
+      name: Log trigger event
+      action: core.log
+      args:
+        message: "Agent online trigger fired for: ${{ inputs.agent_id }} at ${{ vars.trigger_time }}"
+        level: info
+
+    - id: wait_settle
+      name: Wait for agent to settle
+      action: core.sleep
+      args:
+        duration_ms: 2000
+
+    - id: get_info
+      name: Get agent information
+      action: adaptix.get_agent_info
+      args:
+        agent_id: "${{ inputs.agent_id }}"
+      saveAs: agent_info
+      onError: continue
+
+    - id: log_complete
+      name: Log completion
+      action: core.log
+      args:
+        message: "Auto recon completed for agent ${{ inputs.agent_id }}"
+        level: info
+
+  outputs:
+    summary:
+      type: markdown
+      template: |
+        # Auto Recon Report
+        
+        **Agent:** ${{ inputs.agent_id }}
+        **Triggered At:** ${{ vars.trigger_time }}
+        
+        ## Agent Info
+        ${{ steps.get_info.result }}

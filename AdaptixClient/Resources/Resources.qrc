@@ -122,4 +122,12 @@
         <file alias="unknown_red">icons/graph/v2/unknown-100-red.png</file>
     </qresource>
 
+    <qresource prefix="/templates">
+        <file alias="recon_windows.yaml">templates/recon_windows.yaml</file>
+        <file alias="recon_linux.yaml">templates/recon_linux.yaml</file>
+        <file alias="privesc_windows.yaml">templates/privesc_windows.yaml</file>
+        <file alias="lateral_windows.yaml">templates/lateral_windows.yaml</file>
+        <file alias="workflows.yaml">templates/workflows.yaml</file>
+    </qresource>
+
 </RCC>

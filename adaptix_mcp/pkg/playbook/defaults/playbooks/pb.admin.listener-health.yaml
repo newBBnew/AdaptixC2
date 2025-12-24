@@ -1,0 +1,61 @@
+apiVersion: adaptix.playbook/v1
+kind: Playbook
+metadata:
+  id: pb.admin.listener-health
+  name: Listener Health Check
+  version: 1.0.0
+  description: Check the status of all listeners and report issues
+  labels:
+    category: admin
+    maturity: stable
+  annotations:
+    ui.icon: "lucide:activity"
+    ui.color: "#3B82F6"
+
+spec:
+  inputs:
+    type: object
+    properties:
+      alert_if_none:
+        type: boolean
+        title: Alert If No Listeners
+        default: true
+
+  steps:
+    - id: list_listeners
+      name: List all listeners
+      action: adaptix.list_listeners
+      args: {}
+
+    - id: check_empty
+      name: Check for empty listeners
+      when: "len(steps.list_listeners.result.listeners) == 0 && inputs.alert_if_none"
+      action: core.log
+      args:
+        message: "WARNING: No active listeners found!"
+        level: warn
+
+    - id: list_tunnels
+      name: List tunnels
+      action: adaptix.list_tunnels
+      args: {}
+
+    - id: list_pivots
+      name: List pivots
+      action: adaptix.list_pivots
+      args: {}
+
+  outputs:
+    summary:
+      type: markdown
+      template: |
+        # Infrastructure Health Report
+        
+        ## Listeners
+        **Count:** ${{ len(steps.list_listeners.result.listeners) }}
+        
+        ## Tunnels
+        **Count:** ${{ len(steps.list_tunnels.result.tunnels) }}
+        
+        ## Pivots
+        **Count:** ${{ len(steps.list_pivots.result.pivots) }}

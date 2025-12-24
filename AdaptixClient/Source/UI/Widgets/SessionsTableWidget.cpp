@@ -7,6 +7,7 @@
 #include <UI/Widgets/TerminalWidget.h>
 #include <UI/Widgets/AdaptixWidget.h>
 #include <UI/Widgets/TasksWidget.h>
+#include <UI/Widgets/TacticalWidget.h>
 #include <UI/Dialogs/DialogTunnel.h>
 #include <Client/AxScript/AxScriptManager.h>
 #include <Client/Requestor.h>
@@ -386,6 +387,7 @@ void SessionsTableWidget::handleSessionsTableMenu(const QPoint &pos)
 
     auto agentMenu = QMenu("Agent");
     agentMenu.addAction("Execute command", this, &SessionsTableWidget::actionExecuteCommand);
+    agentMenu.addAction("Command templates", this, &SessionsTableWidget::actionOpenCommandTemplates);
     agentMenu.addAction("Task manager", this, &SessionsTableWidget::actionTasksBrowserOpen);
     agentMenu.addSeparator();
 
@@ -466,6 +468,24 @@ void SessionsTableWidget::actionExecuteCommand()
     for(auto id : listId) {
         adaptixWidget->AgentsMap[id]->Console->SetInput(cmd);
         adaptixWidget->AgentsMap[id]->Console->processInput();
+    }
+}
+
+void SessionsTableWidget::actionOpenCommandTemplates()
+{
+    if (tableWidget->currentRow() < 0) return;
+    
+    QString agentId = tableWidget->item(tableWidget->currentRow(), ColumnAgentID)->text();
+    Agent* agent = adaptixWidget->AgentsMap.value(agentId, nullptr);
+    if (!agent) return;
+    
+    QString os = (agent->data.Os == 1) ? "windows" : "linux";
+    
+    // 设置 TacticalWidget 的当前 Agent 并激活
+    if (adaptixWidget->TacticalDock) {
+        adaptixWidget->TacticalDock->setAgent(agentId);
+        adaptixWidget->TacticalDock->dock()->raise();
+        adaptixWidget->TacticalDock->dock()->setAsCurrentTab();
     }
 }
 

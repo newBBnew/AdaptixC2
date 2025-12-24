@@ -26,6 +26,8 @@ class TargetsWidget;
 class TasksWidget;
 class TunnelsWidget;
 class FileDeliveryWidget;
+class TacticalWidget;
+class CommandPaletteDialog;
 class TunnelEndpoint;
 class DialogSyncPacket;
 class AuthProfile;
@@ -65,6 +67,7 @@ Q_OBJECT
     QPushButton*    screensButton     = nullptr;
     QPushButton*    keysButton        = nullptr;
     QPushButton*    filedeliveryButton = nullptr;
+    QPushButton*    tacticalButton    = nullptr;
     QPushButton*    reconnectButton   = nullptr;
     QSpacerItem*    horizontalSpacer1 = nullptr;
     QFrame*         line_1            = nullptr;
@@ -111,6 +114,8 @@ public:
     TasksWidget*         TasksDock         = nullptr;
     TargetsWidget*       TargetsDock        = nullptr;
     FileDeliveryWidget*  FileDeliveryDock   = nullptr;
+    TacticalWidget*         TacticalDock = nullptr;
+    CommandPaletteDialog*   CommandPalette = nullptr;
 
     QVector<RegListenerConfig>     RegisterListeners;
     QVector<RegAgentConfig>        RegisterAgents;
@@ -192,6 +197,8 @@ public Q_SLOTS:
     void LoadCredentialsUI() const;
     void LoadTargetsUI() const;
     void LoadFileDeliveryUI() const;
+    void LoadTacticalUI() const;
+    void ShowCommandPalette();
     void OnReconnect();
 };
 

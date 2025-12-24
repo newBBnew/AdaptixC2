@@ -68,6 +68,7 @@ public Q_SLOTS:
 
     void actionConsoleOpen() const;
     void actionExecuteCommand();
+    void actionOpenCommandTemplates();
     void actionTasksBrowserOpen() const;
     void actionMarkActive() const;
     void actionMarkInactive() const;

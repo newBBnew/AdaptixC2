@@ -1,0 +1,97 @@
+apiVersion: adaptix.playbook/v1
+kind: Playbook
+metadata:
+  id: pb.ops.batch-command
+  name: Batch Command Execution
+  version: 1.0.0
+  description: Execute a command on multiple agents with retry and timeout support
+  labels:
+    category: operations
+    maturity: stable
+  annotations:
+    ui.icon: "lucide:terminal"
+    ui.color: "#EF4444"
+
+spec:
+  inputs:
+    type: object
+    required: [agent_ids, command]
+    properties:
+      agent_ids:
+        type: array
+        title: Target Agent IDs
+        description: List of agent IDs to execute command on
+        items:
+          type: string
+        ui:
+          widget: agentMultiPicker
+      command:
+        type: string
+        title: Command
+        description: Command to execute on each agent
+        ui:
+          widget: textarea
+      wait_for_result:
+        type: boolean
+        title: Wait For Result
+        default: true
+      max_wait_seconds:
+        type: number
+        title: Max Wait (seconds)
+        default: 60
+        minimum: 1
+        maximum: 600
+      continue_on_error:
+        type: boolean
+        title: Continue On Error
+        description: Continue to next agent if command fails
+        default: true
+
+  vars:
+    successful_count: 0
+    failed_count: 0
+
+  steps:
+    - id: log_start
+      name: Log operation start
+      action: core.log
+      args:
+        message: "Executing command on ${{ len(inputs.agent_ids) }} agents: ${{ inputs.command }}"
+        level: info
+
+    - id: execute_batch
+      name: Execute command on agents
+      foreach:
+        in: "inputs.agent_ids"
+        itemVar: agent_id
+        indexVar: agent_idx
+      action: adaptix.execute_command
+      args:
+        agent_id: "${{ vars.agent_id }}"
+        command: "${{ inputs.command }}"
+        wait_for_result: "${{ inputs.wait_for_result }}"
+        max_wait_seconds: "${{ inputs.max_wait_seconds }}"
+      timeoutSeconds: 120
+      retry:
+        maxAttempts: 2
+        delayMs: 1000
+      onError: "${{ inputs.continue_on_error == true ? 'continue' : 'fail' }}"
+
+    - id: log_complete
+      name: Log completion
+      action: core.log
+      args:
+        message: "Batch command completed"
+        level: info
+
+  outputs:
+    summary:
+      type: markdown
+      template: |
+        # Batch Command Execution Report
+        
+        **Command:** `${{ inputs.command }}`
+        **Target Agents:** ${{ len(inputs.agent_ids) }}
+        
+        ## Execution Results
+        See individual step results for details.

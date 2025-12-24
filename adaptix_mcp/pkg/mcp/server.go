@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/adaptix/adaptix_mcp/pkg/client"
 	"github.com/adaptix/adaptix_mcp/pkg/utils"
@@ -52,28 +55,81 @@ func NewMCPServer(connector *client.Connector) *MCPServer {
 	return s
 }
 
+func (s *MCPServer) readMessage() ([]byte, bool, error) {
+	line, err := s.stdin.ReadString('\n')
+	if err != nil {
+		return nil, false, err
+	}
+
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(strings.ToLower(trimmed), "content-length:") {
+		value := strings.TrimSpace(trimmed[len("content-length:"):])
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return nil, true, fmt.Errorf("invalid Content-Length: %w", err)
+		}
+
+		for {
+			h, err := s.stdin.ReadString('\n')
+			if err != nil {
+				return nil, true, err
+			}
+			if strings.TrimSpace(h) == "" {
+				break
+			}
+		}
+
+		payload := make([]byte, n)
+		if _, err := io.ReadFull(s.stdin, payload); err != nil {
+			return nil, true, err
+		}
+
+		return payload, true, nil
+	}
+
+	return []byte(trimmed), false, nil
+}
+
+func (s *MCPServer) writeMessage(resp *JSONRPCResponse, framed bool) error {
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return err
+	}
+
+	if framed {
+		if _, err := fmt.Fprintf(s.stdout, "Content-Length: %d\r\n\r\n", len(data)); err != nil {
+			return err
+		}
+		_, err = s.stdout.Write(data)
+		return err
+	}
+
+	if _, err := s.stdout.Write(data); err != nil {
+		return err
+	}
+	_, err = s.stdout.Write([]byte("\n"))
+	return err
+}
+
 // Start 启动MCP服务器
 func (s *MCPServer) Start() error {
 	utils.InfoLogger.Println("🚀 MCP Server started, listening on stdin for JSON-RPC requests...")
 
 	// 主循环：读取stdin的JSON-RPC请求
 	for {
-		line, err := s.stdin.ReadString('\n')
+		payload, framed, err := s.readMessage()
 		if err != nil {
 			utils.ErrorLogger.Printf("Failed to read from stdin: %v", err)
 			return err
 		}
 
-		utils.DebugLogger.Printf("📨 Received: %s", line)
+		utils.DebugLogger.Printf("📨 Received: %s", string(payload))
 
-		// 处理请求
-		response := s.handleRequest(line)
+		response := s.handleRequest(string(payload))
 
-		// 输出响应到stdout
-		if err := json.NewEncoder(s.stdout).Encode(response); err != nil {
+		if err := s.writeMessage(response, framed); err != nil {
 			utils.ErrorLogger.Printf("Failed to write response: %v", err)
 		}
-		s.stdout.Write([]byte("\n"))
 		utils.DebugLogger.Println("📤 Response sent")
 	}
 }
@@ -504,6 +560,60 @@ func (s *MCPServer) handleToolsList(req JSONRPCRequest) *JSONRPCResponse {
 				"properties": map[string]interface{}{},
 			},
 		},
+		{
+			Name:        "list_playbooks",
+			Description: "List all playbooks",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "get_playbook",
+			Description: "Get a playbook by id",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"playbook_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Playbook ID",
+					},
+				},
+				"required": []string{"playbook_id"},
+			},
+		},
+		{
+			Name:        "run_playbook",
+			Description: "Create a playbook run record (plan only)",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"playbook_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Playbook ID",
+					},
+					"inputs": map[string]interface{}{
+						"type":        "object",
+						"description": "Playbook inputs",
+					},
+				},
+				"required": []string{"playbook_id"},
+			},
+		},
+		{
+			Name:        "get_playbook_run",
+			Description: "Read a playbook run record by path",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"run_path": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to run record (run_path returned by run_playbook)",
+					},
+				},
+				"required": []string{"run_path"},
+			},
+		},
 	}
 
 	return &JSONRPCResponse{
@@ -657,4 +767,24 @@ func (s *MCPServer) errorResponse(id interface{}, code int, message string, data
 			Data:    data,
 		},
 	}
+}
+
+// ExecutePlaybook 实现 TriggerExecutor 接口，用于事件触发执行 playbook
+func (s *MCPServer) ExecutePlaybook(playbookID string, inputs map[string]interface{}) error {
+	utils.InfoLogger.Printf("🎯 Trigger executing playbook: %s", playbookID)
+
+	// 调用 run_playbook tool
+	params := map[string]interface{}{
+		"playbook_id": playbookID,
+		"inputs":      inputs,
+	}
+
+	result, err := s.handleRunPlaybookTool(params)
+	if err != nil {
+		utils.ErrorLogger.Printf("❌ Trigger execution failed for %s: %v", playbookID, err)
+		return err
+	}
+
+	utils.InfoLogger.Printf("✅ Trigger execution completed for %s: %v", playbookID, result)
+	return nil
 }

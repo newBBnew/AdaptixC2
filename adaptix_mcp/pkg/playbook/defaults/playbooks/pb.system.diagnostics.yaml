@@ -1,0 +1,65 @@
+apiVersion: adaptix.playbook/v1
+kind: Playbook
+metadata:
+  id: pb.system.diagnostics
+  name: System Diagnostics (Demo)
+  version: 1.0.0
+  description: Demo playbook showing execute_command and chaining via extractors
+  labels:
+    category: diagnostics
+    maturity: draft
+  annotations:
+    ui.icon: "lucide:stethoscope"
+    ui.color: "#4F46E5"
+
+spec:
+  inputs:
+    type: object
+    required: [agent_id]
+    properties:
+      agent_id:
+        type: string
+        title: Agent ID
+        ui:
+          widget: agentPicker
+      wait_for_result:
+        type: boolean
+        title: Wait For Result
+        default: true
+        ui:
+          widget: switch
+      max_wait_seconds:
+        type: number
+        title: Max Wait Seconds
+        default: 30
+        minimum: 1
+        maximum: 600
+
+  steps:
+    - id: step_whoami
+      name: WhoAmI
+      action: adaptix.execute_command
+      args:
+        agent_id: "${{ inputs.agent_id }}"
+        command: "whoami"
+        wait_for_result: "${{ inputs.wait_for_result }}"
+        max_wait_seconds: "${{ inputs.max_wait_seconds }}"
+      saveAs: whoami
+
+    - id: step_echo
+      name: Echo username (chaining demo)
+      action: adaptix.execute_command
+      args:
+        agent_id: "${{ inputs.agent_id }}"
+        command: "echo user=${{ steps.whoami.extracted.username }}"
+        wait_for_result: true
+        max_wait_seconds: 30
+      saveAs: echo
+
+  outputs:
+    summary:
+      type: markdown
+      template: |
+        # ${{ metadata.name }}
+        - Agent: `${{ inputs.agent_id }}`
+        - WhoAmI: `${{ steps.whoami.extracted.username }}`

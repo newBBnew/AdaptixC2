@@ -1,0 +1,76 @@
+category: recon
+name: 信息收集
+icon: search
+os: linux
+
+templates:
+  - id: whoami
+    name: 当前用户
+    cmd: id
+    tags: [quick, identity]
+
+  - id: hostname
+    name: 主机名
+    cmd: hostname -a
+    tags: [quick, identity]
+
+  - id: uname
+    name: 系统信息
+    cmd: uname -a
+    tags: [system]
+
+  - id: ifconfig
+    name: 网络配置
+    cmd: ip addr || ifconfig
+    tags: [network]
+
+  - id: netstat
+    name: 网络连接
+    cmd: netstat -tulpn || ss -tulpn
+    tags: [network, connections]
+
+  - id: ps
+    name: 进程列表
+    cmd: ps auxf
+    tags: [process]
+
+  - id: cat_passwd
+    name: 用户列表
+    cmd: cat /etc/passwd
+    tags: [users]
+
+  - id: cat_shadow
+    name: Shadow 文件
+    cmd: cat /etc/shadow 2>/dev/null || echo "Permission denied"
+    tags: [credentials, privesc]
+
+  - id: sudo_l
+    name: Sudo 权限
+    cmd: sudo -l 2>/dev/null
+    tags: [privesc, sudo]
+
+  - id: suid
+    name: SUID 文件
+    cmd: find / -perm -4000 -type f 2>/dev/null
+    tags: [privesc, suid]
+    timeout: 120
+
+  - id: crontab
+    name: 计划任务
+    cmd: crontab -l; cat /etc/crontab; ls -la /etc/cron.*
+    tags: [persistence, cron]
+
+  - id: history
+    name: 命令历史
+    cmd: cat ~/.bash_history ~/.zsh_history 2>/dev/null | tail -100
+    tags: [history]
+
+  - id: env
+    name: 环境变量
+    cmd: env
+    tags: [system, config]
+
+  - id: ssh_keys
+    name: SSH 密钥
+    cmd: ls -la ~/.ssh/; cat ~/.ssh/authorized_keys 2>/dev/null
+    tags: [ssh, credentials]
