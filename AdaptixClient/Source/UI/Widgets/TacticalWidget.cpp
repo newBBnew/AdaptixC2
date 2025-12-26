@@ -37,12 +37,14 @@ TacticalWidget::TacticalWidget(AdaptixWidget* w)
     userCommandsFile = configDir + "/tactical_commands.json";
     commandModsFile = configDir + "/tactical_mods.json";
     historyFile = configDir + "/tactical_history.json";
+    queuesFile = configDir + "/tactical_queues.json";
     
     createUI();
     loadUserCommands();
     loadCommandMods();
     loadPhases();
     loadHistory();
+    loadQueues();
     
     executeTimer = new QTimer(this);
     executeTimer->setInterval(500);
@@ -322,44 +324,28 @@ void TacticalWidget::createUI()
     mainSplitter->setStretchFactor(1, 2);
     mainSplitter->setStretchFactor(2, 2);
     
-    // 底部：操作按钮和进度
+    // 底部：操作按钮和进度（简化布局）
     auto bottomLayout = new QHBoxLayout();
-    bottomLayout->setSpacing(6);
+    bottomLayout->setSpacing(8);
     
     executeSelectedBtn = new QPushButton("▶ 执行选中", this);
-    executeSelectedBtn->setStyleSheet("QPushButton { background-color: #0e639c; color: white; padding: 6px 12px; border-radius: 3px; } QPushButton:hover { background-color: #1177bb; }");
+    executeSelectedBtn->setStyleSheet("QPushButton { background-color: #0e639c; color: white; padding: 6px 16px; border-radius: 3px; font-weight: bold; } QPushButton:hover { background-color: #1177bb; }");
     connect(executeSelectedBtn, &QPushButton::clicked, this, &TacticalWidget::onExecuteSelected);
-    
-    saveWorkflowBtn = new QPushButton("💾 保存", this);
-    saveWorkflowBtn->setToolTip("保存当前选中的命令为工作流");
-    saveWorkflowBtn->setStyleSheet("padding: 6px 10px;");
-    connect(saveWorkflowBtn, &QPushButton::clicked, this, &TacticalWidget::onSaveWorkflow);
-    
-    loadWorkflowBtn = new QPushButton("📂 加载", this);
-    loadWorkflowBtn->setToolTip("加载已保存的工作流");
-    loadWorkflowBtn->setStyleSheet("padding: 6px 10px;");
-    connect(loadWorkflowBtn, &QPushButton::clicked, this, &TacticalWidget::onLoadWorkflow);
-    
-    nextPhaseBtn = new QPushButton("下一阶段 →", this);
-    nextPhaseBtn->setStyleSheet("padding: 6px 10px;");
-    connect(nextPhaseBtn, &QPushButton::clicked, this, &TacticalWidget::onNextPhase);
     
     progressBar = new QProgressBar(this);
     progressBar->setVisible(false);
     progressBar->setTextVisible(true);
+    progressBar->setMinimumWidth(150);
     progressBar->setStyleSheet("QProgressBar { border: 1px solid #3c3c3c; border-radius: 3px; text-align: center; } QProgressBar::chunk { background-color: #0e639c; }");
     
     statusLabel = new QLabel("请选择目标 Agent", this);
     statusLabel->setStyleSheet("color: #888; padding: 4px 8px; background: #252526; border-radius: 3px;");
-    statusLabel->setMinimumWidth(180);
+    statusLabel->setMinimumWidth(200);
     
     bottomLayout->addWidget(executeSelectedBtn);
-    bottomLayout->addWidget(saveWorkflowBtn);
-    bottomLayout->addWidget(loadWorkflowBtn);
+    bottomLayout->addWidget(progressBar);
     bottomLayout->addStretch();
     bottomLayout->addWidget(statusLabel);
-    bottomLayout->addWidget(progressBar);
-    bottomLayout->addWidget(nextPhaseBtn);
     
     mainLayout->addWidget(topGroup);
     mainLayout->addWidget(mainSplitter, 1);
@@ -377,6 +363,31 @@ void TacticalWidget::loadPhases()
         loadLinuxPhases();
     } else {
         loadWindowsPhases();
+    }
+    
+    // 将用户自定义命令添加到对应的阶段和分组
+    for (const TacticalCommand& userCmd : userCommands) {
+        bool added = false;
+        
+        // 查找匹配的阶段和分组
+        for (int i = 0; i < phases.size(); ++i) {
+            if (phases[i].id == userCmd.phaseId || userCmd.phaseId.isEmpty()) {
+                for (int j = 0; j < phases[i].groups.size(); ++j) {
+                    if (phases[i].groups[j].id == userCmd.groupId || 
+                        (userCmd.groupId.isEmpty() && j == 0)) {
+                        phases[i].groups[j].commands.append(userCmd);
+                        added = true;
+                        break;
+                    }
+                }
+                if (added) break;
+            }
+        }
+        
+        // 如果没有找到匹配的分组，添加到第一个阶段的第一个分组
+        if (!added && !phases.isEmpty() && !phases[0].groups.isEmpty()) {
+            phases[0].groups[0].commands.append(userCmd);
+        }
     }
     
     updatePhaseTree();
@@ -1012,10 +1023,10 @@ void TacticalWidget::updatePhaseTree()
     
     for (const TacticalPhase& phase : phases) {
         auto tree = new QTreeWidget(this);
-        tree->setHeaderLabels({"命令", "描述", "状态"});
-        tree->setColumnWidth(0, 200);
-        tree->setColumnWidth(1, 300);
-        tree->setColumnWidth(2, 80);
+        tree->setHeaderLabels({"命令", "描述"});
+        tree->setColumnCount(2);
+        tree->setColumnWidth(0, 220);
+        tree->setColumnWidth(1, 350);
         tree->setRootIsDecorated(true);
         tree->setAlternatingRowColors(true);
         
@@ -1050,7 +1061,6 @@ void TacticalWidget::updatePhaseTree()
                 }
                 
                 cmdItem->setText(1, cmd.description);
-                cmdItem->setText(2, "待执行");
                 cmdItem->setData(0, Qt::UserRole, phase.id + "." + group.id + "." + cmd.id);
                 cmdItem->setData(0, Qt::UserRole + 1, cmd.cmd);
                 cmdItem->setData(0, Qt::UserRole + 2, cmd.variants.size());  // 存储变体数量
@@ -1064,7 +1074,6 @@ void TacticalWidget::updatePhaseTree()
                     varItem->setCheckState(0, Qt::Unchecked);
                     varItem->setText(0, QString("├─ %1").arg(var.tag));
                     varItem->setText(1, var.description);
-                    varItem->setText(2, "");
                     varItem->setData(0, Qt::UserRole, phase.id + "." + group.id + "." + cmd.id + ".v" + QString::number(vi));
                     varItem->setData(0, Qt::UserRole + 1, var.cmd);
                     varItem->setData(0, Qt::UserRole + 3, true);  // 标记为变体
@@ -1195,15 +1204,7 @@ void TacticalWidget::onExecuteSelected()
     executeTimer->start();
 }
 
-// onExecuteAll 已移除 - 危险操作
-
-void TacticalWidget::onNextPhase()
-{
-    int nextIndex = phaseTab->currentIndex() + 1;
-    if (nextIndex < phaseTab->count()) {
-        phaseTab->setCurrentIndex(nextIndex);
-    }
-}
+// onExecuteAll, onNextPhase, onSaveWorkflow, onLoadWorkflow 已移除 - 简化 UI
 
 void TacticalWidget::onItemChanged(QTreeWidgetItem* item, int column)
 {
@@ -1620,11 +1621,26 @@ void TacticalWidget::onAddCommand()
     // 创建编辑对话框
     QDialog dialog(this);
     dialog.setWindowTitle("添加自定义命令");
-    dialog.setMinimumSize(500, 350);
-    dialog.resize(600, 400);
+    dialog.setMinimumSize(500, 380);
+    dialog.resize(600, 420);
     
     auto layout = new QVBoxLayout(&dialog);
-    layout->setSpacing(12);
+    layout->setSpacing(10);
+    
+    // 选择分组
+    auto groupLayout = new QHBoxLayout();
+    auto groupLabel = new QLabel("添加到分组:", &dialog);
+    auto groupCombo = new QComboBox(&dialog);
+    
+    // 填充当前阶段的分组
+    const TacticalPhase& currentPhase = phases[tabIndex];
+    for (const TacticalGroup& group : currentPhase.groups) {
+        groupCombo->addItem(group.name, group.id);
+    }
+    
+    groupLayout->addWidget(groupLabel);
+    groupLayout->addWidget(groupCombo, 1);
+    layout->addLayout(groupLayout);
     
     // 命令名称
     auto nameLabel = new QLabel("命令名称:", &dialog);
@@ -1637,7 +1653,7 @@ void TacticalWidget::onAddCommand()
     auto cmdLabel = new QLabel("命令内容:", &dialog);
     auto cmdEdit = new QTextEdit(&dialog);
     cmdEdit->setPlaceholderText("输入要执行的命令，支持多行...\n例如: shell whoami /all");
-    cmdEdit->setMinimumHeight(120);
+    cmdEdit->setMinimumHeight(100);
     layout->addWidget(cmdLabel);
     layout->addWidget(cmdEdit, 1);
     
@@ -1656,6 +1672,8 @@ void TacticalWidget::onAddCommand()
     
     if (dialog.exec() != QDialog::Accepted) return;
     
+    QString groupId = groupCombo->currentData().toString();
+    QString groupName = groupCombo->currentText();
     QString name = nameEdit->text().trimmed();
     QString cmd = cmdEdit->toPlainText().trimmed();
     QString desc = descEdit->text().trimmed();
@@ -1671,35 +1689,28 @@ void TacticalWidget::onAddCommand()
     newCmd.name = name;
     newCmd.cmd = cmd;
     newCmd.description = desc;
+    newCmd.phaseId = phaseId;   // 保存所属阶段
+    newCmd.groupId = groupId;   // 保存所属分组
     
     // 保存到用户命令列表
     userCommands.append(newCmd);
     saveUserCommands();
     
-    // 添加到当前阶段的 user 分组
+    // 添加到选择的分组
     for (int i = 0; i < phases.size(); ++i) {
         if (phases[i].id == phaseId) {
-            bool foundUserGroup = false;
             for (int j = 0; j < phases[i].groups.size(); ++j) {
-                if (phases[i].groups[j].id == "user") {
+                if (phases[i].groups[j].id == groupId) {
                     phases[i].groups[j].commands.append(newCmd);
-                    foundUserGroup = true;
                     break;
                 }
-            }
-            if (!foundUserGroup) {
-                TacticalGroup userGroup;
-                userGroup.id = "user";
-                userGroup.name = "⭐ 自定义命令";
-                userGroup.commands.append(newCmd);
-                phases[i].groups.append(userGroup);
             }
             break;
         }
     }
     
     updatePhaseTree();
-    statusLabel->setText(QString("已添加命令: %1").arg(name));
+    statusLabel->setText(QString("已添加命令 [%1]: %2").arg(groupName, name));
 }
 
 void TacticalWidget::onEditCommand()
@@ -1790,6 +1801,8 @@ void TacticalWidget::saveUserCommands()
         obj["name"] = cmd.name;
         obj["cmd"] = cmd.cmd;
         obj["description"] = cmd.description;
+        obj["phaseId"] = cmd.phaseId;
+        obj["groupId"] = cmd.groupId;
         obj["os"] = currentAgentOs.isEmpty() ? "windows" : currentAgentOs;
         arr.append(obj);
     }
@@ -1821,6 +1834,8 @@ void TacticalWidget::loadUserCommands()
         cmd.name = obj["name"].toString();
         cmd.cmd = obj["cmd"].toString();
         cmd.description = obj["description"].toString();
+        cmd.phaseId = obj["phaseId"].toString();
+        cmd.groupId = obj["groupId"].toString();
         userCommands.append(cmd);
     }
 }
@@ -1945,184 +1960,6 @@ void TacticalWidget::applyCommandMods()
             }
         }
     }
-}
-
-void TacticalWidget::onSaveWorkflow()
-{
-    // 收集当前选中的命令
-    QJsonArray cmdArray;
-    
-    for (const QString& phaseId : phaseTrees.keys()) {
-        QTreeWidget* tree = phaseTrees[phaseId];
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            auto groupItem = tree->topLevelItem(i);
-            for (int j = 0; j < groupItem->childCount(); ++j) {
-                auto cmdItem = groupItem->child(j);
-                if (cmdItem->checkState(0) == Qt::Checked) {
-                    QJsonObject obj;
-                    obj["ref"] = cmdItem->data(0, Qt::UserRole).toString();
-                    obj["name"] = cmdItem->text(0);
-                    obj["cmd"] = cmdItem->data(0, Qt::UserRole + 1).toString();
-                    cmdArray.append(obj);
-                }
-            }
-        }
-    }
-    
-    if (cmdArray.isEmpty()) {
-        QMessageBox::information(this, "保存工作流", "请先勾选要保存的命令");
-        return;
-    }
-    
-    bool ok;
-    QString name = QInputDialog::getText(this, "保存工作流", 
-        QString("为工作流命名（包含 %1 个命令）:").arg(cmdArray.size()),
-        QLineEdit::Normal, "", &ok);
-    
-    if (!ok || name.isEmpty()) return;
-    
-    // 保存到文件
-    QString workflowDir = QDir::homePath() + "/.adaptix/workflows";
-    QDir().mkpath(workflowDir);
-    
-    QJsonObject workflow;
-    workflow["name"] = name;
-    workflow["os"] = currentAgentOs.isEmpty() ? "windows" : currentAgentOs;
-    workflow["created"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-    workflow["commands"] = cmdArray;
-    
-    QJsonDocument doc(workflow);
-    QString filename = workflowDir + "/" + name.replace(" ", "_") + ".json";
-    
-    QFile file(filename);
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(doc.toJson());
-        file.close();
-        statusLabel->setText(QString("已保存工作流: %1").arg(name));
-    }
-}
-
-void TacticalWidget::onLoadWorkflow()
-{
-    QString workflowDir = QDir::homePath() + "/.adaptix/workflows";
-    QDir dir(workflowDir);
-    
-    if (!dir.exists()) {
-        QMessageBox::information(this, "加载工作流", "没有已保存的工作流");
-        return;
-    }
-    
-    QStringList files = dir.entryList(QStringList() << "*.json", QDir::Files);
-    if (files.isEmpty()) {
-        QMessageBox::information(this, "加载工作流", "没有已保存的工作流");
-        return;
-    }
-    
-    // 创建选择对话框
-    QDialog dialog(this);
-    dialog.setWindowTitle("加载工作流");
-    dialog.setMinimumSize(400, 300);
-    
-    auto layout = new QVBoxLayout(&dialog);
-    
-    auto listWidget = new QListWidget(&dialog);
-    
-    for (const QString& filename : files) {
-        QFile file(workflowDir + "/" + filename);
-        if (file.open(QIODevice::ReadOnly)) {
-            QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-            file.close();
-            
-            QJsonObject obj = doc.object();
-            QString name = obj["name"].toString();
-            QString os = obj["os"].toString();
-            int cmdCount = obj["commands"].toArray().size();
-            QString created = obj["created"].toString();
-            
-            auto item = new QListWidgetItem(QString("%1 [%2] - %3 个命令")
-                .arg(name, os).arg(cmdCount));
-            item->setData(Qt::UserRole, workflowDir + "/" + filename);
-            item->setToolTip(QString("创建于: %1").arg(created));
-            listWidget->addItem(item);
-        }
-    }
-    
-    layout->addWidget(listWidget);
-    
-    auto buttonLayout = new QHBoxLayout();
-    auto loadBtn = new QPushButton("加载", &dialog);
-    auto deleteBtn = new QPushButton("删除", &dialog);
-    auto cancelBtn = new QPushButton("取消", &dialog);
-    
-    buttonLayout->addWidget(loadBtn);
-    buttonLayout->addWidget(deleteBtn);
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(cancelBtn);
-    layout->addLayout(buttonLayout);
-    
-    connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
-    connect(deleteBtn, &QPushButton::clicked, [&]() {
-        auto item = listWidget->currentItem();
-        if (!item) return;
-        
-        QString filepath = item->data(Qt::UserRole).toString();
-        if (QMessageBox::question(&dialog, "删除工作流", "确定删除该工作流吗?") == QMessageBox::Yes) {
-            QFile::remove(filepath);
-            delete item;
-        }
-    });
-    
-    connect(loadBtn, &QPushButton::clicked, [&]() {
-        auto item = listWidget->currentItem();
-        if (!item) return;
-        
-        QString filepath = item->data(Qt::UserRole).toString();
-        QFile file(filepath);
-        if (!file.open(QIODevice::ReadOnly)) return;
-        
-        QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        file.close();
-        
-        QJsonArray commands = doc.object()["commands"].toArray();
-        
-        // 先取消所有选中
-        for (const QString& phaseId : phaseTrees.keys()) {
-            QTreeWidget* tree = phaseTrees[phaseId];
-            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-                auto groupItem = tree->topLevelItem(i);
-                groupItem->setCheckState(0, Qt::Unchecked);
-            }
-        }
-        
-        // 选中工作流中的命令
-        int selected = 0;
-        for (const QJsonValue& val : commands) {
-            QString ref = val.toObject()["ref"].toString();
-            QStringList parts = ref.split('.');
-            if (parts.size() < 1) continue;
-            
-            QString phaseId = parts[0];
-            QTreeWidget* tree = phaseTrees.value(phaseId, nullptr);
-            if (!tree) continue;
-            
-            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-                auto groupItem = tree->topLevelItem(i);
-                for (int j = 0; j < groupItem->childCount(); ++j) {
-                    auto cmdItem = groupItem->child(j);
-                    if (cmdItem->data(0, Qt::UserRole).toString() == ref) {
-                        cmdItem->setCheckState(0, Qt::Checked);
-                        selected++;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        statusLabel->setText(QString("已加载工作流，选中 %1 个命令").arg(selected));
-        dialog.accept();
-    });
-    
-    dialog.exec();
 }
 
 void TacticalWidget::onMultiAgentSelect()
@@ -2605,6 +2442,8 @@ void TacticalWidget::onAddToQueue()
     }
     
     if (added > 0) {
+        syncUIToQueue();
+        saveQueues();
         queueStatusLabel->setText(QString("%1 个任务").arg(taskQueueList->count()));
         statusLabel->setText(QString("已添加 %1 个命令到队列").arg(added));
     }
@@ -2624,6 +2463,8 @@ void TacticalWidget::onRemoveFromQueue()
         item->setText(QString("%1. %2").arg(i + 1).arg(name));
     }
     
+    syncUIToQueue();
+    saveQueues();
     queueStatusLabel->setText(QString("%1 个任务").arg(taskQueueList->count()));
 }
 
@@ -2642,6 +2483,8 @@ void TacticalWidget::onMoveQueueUp()
         QString name = it->data(Qt::UserRole + 1).toString();
         it->setText(QString("%1. %2").arg(i + 1).arg(name));
     }
+    syncUIToQueue();
+    saveQueues();
 }
 
 void TacticalWidget::onMoveQueueDown()
@@ -2659,6 +2502,8 @@ void TacticalWidget::onMoveQueueDown()
         QString name = it->data(Qt::UserRole + 1).toString();
         it->setText(QString("%1. %2").arg(i + 1).arg(name));
     }
+    syncUIToQueue();
+    saveQueues();
 }
 
 void TacticalWidget::onClearQueue()
@@ -2673,6 +2518,8 @@ void TacticalWidget::onClearQueue()
     
     if (reply == QMessageBox::Yes) {
         taskQueueList->clear();
+        syncUIToQueue();
+        saveQueues();
         queueStatusLabel->setText("0 个任务");
         statusLabel->setText("队列已清空");
     }
@@ -2813,6 +2660,7 @@ void TacticalWidget::onAddQueue()
     queueSelector->addItem(name);
     queueSelector->setCurrentText(name);
     
+    saveQueues();
     statusLabel->setText(QString("已创建队列: %1").arg(name));
 }
 
@@ -2836,6 +2684,7 @@ void TacticalWidget::onDeleteQueue()
     taskQueues.remove(name);
     queueSelector->removeItem(queueSelector->currentIndex());
     
+    saveQueues();
     statusLabel->setText(QString("已删除队列: %1").arg(name));
 }
 
@@ -2981,4 +2830,94 @@ void TacticalWidget::loadHistory()
             }
         }
     }
+}
+
+// ==================== 队列持久化 ====================
+
+void TacticalWidget::saveQueues()
+{
+    // 先同步当前 UI 到队列数据
+    syncUIToQueue();
+    
+    QJsonObject root;
+    root["currentQueue"] = currentQueueName;
+    
+    QJsonObject queuesObj;
+    for (auto it = taskQueues.begin(); it != taskQueues.end(); ++it) {
+        QJsonArray cmdsArray;
+        for (const auto& pair : it.value()) {
+            QJsonObject cmdObj;
+            cmdObj["cmd"] = pair.first;
+            cmdObj["name"] = pair.second;
+            cmdsArray.append(cmdObj);
+        }
+        queuesObj[it.key()] = cmdsArray;
+    }
+    root["queues"] = queuesObj;
+    
+    QJsonDocument doc(root);
+    QFile file(queuesFile);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(doc.toJson(QJsonDocument::Compact));
+        file.close();
+    }
+}
+
+void TacticalWidget::loadQueues()
+{
+    QFile file(queuesFile);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    file.close();
+    
+    if (!doc.isObject()) return;
+    
+    QJsonObject root = doc.object();
+    QString savedCurrentQueue = root["currentQueue"].toString();
+    QJsonObject queuesObj = root["queues"].toObject();
+    
+    // 清空现有数据
+    taskQueues.clear();
+    queueSelector->blockSignals(true);
+    queueSelector->clear();
+    
+    // 加载队列
+    for (auto it = queuesObj.begin(); it != queuesObj.end(); ++it) {
+        QString queueName = it.key();
+        QJsonArray cmdsArray = it.value().toArray();
+        
+        QList<QPair<QString, QString>> commands;
+        for (const QJsonValue& val : cmdsArray) {
+            QJsonObject cmdObj = val.toObject();
+            commands.append({cmdObj["cmd"].toString(), cmdObj["name"].toString()});
+        }
+        
+        taskQueues[queueName] = commands;
+        queueSelector->addItem(queueName);
+    }
+    
+    // 如果没有队列，创建默认队列
+    if (taskQueues.isEmpty()) {
+        currentQueueName = "默认队列";
+        taskQueues[currentQueueName] = QList<QPair<QString, QString>>();
+        queueSelector->addItem(currentQueueName);
+    } else {
+        // 恢复当前队列选择
+        int idx = queueSelector->findText(savedCurrentQueue);
+        if (idx >= 0) {
+            queueSelector->setCurrentIndex(idx);
+            currentQueueName = savedCurrentQueue;
+        } else {
+            currentQueueName = queueSelector->itemText(0);
+        }
+    }
+    
+    queueSelector->blockSignals(false);
+    
+    // 加载当前队列到 UI
+    syncQueueToUI();
+    queueStatusLabel->setText(QString("%1 个任务").arg(taskQueueList->count()));
 }

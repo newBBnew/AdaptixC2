@@ -33,6 +33,8 @@ struct TacticalCommand {
     int status = 0;        // 0=pending, 1=running, 2=done, 3=error
     QString result;
     QList<CommandVariant> variants;  // 命令变体列表
+    QString phaseId;       // 所属阶段 ID (用户自定义命令)
+    QString groupId;       // 所属分组 ID (用户自定义命令)
 };
 
 struct TacticalGroup {
@@ -84,10 +86,7 @@ private:
     QPushButton* multiAgentBtn = nullptr;
     QStringList selectedAgentIds;  // 多选的 Agent
     QPushButton* executeSelectedBtn = nullptr;
-    QPushButton* nextPhaseBtn = nullptr;
     QPushButton* clearResultBtn = nullptr;
-    QPushButton* saveWorkflowBtn = nullptr;
-    QPushButton* loadWorkflowBtn = nullptr;
     QLabel* statusLabel = nullptr;
     QProgressBar* progressBar = nullptr;
     QTreeWidget* resultTree = nullptr;  // 改为树形列表，支持展开/折叠
@@ -120,6 +119,7 @@ private:
     QString userCommandsFile;
     QString commandModsFile;  // 命令修改持久化文件
     QString historyFile;      // 执行历史持久化文件
+    QString queuesFile;       // 队列持久化文件
     QMap<QString, TacticalCommand> commandMods;  // ref -> 修改后的命令
     
     // Execution
@@ -134,8 +134,6 @@ private Q_SLOTS:
     void onAgentChanged(int index);
     void onRefreshAgents();
     void onExecuteSelected();
-    // onExecuteAll 已移除
-    void onNextPhase();
     void onItemChanged(QTreeWidgetItem* item, int column);
     void processNextCommand();
     void onTreeContextMenu(const QPoint& pos);
@@ -148,8 +146,6 @@ private Q_SLOTS:
     void loadCommandMods();
     void applyCommandMods();
     void onMultiAgentSelect();
-    void onSaveWorkflow();
-    void onLoadWorkflow();
     void onCommandPreview(QTreeWidgetItem* item, int column);
     
     // 任务编排队列
@@ -170,6 +166,10 @@ private Q_SLOTS:
     // 执行历史
     void saveHistory();
     void loadHistory();
+    
+    // 队列持久化
+    void saveQueues();
+    void loadQueues();
 };
 
 #endif // ADAPTIXCLIENT_TACTICALWIDGET_H

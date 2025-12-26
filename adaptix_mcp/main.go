@@ -17,13 +17,33 @@ import (
 
 var lockFile *os.File
 
-func acquireSingletonLock() bool {
+// acquireSingletonLock 尝试获取单例锁
+// 在 stdio 模式下（由 IDE 管理生命周期），可通过 -no-lock 参数跳过
+func acquireSingletonLock(skipLock bool) bool {
+	if skipLock {
+		return true
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return true
 	}
 	lockPath := filepath.Join(home, ".adaptix", "adaptix_mcp.lock")
 	_ = os.MkdirAll(filepath.Dir(lockPath), 0o755)
+
+	// 检查锁文件中的 PID 是否还在运行
+	if data, err := os.ReadFile(lockPath); err == nil {
+		var oldPid int
+		if _, err := fmt.Sscanf(string(data), "pid=%d", &oldPid); err == nil && oldPid > 0 {
+			// 检查进程是否存在
+			if process, err := os.FindProcess(oldPid); err == nil {
+				if err := process.Signal(syscall.Signal(0)); err != nil {
+					// 进程不存在，删除旧锁文件
+					_ = os.Remove(lockPath)
+				}
+			}
+		}
+	}
+
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return true
@@ -91,14 +111,15 @@ func loadConfig(configPath string) (*Config, error) {
 }
 
 func main() {
-	if !acquireSingletonLock() {
-		return
-	}
-
 	// 命令行参数
 	configPath := flag.String("config", "configs/default.yaml", "Path to config file")
 	clientURL := flag.String("url", "", "Client MCP Bridge URL (overrides config)")
+	noLock := flag.Bool("no-lock", false, "Skip singleton lock (for stdio mode managed by IDE)")
 	flag.Parse()
+
+	if !acquireSingletonLock(*noLock) {
+		return
+	}
 
 	// 加载配置
 	config, err := loadConfig(*configPath)
