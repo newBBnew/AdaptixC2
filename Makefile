@@ -1,6 +1,6 @@
 all: clean prepare server client extenders
 
-DIST_DIR := dist
+DIST_DIR := release
 
 UNAME_S := $(shell uname -s)
 
@@ -23,7 +23,12 @@ prepare:
 	fi
 
 clean:
-	@ rm -rf $(DIST_DIR)
+	@ if [ -d "$(DIST_DIR)" ]; then \
+		find $(DIST_DIR) -type f ! -name '*.pem' ! -name '*.key' ! -name '*.crt' ! -name 'profile.json' ! -name 'profile.json.back' -delete; \
+		rm -rf $(DIST_DIR)/extenders; \
+		rm -f $(DIST_DIR)/adaptixserver $(DIST_DIR)/AdaptixClient; \
+		echo "[+] Cleaned build artifacts (preserved certificates and profile.json)"; \
+	fi
 
 clean-all: clean
 	@ echo "[*] Cleaning all build artifacts..."
@@ -58,6 +63,7 @@ extenders: prepare
 	@ for dir in $(EXTENDER_DIRS); do \
 		(cd $$dir && $(MAKE) --no-print-directory); \
 		plugin_name=$$(basename $$dir); \
+		rm -rf $(DIST_DIR)/extenders/$$plugin_name; \
 		mv $$dir/dist $(DIST_DIR)/extenders/$$plugin_name; \
 	done
 	@ echo "[+] done"
@@ -69,6 +75,10 @@ server: prepare
 	@ echo "[*] Building adaptixserver..."
 	@ cd AdaptixServer && GOEXPERIMENT=jsonv2,greenteagc go build -buildvcs=false -ldflags="-s -w" -o adaptixserver > /dev/null 2>build_error.log || { echo "[ERROR] Failed to build AdaptixServer:"; cat build_error.log >&2; exit 1; }     # for static build use CGO_ENABLED=0
 	@ mv AdaptixServer/adaptixserver ./$(DIST_DIR)/
+	@ if [ -f "$(DIST_DIR)/profile.json" ]; then \
+		cp $(DIST_DIR)/profile.json $(DIST_DIR)/profile.json.back; \
+		echo "[+] Backed up existing profile.json to profile.json.back"; \
+	fi
 	@ cp AdaptixServer/ssl_gen.sh AdaptixServer/profile.json AdaptixServer/404page.html ./$(DIST_DIR)/
 	@ echo "[+] done"
 

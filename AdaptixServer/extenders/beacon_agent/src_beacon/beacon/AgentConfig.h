@@ -26,6 +26,34 @@ typedef struct {
 	BYTE* prepend;
 	WORD  port;
 } ProfileTCP;
+
+typedef struct {
+	BYTE* domain;
+	BYTE* resolvers;
+	BYTE* qtype;
+	ULONG pkt_size;
+	ULONG label_size;
+	ULONG ttl;
+	BYTE* encrypt_key;
+} ProfileDNS;
+
+typedef struct {
+	BYTE*  domain;
+	BYTE*  urls;
+	BYTE*  user_agent;
+	ULONG  pkt_size;
+	ULONG  label_size;
+	ULONG  ttl;
+	BYTE*  encrypt_key;
+	BYTE*  doh_mode;
+} ProfileDoH;
+
+typedef struct {
+	ProfileDNS dns;
+	ProfileDoH doh;
+	BYTE*      mode;
+	BYTE*      doh_mode;
+} ProfileDNSDoH;
 #endif
 
 
@@ -55,6 +83,15 @@ public:
 
 #elif defined(BEACON_TCP)
 	ProfileTCP profile;
+
+#elif defined(BEACON_DNS)
+	ProfileDNS profile;
+
+#elif defined(BEACON_DOH)
+	ProfileDoH profile;
+
+#elif defined(BEACON_DNS_DOH)
+	ProfileDNSDoH profile;
 
 #endif
 

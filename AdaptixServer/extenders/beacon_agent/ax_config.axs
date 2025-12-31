@@ -188,6 +188,19 @@ function RegisterCommands(listenerType)
     let cmd_profile = ax.create_command("profile", "Configure the payloads profile for current session");
     cmd_profile.addSubCommands([_cmd_profile_chunksize, _cmd_profile_killdate, _cmd_profile_workingtime]);
 
+    // Transport command for DNS/DoH beacon
+    let _cmd_transport_mode = ax.create_command("mode", "Set transport mode (dns/doh/auto)", "transport mode auto", "Task: set transport mode");
+    _cmd_transport_mode.addArgString("mode", true, "Transport mode: dns, doh, or auto");
+    let _cmd_transport_dns_resolvers = ax.create_command("resolvers", "Set DNS resolvers", "transport resolvers 8.8.8.8,1.1.1.1", "Task: set DNS resolvers");
+    _cmd_transport_dns_resolvers.addArgString("resolvers", true, "Comma-separated DNS resolvers");
+    let _cmd_transport_doh_urls = ax.create_command("urls", "Set DoH URLs", "transport urls https://dns.google/dns-query", "Task: set DoH URLs");
+    _cmd_transport_doh_urls.addArgString("urls", true, "Comma-separated DoH URLs");
+    let _cmd_transport_doh_mode = ax.create_command("dohmode", "Set DoH connection mode", "transport dohmode recursive", "Task: set DoH mode");
+    _cmd_transport_doh_mode.addArgString("mode", true, "DoH mode: direct or recursive");
+    let _cmd_transport_status = ax.create_command("status", "Show current transport status", "transport status", "Task: show transport status");
+    let cmd_transport = ax.create_command("transport", "Configure beacon DNS/DoH transport");
+    cmd_transport.addSubCommands([_cmd_transport_mode, _cmd_transport_dns_resolvers, _cmd_transport_doh_urls, _cmd_transport_doh_mode, _cmd_transport_status]);
+
     let _cmd_ps_list = ax.create_command("list", "Show process list", "ps list", "Task: show process list");
     let _cmd_ps_kill = ax.create_command("kill", "Kill a process with a given PID", "ps kill 7865", "Task: kill process");
     _cmd_ps_kill.addArgInt("pid", true);
@@ -270,6 +283,13 @@ function RegisterCommands(listenerType)
 
         return { commands_windows: commands_external }
     }
+    else if (listenerType == "BeaconDoH") {
+        let commands_doh = ax.create_commands_group("beacon", [cmd_cat, cmd_cd, cmd_cp, cmd_disks, cmd_download, cmd_execute, cmd_exfil, cmd_getuid,
+            cmd_job, cmd_link, cmd_ls, cmd_lportfwd, cmd_mv, cmd_mkdir, cmd_profile, cmd_ps, cmd_pwd, cmd_rev2self, cmd_rm, cmd_rportfwd, cmd_sleep,
+            cmd_socks, cmd_terminate, cmd_unlink, cmd_upload, cmd_shell, cmd_powershell, cmd_interact, cmd_transport] );
+
+        return { commands_windows: commands_doh }
+    }
     else if (listenerType == "BeaconSMB" || listenerType == "BeaconTCP") {
         let commands_internal = ax.create_commands_group("beacon", [cmd_cat, cmd_cd, cmd_cp, cmd_disks, cmd_download, cmd_execute, cmd_exfil, cmd_getuid,
             cmd_job, cmd_link, cmd_ls, cmd_lportfwd, cmd_mv, cmd_mkdir, cmd_profile, cmd_ps, cmd_pwd, cmd_rev2self, cmd_rm, cmd_rportfwd,
@@ -298,10 +318,38 @@ function GenerateUI(listenerType)
     spinJitter.setRange(0, 100);
     spinJitter.setValue(0);
 
-    if(listenerType != "BeaconHTTP") {
+    if(listenerType != "BeaconHTTP" && listenerType != "BeaconDoH") {
         labelSleep.setVisible(false);
         textSleep.setVisible(false);
         spinJitter.setVisible(false);
+    }
+
+    // DoH-specific configuration
+    let labelTransportMode = form.create_label("Transport Mode:");
+    let comboTransportMode = form.create_combo();
+    comboTransportMode.addItems(["auto", "dns", "doh"]);
+    comboTransportMode.setCurrentIndex(0);
+    let labelDohMode = form.create_label("DoH Mode:");
+    let comboDohMode = form.create_combo();
+    comboDohMode.addItems(["recursive", "direct"]);
+    comboDohMode.setCurrentIndex(0);
+    let labelDnsResolvers = form.create_label("DNS Resolvers:");
+    let textDnsResolvers = form.create_textline("8.8.8.8,1.1.1.1,9.9.9.9");
+    textDnsResolvers.setPlaceholder("Comma-separated: 8.8.8.8,1.1.1.1");
+    let labelDohUrls = form.create_label("DoH URLs:");
+    let textDohUrls = form.create_textline("https://cloudflare-dns.com/dns-query,https://dns.google/dns-query");
+    textDohUrls.setPlaceholder("Comma-separated DoH endpoints");
+
+    // Show transport/DoH mode fields only for BeaconDoH
+    if(listenerType != "BeaconDoH") {
+        labelTransportMode.setVisible(false);
+        comboTransportMode.setVisible(false);
+        labelDohMode.setVisible(false);
+        comboDohMode.setVisible(false);
+        labelDnsResolvers.setVisible(false);
+        textDnsResolvers.setVisible(false);
+        labelDohUrls.setVisible(false);
+        textDohUrls.setVisible(false);
     }
 
     let checkKilldate = form.create_check("Set 'killdate'");
@@ -330,16 +378,26 @@ function GenerateUI(listenerType)
     layout.addWidget(labelSleep, 2, 0, 1, 1);
     layout.addWidget(textSleep, 2, 1, 1, 1);
     layout.addWidget(spinJitter, 2, 2, 1, 1);
-    layout.addWidget(checkKilldate, 3, 0, 1, 1);
-    layout.addWidget(dateKill, 3, 1, 1, 1);
-    layout.addWidget(timeKill, 3, 2, 1, 1);
-    layout.addWidget(checkWorkingTime, 4, 0, 1, 1);
-    layout.addWidget(timeStart, 4, 1, 1, 1);
-    layout.addWidget(timeFinish, 4, 2, 1, 1);
-    layout.addWidget(labelSvcName, 5, 0, 1, 1);
-    layout.addWidget(textSvcName, 5, 1, 1, 2);
-    layout.addWidget(checkSideloading, 6, 0, 1, 1);
-    layout.addWidget(sideloadingSelector, 6, 1, 1, 2);
+    // DoH transport settings (row 3-6)
+    layout.addWidget(labelTransportMode, 3, 0, 1, 1);
+    layout.addWidget(comboTransportMode, 3, 1, 1, 2);
+    layout.addWidget(labelDohMode, 4, 0, 1, 1);
+    layout.addWidget(comboDohMode, 4, 1, 1, 2);
+    layout.addWidget(labelDnsResolvers, 5, 0, 1, 1);
+    layout.addWidget(textDnsResolvers, 5, 1, 1, 2);
+    layout.addWidget(labelDohUrls, 6, 0, 1, 1);
+    layout.addWidget(textDohUrls, 6, 1, 1, 2);
+    // Common settings (row 7-12)
+    layout.addWidget(checkKilldate, 7, 0, 1, 1);
+    layout.addWidget(dateKill, 7, 1, 1, 1);
+    layout.addWidget(timeKill, 7, 2, 1, 1);
+    layout.addWidget(checkWorkingTime, 8, 0, 1, 1);
+    layout.addWidget(timeStart, 8, 1, 1, 1);
+    layout.addWidget(timeFinish, 8, 2, 1, 1);
+    layout.addWidget(labelSvcName, 9, 0, 1, 1);
+    layout.addWidget(textSvcName, 9, 1, 1, 2);
+    layout.addWidget(checkSideloading, 10, 0, 1, 1);
+    layout.addWidget(sideloadingSelector, 10, 1, 1, 2);
 
     form.connect(comboFormat, "currentTextChanged", function(text) {
         if(text == "Service Exe") {
@@ -363,6 +421,10 @@ function GenerateUI(listenerType)
     container.put("format", comboFormat)
     container.put("sleep", textSleep)
     container.put("jitter", spinJitter)
+    container.put("transport_mode", comboTransportMode)
+    container.put("doh_mode", comboDohMode)
+    container.put("dns_resolvers", textDnsResolvers)
+    container.put("doh_urls", textDohUrls)
     container.put("is_killdate", checkKilldate)
     container.put("kill_date", dateKill)
     container.put("kill_time", timeKill)

@@ -302,6 +302,7 @@ func (ts *Teamserver) Start() {
 	logs.Success("", "The AdaptixC2 server is ready")
 
 	go ts.TsAgentTickUpdate()
+	go ts.TsInflightRequeueLoop()
 
 	<-stopped
 	logs.Warn("", "Teamserver finished")

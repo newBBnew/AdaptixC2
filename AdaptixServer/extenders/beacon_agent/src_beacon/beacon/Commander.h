@@ -26,6 +26,8 @@
 #define COMMAND_RM           17
 #define COMMAND_UPLOAD       33
 
+#define COMMAND_TRANSPORT    69
+
 #define COMMAND_SHELL_START  71
 #define COMMAND_SHELL_WRITE  72
 #define COMMAND_SHELL_CLOSE  73
@@ -79,6 +81,7 @@ public:
 	void CmdTunnelMsgReverse(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdUnlink(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void CmdUpload(ULONG commandId, Packer* inPacker, Packer* outPacker);
+	void CmdTransport(ULONG commandId, Packer* inPacker, Packer* outPacker);
 
 	void CmdSaveMemory(ULONG commandId, Packer* inPacker, Packer* outPacker);
 	void Exit(Packer* outPacker);

