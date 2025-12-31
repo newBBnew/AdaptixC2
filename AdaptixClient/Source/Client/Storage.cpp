@@ -323,6 +323,14 @@ void Storage::SelectSettingsSessions(SettingsData* settingsData)
         QJsonArray columns = json["columns"].toArray();
         for (int i = 0; i < 16 && i < columns.size(); i++)
             settingsData->SessionsTableColumns[i] = columns[i].toBool();
+
+        QJsonArray columnOrder = json["columnOrder"].toArray();
+        for (int i = 0; i < 16; i++)
+            settingsData->SessionsColumnOrder[i] = (i < columnOrder.size()) ? columnOrder[i].toInt() : -1;
+
+        QJsonArray columnWidths = json["columnWidths"].toArray();
+        for (int i = 0; i < 16; i++)
+            settingsData->SessionsColumnWidths[i] = (i < columnWidths.size()) ? columnWidths[i].toInt() : -1;
     }
 }
 
@@ -332,11 +340,21 @@ void Storage::UpdateSettingsSessions(const SettingsData &settingsData)
     for (int i = 0 ; i < 16; i++)
         columns.append(settingsData.SessionsTableColumns[i]);
 
+    QJsonArray columnOrder;
+    for (int i = 0; i < 16; i++)
+        columnOrder.append(settingsData.SessionsColumnOrder[i]);
+
+    QJsonArray columnWidths;
+    for (int i = 0; i < 16; i++)
+        columnWidths.append(settingsData.SessionsColumnWidths[i]);
+
     QJsonObject json;
     json["healthCheck"]  = settingsData.CheckHealth;
     json["healthCoaf"]   = settingsData.HealthCoaf;
     json["healthOffset"] = settingsData.HealthOffset;
     json["columns"]      = columns;
+    json["columnOrder"]  = columnOrder;
+    json["columnWidths"] = columnWidths;
     QString data = QJsonDocument(json).toJson(QJsonDocument::Compact);
 
     QSqlQuery query;

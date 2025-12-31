@@ -435,6 +435,10 @@ public:
 
     void start() const;
 
+    void RestoreColumnState() const;
+    void SaveColumnOrder() const;
+    void SaveColumnWidths() const;
+
 public Q_SLOTS:
     void toggleSearchPanel() const;
     void onFilterChanged() const;

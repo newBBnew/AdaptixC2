@@ -121,16 +121,27 @@ void SessionsTableWidget::createUI()
     tableView->setSelectionBehavior( QAbstractItemView::SelectRows );
     tableView->setFocusPolicy( Qt::NoFocus );
     tableView->setAlternatingRowColors( true );
-    tableView->horizontalHeader()->setSectionResizeMode( QHeaderView::Stretch );
+    tableView->horizontalHeader()->setSectionResizeMode( QHeaderView::Interactive );
     tableView->horizontalHeader()->setCascadingSectionResizes( true );
     tableView->horizontalHeader()->setHighlightSections( false );
+    tableView->horizontalHeader()->setSectionsMovable( true );
+    tableView->horizontalHeader()->setFirstSectionMovable( false );
+    tableView->horizontalHeader()->setStyleSheet(
+        "QHeaderView::section { border-right: 1px solid #555; }"
+        "QHeaderView::section:last { border-right: none; }"
+    );
     tableView->verticalHeader()->setVisible( false );
+
+    // Connect signals for saving column state
+    connect(tableView->horizontalHeader(), &QHeaderView::sectionMoved, this, &SessionsTableWidget::SaveColumnOrder);
+    connect(tableView->horizontalHeader(), &QHeaderView::sectionResized, this, &SessionsTableWidget::SaveColumnWidths);
 
     proxyModel->sort(-1);
 
     tableView->setItemDelegate(new PaddingDelegate(tableView));
 
     this->UpdateColumnsVisible();
+    this->RestoreColumnState();
 
     mainGridLayout = new QGridLayout( this );
     mainGridLayout->setContentsMargins( 0, 0,  0, 0);
@@ -199,26 +210,35 @@ void SessionsTableWidget::UpdateColumnsVisible() const
 
 void SessionsTableWidget::UpdateColumnsSize() const
 {
+    // Skip if user has saved custom widths
+    bool hasCustomWidths = false;
+    for (int i = 0; i < SC_ColumnCount; i++) {
+        if (GlobalClient->settings->data.SessionsColumnWidths[i] > 0) {
+            hasCustomWidths = true;
+            break;
+        }
+    }
+    if (hasCustomWidths)
+        return;
+
+    // First, resize all columns to fit content
     tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    tableView->horizontalHeader()->setSectionResizeMode(SC_Tags, QHeaderView::Stretch);
 
-    int wDomain   = tableView->columnWidth(SC_Domain);
-    int wComputer = tableView->columnWidth(SC_Computer);
-    int wUser     = tableView->columnWidth(SC_User);
-    int wOs       = tableView->columnWidth(SC_Os);
-    int wProcess  = tableView->columnWidth(SC_Process);
+    // Capture the calculated widths
+    int widths[SC_ColumnCount];
+    for (int i = 0; i < SC_ColumnCount; i++) {
+        widths[i] = tableView->columnWidth(i);
+    }
 
-    tableView->horizontalHeader()->setSectionResizeMode(SC_Domain,   QHeaderView::Interactive);
-    tableView->horizontalHeader()->setSectionResizeMode(SC_Computer, QHeaderView::Interactive);
-    tableView->horizontalHeader()->setSectionResizeMode(SC_User,     QHeaderView::Interactive);
-    tableView->horizontalHeader()->setSectionResizeMode(SC_Os,       QHeaderView::Interactive);
-    tableView->horizontalHeader()->setSectionResizeMode(SC_Process,  QHeaderView::Interactive);
+    // Set all columns to Interactive mode for manual resizing
+    for (int i = 0; i < SC_ColumnCount; i++) {
+        tableView->horizontalHeader()->setSectionResizeMode(i, QHeaderView::Interactive);
+    }
 
-    tableView->setColumnWidth(SC_Domain,   wDomain);
-    tableView->setColumnWidth(SC_Computer, wComputer);
-    tableView->setColumnWidth(SC_User,     wUser);
-    tableView->setColumnWidth(SC_Os,       wOs);
-    tableView->setColumnWidth(SC_Process,  wProcess);
+    // Apply the captured widths
+    for (int i = 0; i < SC_ColumnCount; i++) {
+        tableView->setColumnWidth(i, widths[i]);
+    }
 }
 
 void SessionsTableWidget::UpdateData() const
@@ -695,4 +715,60 @@ void SessionsTableWidget::actionSetData() const
     dialog->SetProfile(*(adaptixWidget->GetProfile()));
     dialog->SetAgentData(agent->data);
     dialog->Start();
+}
+
+void SessionsTableWidget::RestoreColumnState() const
+{
+    QHeaderView* header = tableView->horizontalHeader();
+
+    // Ensure all columns are Interactive mode first
+    for (int i = 0; i < SC_ColumnCount; i++) {
+        header->setSectionResizeMode(i, QHeaderView::Interactive);
+    }
+
+    // Restore column order
+    for (int logicalIndex = 0; logicalIndex < SC_ColumnCount; logicalIndex++) {
+        int savedVisualIndex = GlobalClient->settings->data.SessionsColumnOrder[logicalIndex];
+        if (savedVisualIndex >= 0 && savedVisualIndex < SC_ColumnCount) {
+            int currentVisualIndex = header->visualIndex(logicalIndex);
+            if (currentVisualIndex != savedVisualIndex) {
+                header->moveSection(currentVisualIndex, savedVisualIndex);
+            }
+        }
+    }
+
+    // Restore column widths or set defaults
+    bool hasAnyWidth = false;
+    for (int i = 0; i < SC_ColumnCount; i++) {
+        int savedWidth = GlobalClient->settings->data.SessionsColumnWidths[i];
+        if (savedWidth > 0) {
+            tableView->setColumnWidth(i, savedWidth);
+            hasAnyWidth = true;
+        }
+    }
+
+    // If no saved widths, set last column (Sleep) to stretch to fill remaining space
+    if (!hasAnyWidth) {
+        header->setSectionResizeMode(SC_Sleep, QHeaderView::Stretch);
+    }
+}
+
+void SessionsTableWidget::SaveColumnOrder() const
+{
+    QHeaderView* header = tableView->horizontalHeader();
+
+    for (int logicalIndex = 0; logicalIndex < SC_ColumnCount; logicalIndex++) {
+        GlobalClient->settings->data.SessionsColumnOrder[logicalIndex] = header->visualIndex(logicalIndex);
+    }
+
+    GlobalClient->settings->SaveToDB();
+}
+
+void SessionsTableWidget::SaveColumnWidths() const
+{
+    for (int i = 0; i < SC_ColumnCount; i++) {
+        GlobalClient->settings->data.SessionsColumnWidths[i] = tableView->columnWidth(i);
+    }
+
+    GlobalClient->settings->SaveToDB();
 }

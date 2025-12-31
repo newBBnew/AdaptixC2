@@ -42,6 +42,11 @@ void Settings::SetDefault()
     for ( int i = 0; i < 16; i++)
         data.SessionsTableColumns[i] = true;
 
+    for ( int i = 0; i < 16; i++) {
+        data.SessionsColumnOrder[i] = -1;  // -1 = default order
+        data.SessionsColumnWidths[i] = -1; // -1 = auto width
+    }
+
     this->data.CheckHealth = true;
     this->data.HealthCoaf = 2.0;
     this->data.HealthOffset = 40;

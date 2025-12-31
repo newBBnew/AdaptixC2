@@ -29,3 +29,23 @@ AdaptixClient/Libs/kddockwidgets/*_export.h
 # macOS
 .DS_Store
 **/.DS_Store
+
+# Extension-Kit (separate repository)
+Extension-Kit/
+
+# Release build output
+release/
+
+# Binary files
+*.exe
+*.dll
+*.o
+*.a
+*.dylib
+
+# AdaptixClient binary
+AdaptixClient/AdaptixClient
+
+# Objects directories
+objects_dns/
+objects_doh/

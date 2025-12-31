@@ -196,6 +196,8 @@ typedef struct SettingsData {
     bool ConsoleAutoScroll;
 
     bool   SessionsTableColumns[16];
+    int    SessionsColumnOrder[16];   // Visual index for each logical column (-1 = default)
+    int    SessionsColumnWidths[16];  // Column widths (-1 = default/auto)
     bool   CheckHealth;
     double HealthCoaf;
     int    HealthOffset;
