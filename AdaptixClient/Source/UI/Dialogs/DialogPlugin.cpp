@@ -16,19 +16,7 @@ void DialogPlugin::createUI()
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setSpacing(10);
     
-    // Description section
-    if (!description.isEmpty()) {
-        QGroupBox* descGroup = new QGroupBox("Description", this);
-        QVBoxLayout* descLayout = new QVBoxLayout(descGroup);
-        descriptionEdit = new QTextEdit(this);
-        descriptionEdit->setPlainText(description);
-        descriptionEdit->setReadOnly(true);
-        descriptionEdit->setMaximumHeight(80);
-        descLayout->addWidget(descriptionEdit);
-        mainLayout->addWidget(descGroup);
-    }
-    
-    // Parameters section
+    // Parameters section (first)
     if (!arguments.isEmpty()) {
         QGroupBox* paramGroup = new QGroupBox("Parameters", this);
         formLayout = new QGridLayout(paramGroup);
@@ -53,6 +41,18 @@ void DialogPlugin::createUI()
         }
         
         mainLayout->addWidget(paramGroup);
+    }
+    
+    // Description section (at bottom)
+    if (!description.isEmpty()) {
+        QGroupBox* descGroup = new QGroupBox("Description", this);
+        QVBoxLayout* descLayout = new QVBoxLayout(descGroup);
+        descriptionEdit = new QTextEdit(this);
+        descriptionEdit->setPlainText(description);
+        descriptionEdit->setReadOnly(true);
+        descriptionEdit->setMaximumHeight(80);
+        descLayout->addWidget(descriptionEdit);
+        mainLayout->addWidget(descGroup);
     }
     
     // Buttons
