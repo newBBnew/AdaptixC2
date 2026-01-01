@@ -141,6 +141,10 @@ func (s *MCPServer) handleRequest(line string) *JSONRPCResponse {
 		return s.handleToolsList(req)
 	case "tools/call":
 		return s.handleToolsCall(req)
+	case "prompts/list":
+		return s.handlePromptsList(req)
+	case "prompts/get":
+		return s.handlePromptsGet(req)
 	case "notifications/initialized":
 		return nil
 	default:
@@ -197,6 +201,65 @@ func (s *MCPServer) handleToolsCall(req JSONRPCRequest) *JSONRPCResponse {
 			{"type": "text", "text": string(text)},
 		},
 	})
+}
+
+func (s *MCPServer) handlePromptsList(req JSONRPCRequest) *JSONRPCResponse {
+	prompts := []map[string]interface{}{
+		{
+			"name":        "setup_socks5",
+			"description": "快速在指定 Agent 上建立 SOCKS5 隧道",
+			"arguments": []map[string]interface{}{
+				{"name": "agent_id", "description": "目标 Agent ID", "required": true},
+				{"name": "port", "description": "本地监听端口 (默认 1080)", "required": false},
+			},
+		},
+		{
+			"name":        "cleanup_all_ptys",
+			"description": "一键列出并关闭所有活动的 PTY 会话",
+		},
+		{
+			"name":        "system_triage",
+			"description": "对新上线的 Agent 进行基础信息搜集 (whoami, ipconfig, tasklist)",
+			"arguments": []map[string]interface{}{
+				{"name": "agent_id", "description": "目标 Agent ID", "required": true},
+			},
+		},
+	}
+	return s.successResponse(req.ID, map[string]interface{}{"prompts": prompts})
+}
+
+func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) *JSONRPCResponse {
+	name, _ := req.Params["name"].(string)
+	args, _ := req.Params["arguments"].(map[string]interface{})
+
+	var promptText string
+	switch name {
+	case "setup_socks5":
+		port := "1080"
+		if p, ok := args["port"].(string); ok {
+			port = p
+		}
+		promptText = fmt.Sprintf("请在 Agent %s 上启动一个 SOCKS5 隧道，监听端口为 %s。请使用 manage_tunnel 工具进行操作，参数格式参考：action='start', type='socks5', data={'agent_id': '%s', 'l_host': '0.0.0.0', 'l_port': %s, 'listen': true}。", args["agent_id"], port, args["agent_id"], port)
+	case "cleanup_all_ptys":
+		promptText = "请先调用 manage_pty action='list' 获取所有会话，然后针对每一个返回的 pty_id 调用 manage_pty action='close' 进行清理。"
+	case "system_triage":
+		promptText = fmt.Sprintf("请在 Agent %s 上依次执行 whoami, ipconfig /all 和 tasklist 命令，并汇总结果汇报给我。", args["agent_id"])
+	default:
+		return s.errorResponse(req.ID, -32602, "Prompt not found", nil)
+	}
+
+	result := map[string]interface{}{
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": map[string]interface{}{
+					"type": "text",
+					"text": promptText,
+				},
+			},
+		},
+	}
+	return s.successResponse(req.ID, result)
 }
 
 func (s *MCPServer) successResponse(id interface{}, result interface{}) *JSONRPCResponse {

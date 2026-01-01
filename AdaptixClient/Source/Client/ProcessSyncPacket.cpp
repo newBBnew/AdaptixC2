@@ -9,6 +9,7 @@
 #include <UI/Widgets/LogsWidget.h>
 #include <UI/Widgets/ChatWidget.h>
 #include <UI/Widgets/DownloadsWidget.h>
+#include <UI/Widgets/FileDeliveryWidget.h>
 #include <UI/Widgets/ScreenshotsWidget.h>
 #include <UI/Widgets/TunnelsWidget.h>
 #include <UI/Widgets/CredentialsWidget.h>
@@ -123,6 +124,20 @@ namespace {
         data.PivotName     = json["p_pivot_name"].toString();
         data.ParentAgentId = json["p_parent_agent_id"].toString();
         data.ChildAgentId  = json["p_child_agent_id"].toString();
+        return data;
+    }
+
+    FileDeliveryData parseFileDeliveryData(const QJsonObject &json) {
+        FileDeliveryData data = {};
+        data.FileId        = json["fd_file_id"].toString();
+        data.Name          = json["fd_name"].toString();
+        data.Size          = json["fd_size"].toDouble();
+        data.Sha256        = json["fd_sha256"].toString();
+        data.Type          = json["fd_type"].toString();
+        data.URL           = json["fd_url"].toString();
+        data.Downloads     = json["fd_downloads"].toInt();
+        data.DateTimestamp = static_cast<qint64>(json["fd_date"].toDouble());
+        data.Date          = UnixTimestampGlobalToStringLocal(data.DateTimestamp);
         return data;
     }
 
@@ -442,6 +457,22 @@ bool AdaptixWidget::isValidSyncPacket(QJsonObject jsonObj)
 
     case TYPE_PIVOT_DELETE:
         return checkField("p_pivot_id", isStr);
+
+    case TYPE_FILEDELIVERY_CREATE:
+        return checkField("fd_file_id", isStr) &&
+               checkField("fd_name", isStr) &&
+               checkField("fd_size", isNum) &&
+               checkField("fd_sha256", isStr) &&
+               checkField("fd_type", isStr) &&
+               checkField("fd_url", isStr) &&
+               checkField("fd_downloads", isNum) &&
+               checkField("fd_date", isNum);
+
+    case TYPE_FILEDELIVERY_UPDATE:
+        return checkField("fd_file_id", isStr);
+
+    case TYPE_FILEDELIVERY_DELETE:
+        return checkField("fd_files_id", isArr);
 
     default:
         qWarning() << "[SyncPacket] Unknown packet type:" << spType;
@@ -946,9 +977,8 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
 
     case TYPE_PIVOT_DELETE: {
         QString pivotId = jsonObj["p_pivot_id"].toString();
-        if (Pivots.contains(pivotId)) {
-            PivotData pivotData = Pivots[pivotId];
-            Pivots.remove(pivotId);
+        if (this->Pivots.contains(pivotId)) {
+            PivotData pivotData = Pivots.take(pivotId);
             if (AgentsMap.contains(pivotData.ParentAgentId) && AgentsMap.contains(pivotData.ChildAgentId)) {
                 Agent* parentAgent = AgentsMap[pivotData.ParentAgentId];
                 Agent* childAgent  = AgentsMap[pivotData.ChildAgentId];
@@ -958,6 +988,39 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
                 SessionsTableDock->UpdateAgentItem(childAgent->data, childAgent);
             }
         }
+        break;
+    }
+
+    case TYPE_FILEDELIVERY_CREATE: {
+        FileDeliveryData fd = parseFileDeliveryData(jsonObj);
+        this->FileDeliveries[fd.FileId] = fd;
+        this->FileDeliveryDock->AddFileItem(fd);
+        break;
+    }
+
+    case TYPE_FILEDELIVERY_UPDATE: {
+        QString id = jsonObj["fd_file_id"].toString();
+        QString url = jsonObj["fd_url"].toString();
+        int downloads = jsonObj.contains("fd_downloads") ? jsonObj["fd_downloads"].toInt() : -1;
+        
+        if (FileDeliveries.contains(id)) {
+            if (!url.isEmpty()) FileDeliveries[id].URL = url;
+            if (downloads >= 0) FileDeliveries[id].Downloads = downloads;
+        }
+        this->FileDeliveryDock->UpdateFileItem(id, url, downloads);
+        break;
+    }
+
+    case TYPE_FILEDELIVERY_DELETE: {
+        QStringList ids;
+        for (const QJsonValue &val : jsonObj["fd_files_id"].toArray()) {
+            if (val.isString()) {
+                QString id = val.toString();
+                ids.append(id);
+                this->FileDeliveries.remove(id);
+            }
+        }
+        this->FileDeliveryDock->RemoveFileItems(ids);
         break;
     }
 
@@ -982,6 +1045,7 @@ void AdaptixWidget::setSyncUpdateUI(const bool enabled)
     if (ListenersDock)     ListenersDock->SetUpdatesEnabled(enabled);
     if (SessionsTableDock) SessionsTableDock->SetUpdatesEnabled(enabled);
     if (TunnelsDock)       TunnelsDock->SetUpdatesEnabled(enabled);
+    if (FileDeliveryDock)  FileDeliveryDock->SetUpdatesEnabled(enabled);
     if (DownloadsDock)     DownloadsDock->SetUpdatesEnabled(enabled);
     if (ScreenshotsDock)   ScreenshotsDock->SetUpdatesEnabled(enabled);
     if (CredentialsDock)   CredentialsDock->SetUpdatesEnabled(enabled);

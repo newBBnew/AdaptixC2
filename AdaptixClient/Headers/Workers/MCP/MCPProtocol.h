@@ -17,6 +17,9 @@ namespace Commands {
     const QString GET_AGENT_INFO = "get_agent_info";
     const QString UPDATE_AGENT_CONFIG = "update_agent_config";
     const QString UPDATE_AGENT_METADATA = "update_agent_metadata";
+    const QString MANAGE_PTY = "manage_pty";
+    const QString LIST_FILEDELIVERY = "list_filedelivery";
+    const QString MANAGE_FILEDELIVERY = "manage_filedelivery";
     const QString LIST_LISTENERS = "list_listeners";
     const QString MANAGE_LISTENER = "manage_listener";
     const QString LIST_TASKS = "list_tasks";
@@ -25,6 +28,7 @@ namespace Commands {
     const QString LIST_TUNNELS = "list_tunnels";
     const QString MANAGE_TUNNEL = "manage_tunnel";
     const QString LIST_TARGETS = "list_targets";
+    const QString MANAGE_TARGET = "manage_target";
     const QString LIST_PIVOTS = "list_pivots";
     const QString LIST_COLLECTED_DATA = "list_collected_data";
     const QString PING = "ping";
@@ -38,6 +42,7 @@ namespace Status {
     const QString NOT_SUPPORTED = "not_supported";
     const QString INVALID_PARAMS = "invalid_params";
     const QString TIMEOUT = "timeout";
+    const QString DEFERRED = "deferred";
 }
 
 struct MCPRequest {
@@ -102,6 +107,14 @@ struct MCPResponse {
         resp.requestId = reqId;
         resp.status = Status::NOT_SUPPORTED;
         resp.message = QString("Command type '%1' not supported").arg(type);
+        return resp;
+    }
+
+    static MCPResponse deferred() {
+        MCPResponse resp;
+        resp.version = PROTOCOL_VERSION;
+        resp.requestId = "";
+        resp.status = Status::DEFERRED;
         return resp;
     }
     

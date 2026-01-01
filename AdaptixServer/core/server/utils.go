@@ -10,7 +10,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 	"github.com/gorilla/websocket"
 )
 
@@ -86,10 +86,10 @@ type Agent struct {
 
 	OutConsole *safe.Slice //  sync_packet interface{}
 
-	HostedTasks       *safe.Queue // taskData TaskData
-	HostedTunnelTasks *safe.Queue // taskData TaskData
-	HostedTunnelData  *safe.Queue // taskData TaskDataTunnel
-	InflightDeliveries safe.Map   // nonce string : *inflightDelivery (for DNS/DoH reliable delivery)
+	HostedTasks        *safe.Queue // taskData TaskData
+	HostedTunnelTasks  *safe.Queue // taskData TaskData
+	HostedTunnelData   *safe.Queue // taskData TaskDataTunnel
+	InflightDeliveries safe.Map    // nonce string : *inflightDelivery (for DNS/DoH reliable delivery)
 
 	RunningTasks   safe.Map // taskId string, taskData TaskData
 	RunningJobs    safe.Map // taskId string, list []TaskData
@@ -674,4 +674,33 @@ type SyncPackerTunnelDelete struct {
 	SpType int `json:"type"`
 
 	TunnelId string `json:"p_tunnel_id"`
+}
+
+/// FILEDELIVERY
+
+type SyncPackerFileDeliveryCreate struct {
+	SpType int `json:"type"`
+
+	FileId    string `json:"fd_file_id"`
+	Name      string `json:"fd_name"`
+	Size      int64  `json:"fd_size"`
+	Sha256    string `json:"fd_sha256"`
+	Type      string `json:"fd_type"`
+	URL       string `json:"fd_url"`
+	Downloads int    `json:"fd_downloads"`
+	Date      int64  `json:"fd_date"`
+}
+
+type SyncPackerFileDeliveryUpdate struct {
+	SpType int `json:"type"`
+
+	FileId    string `json:"fd_file_id"`
+	URL       string `json:"fd_url,omitempty"`
+	Downloads *int   `json:"fd_downloads,omitempty"`
+}
+
+type SyncPackerFileDeliveryDelete struct {
+	SpType int `json:"type"`
+
+	FileId []string `json:"fd_files_id"`
 }

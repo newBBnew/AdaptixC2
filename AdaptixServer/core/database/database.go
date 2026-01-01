@@ -168,7 +168,7 @@ func (dbms *DBMS) DatabaseInit() error {
 
 	createTableQuery = `CREATE TABLE IF NOT EXISTS "Targets" (
 		"Id" INTEGER PRIMARY KEY AUTOINCREMENT,
-    	"TargetId" TEXT NOT NULL,
+    	"TargetId" TEXT NOT NULL UNIQUE, 
     	"Computer" TEXT,
     	"Domain" TEXT,
     	"Address" TEXT,
@@ -180,6 +180,39 @@ func (dbms *DBMS) DatabaseInit() error {
 		"Alive" BOOLEAN,
 		"Agents" TEXT
     );`
+	_, err = dbms.database.Exec(createTableQuery)
+
+	createTableQuery = `CREATE TABLE IF NOT EXISTS "FileDeliveryFiles" (
+		"ID" TEXT NOT NULL UNIQUE,
+		"FileName" TEXT NOT NULL,
+		"Sha256" TEXT NOT NULL,
+		"Size" INTEGER,
+		"Owner" TEXT,
+		"CreatedAt" BIGINT,
+		"StoredPath" TEXT NOT NULL
+	);`
+	_, err = dbms.database.Exec(createTableQuery)
+
+	createTableQuery = `CREATE TABLE IF NOT EXISTS "FileDeliveryLinks" (
+		"Token" TEXT NOT NULL UNIQUE,
+		"FileID" TEXT NOT NULL,
+		"CreatedAt" BIGINT,
+		"ExpiresAt" BIGINT,
+		"MaxUses" INTEGER,
+		"Uses" INTEGER,
+		"AllowedIP" TEXT
+	);`
+	_, err = dbms.database.Exec(createTableQuery)
+
+	createTableQuery = `CREATE TABLE IF NOT EXISTS "FileDeliveryDownloads" (
+		"Id" INTEGER PRIMARY KEY AUTOINCREMENT,
+		"Token" TEXT NOT NULL,
+		"FileId" TEXT NOT NULL,
+		"Ts" BIGINT,
+		"IP" TEXT,
+		"UserAgent" TEXT,
+		"Result" TEXT
+	);`
 	_, err = dbms.database.Exec(createTableQuery)
 
 	return err

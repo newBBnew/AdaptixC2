@@ -2,9 +2,11 @@ package server
 
 import (
 	"AdaptixServer/core/extender"
+	"fmt"
 	"sort"
+	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 func (ts *Teamserver) TsClientConnected(username string) bool {
@@ -27,6 +29,8 @@ func getPacketCategory(packet interface{}) string {
 		return "chat"
 	case SyncPackerDownloadCreate, SyncPackerDownloadUpdate:
 		return "downloads"
+	case SyncPackerFileDeliveryCreate, SyncPackerFileDeliveryUpdate:
+		return "filedelivery"
 	case SyncPackerScreenshotCreate:
 		return "screenshots"
 	case SyncPackerTunnelCreate:
@@ -62,6 +66,7 @@ func (ts *Teamserver) TsSyncStored(client *ClientHandler) {
 	packets = append(packets, ts.TsPresyncAgents()...)
 	packets = append(packets, ts.TsPresyncChat()...)
 	packets = append(packets, ts.TsPresyncDownloads()...)
+	packets = append(packets, ts.TsPresyncFileDelivery()...)
 	packets = append(packets, ts.TsPresyncScreenshots()...)
 	packets = append(packets, ts.TsPresyncTunnels()...)
 	packets = append(packets, ts.TsPresyncEvents()...)
@@ -258,6 +263,45 @@ func (ts *Teamserver) TsPresyncDownloads() []interface{} {
 		d1 := CreateSpDownloadCreate(downloadData)
 		d2 := CreateSpDownloadUpdate(downloadData)
 		packets = append(packets, d1, d2)
+	}
+
+	return packets
+}
+
+func (ts *Teamserver) TsPresyncFileDelivery() []interface{} {
+	var packets []interface{}
+
+	// We don't have a cache for FileDelivery yet, so we pull from DB
+	// For now, we sync all files (global scope)
+	rows, err := ts.DBMS.DbFileDeliveryFilesAll()
+	if err != nil {
+		return packets
+	}
+
+	now := time.Now().Unix()
+	baseURL := ts.TsFileDeliveryPublicBaseURL()
+
+	for _, r := range rows {
+		url := ""
+		downloads := 0
+		if link, ok, err := ts.DBMS.DbFileDeliveryLinkFindActive(r.ID, 0, "", now); err == nil && ok {
+			url = fmt.Sprintf("%s/download/%s", baseURL, link.Token)
+			downloads = link.Uses
+		}
+
+		fd := FileDeliveryFile{
+			ID:        r.ID,
+			FileName:  r.FileName,
+			Sha256:    r.Sha256,
+			Size:      r.Size,
+			Owner:     r.Owner,
+			CreatedAt: time.Unix(r.CreatedAt, 0),
+			URL:       url,
+			Downloads: downloads,
+		}
+
+		p := CreateSpFileDeliveryCreate(fd)
+		packets = append(packets, p)
 	}
 
 	return packets

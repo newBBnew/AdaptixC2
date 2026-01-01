@@ -49,8 +49,9 @@ Q_OBJECT
 public:
     static HttpRequestManager& instance();
 
-    int post(const QString& baseUrl, const QString& endpoint, const QString& accessToken, const QByteArray& jsonData, HttpCallback callback, int timeout = 8000);
-    int postWithRetry(const QString& baseUrl, const QString& endpoint, const QString& accessToken, const QByteArray& jsonData, HttpCallback callback, int maxRetries = 3, int timeout = 8000);
+    int get(const QString& baseUrl, const QString& endpoint, const QString& accessToken, HttpCallback callback, int timeout = 8000);
+    int post(const QString& baseUrl, const QString& endpoint, const QString& accessToken, const QByteArray& jsonData, HttpCallback callback, int timeout = 8000, const QMap<QString, QString>& headers = {});
+    int postWithRetry(const QString& baseUrl, const QString& endpoint, const QString& accessToken, const QByteArray& jsonData, HttpCallback callback, int maxRetries = 3, int timeout = 8000, const QMap<QString, QString>& headers = {});
 
     bool cancel(int requestId);
     void cancelAll();

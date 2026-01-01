@@ -12,7 +12,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -113,6 +113,12 @@ type Teamserver interface {
 	TsTunnelConnectionHalt(channelId int, errorCode byte)
 	TsTunnelConnectionResume(AgentId string, channelId int, ioDirect bool)
 	TsTunnelConnectionData(channelId int, data []byte)
+
+	TsFileDeliveryUpload(owner string, fileName string, fileData []byte) (interface{}, error)
+	TsFileDeliveryList(owner string) (interface{}, error)
+	TsFileDeliveryDelete(owner string, fileID string) error
+	TsFileDeliveryCreateLink(owner string, fileID string, expireHours int, maxUses int, allowedIP string) (string, string, error)
+	TsFileDeliveryResolveToken(token string, clientIP string) (string, string, string, error)
 }
 
 type TsConnector struct {
@@ -202,6 +208,9 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 		otp_group.GET("/otp/download/sync", connector.tcOTP_DownloadSync)
 	}
 
+	// FileDelivery Public Download
+	connector.Engine.GET("/download/:token", connector.TcFileDeliveryDownload)
+
 	api_group := connector.Engine.Group(tsProfile.Endpoint)
 	api_group.Use(limitTimeoutMiddleware(), token.ValidateAccessToken(), default404Middleware(tsResponse))
 	{
@@ -209,6 +218,11 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 		api_group.GET("/connect", connector.tcConnect)
 		api_group.GET("/channel", connector.tcChannel)
 		api_group.POST("/otp/generate", connector.tcOTP_Generate)
+
+		api_group.GET("/filedelivery/list", connector.TcFileDeliveryList)
+		api_group.POST("/filedelivery/upload", connector.TcFileDeliveryUpload)
+		api_group.POST("/filedelivery/delete", connector.TcFileDeliveryDelete)
+		api_group.POST("/filedelivery/link/create", connector.TcFileDeliveryCreateLink)
 
 		api_group.GET("/listener/list", connector.TcListenerList)
 		api_group.POST("/listener/create", connector.TcListenerStart)

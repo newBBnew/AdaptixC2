@@ -112,6 +112,7 @@ SET( HEADERS
         Headers/Workers/LastTickWorker.h
         Headers/Agent/Commander.h
         Headers/UI/Widgets/DownloadsWidget.h
+        Headers/UI/Widgets/FileDeliveryWidget.h
         Headers/UI/Widgets/BrowserFilesWidget.h
         Headers/UI/Widgets/BrowserProcessWidget.h
         Headers/UI/Widgets/TasksWidget.h
@@ -136,6 +137,7 @@ SET( HEADERS
         Headers/Workers/MCP/MCPProtocol.h
         Headers/Workers/MCP/MCPBridgeWorker.h
         Headers/Workers/MCP/MCPCommandHandler.h
+        Headers/Workers/MCP/MCPTerminalManager.h
         Headers/UI/Widgets/TerminalContainerWidget.h
         Headers/Workers/TerminalWorker.h
         Headers/UI/Dialogs/DialogDownloader.h
@@ -203,6 +205,7 @@ add_executable(AdaptixClient
         Source/Workers/LastTickWorker.cpp
         Source/Agent/Commander.cpp
         Source/UI/Widgets/DownloadsWidget.cpp
+        Source/UI/Widgets/FileDeliveryWidget.cpp
         Source/UI/Widgets/BrowserFilesWidget.cpp
         Source/UI/Widgets/BrowserProcessWidget.cpp
         Source/UI/Widgets/TasksWidget.cpp
@@ -225,6 +228,7 @@ add_executable(AdaptixClient
         Source/Workers/SocksHandshakeWorker.cpp
         Source/Workers/MCP/MCPBridgeWorker.cpp
         Source/Workers/MCP/MCPCommandHandler.cpp
+        Source/Workers/MCP/MCPTerminalManager.cpp
         Source/UI/Widgets/TerminalContainerWidget.cpp
         Source/Workers/TerminalWorker.cpp
         Source/UI/Dialogs/DialogDownloader.cpp

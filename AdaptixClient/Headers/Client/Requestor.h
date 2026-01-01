@@ -46,6 +46,11 @@ void HttpReqListenerStartAsync(const QString &listenerName, const QString &confi
 void HttpReqListenerEditAsync(const QString &listenerName, const QString &configType, const QString &configData, AuthProfile& profile, HttpCallback callback);
 void HttpReqListenerStopAsync(const QString &listenerName, const QString &listenerType, AuthProfile& profile, HttpCallback callback);
 
+void HttpReqFileDeliveryListAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqFileDeliveryUploadAsync(const QString &fileName, const QByteArray &fileData, AuthProfile& profile, HttpCallback callback);
+void HttpReqFileDeliveryDeleteAsync(const QString &fileId, AuthProfile& profile, HttpCallback callback);
+void HttpReqFileDeliveryLinkCreateAsync(const QString &fileId, int expireHours, int maxUses, const QString &allowedIp, AuthProfile& profile, HttpCallback callback);
+
 void HttpReqDownloadActionAsync(const QString &action, const QString &fileId, AuthProfile& profile, HttpCallback callback);
 void HttpReqDownloadDelete(const QStringList &fileId, AuthProfile& profile, HttpCallback callback);
 

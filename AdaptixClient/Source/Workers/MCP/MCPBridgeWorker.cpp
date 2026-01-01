@@ -110,9 +110,11 @@ void MCPBridgeWorker::onTextMessageReceived(const QString& message)
     }
     
     MCP::MCPResponse response = processRequest(request);
-    sendResponse(response);
+    if (response.status != MCP::Status::DEFERRED) {
+        sendResponse(response);
+    }
     
-    Q_EMIT commandExecuted(request.type, response.status == MCP::Status::SUCCESS);
+    Q_EMIT commandExecuted(request.type, response.status == MCP::Status::SUCCESS || response.status == MCP::Status::DEFERRED);
 }
 
 void MCPBridgeWorker::onDisconnected()

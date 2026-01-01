@@ -33,10 +33,16 @@ private:
     MCP::MCPResponse handleManageListener(const MCP::MCPRequest& req);
     MCP::MCPResponse handleListTunnels(const MCP::MCPRequest& req);
     MCP::MCPResponse handleManageTunnel(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleListFileDelivery(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleManageFileDelivery(const MCP::MCPRequest& req);
     MCP::MCPResponse handleListTargets(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleManageTarget(const MCP::MCPRequest& req);
     MCP::MCPResponse handleListPivots(const MCP::MCPRequest& req);
     MCP::MCPResponse handleListCollectedData(const MCP::MCPRequest& req);
     MCP::MCPResponse handleGetCapabilities(const MCP::MCPRequest& req);
+
+    // PTY
+    MCP::MCPResponse handleManagePty(const MCP::MCPRequest& req);
 
     QJsonObject agentToJson(const QString& agentId);
     QJsonObject taskToJson(const TaskData& task);

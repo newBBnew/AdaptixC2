@@ -302,6 +302,55 @@ void HttpReqListenerStopAsync(const QString &listenerName, const QString &listen
     HttpRequestManager::instance().post(profile.GetURL(), "/listener/stop", profile.GetAccessToken(), jsonData, callback);
 }
 
+void HttpReqFileDeliveryListAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().get(profile.GetURL(), "/filedelivery/list", profile.GetAccessToken(), callback);
+}
+
+void HttpReqFileDeliveryUploadAsync(const QString &fileName, const QByteArray &fileData, AuthProfile& profile, HttpCallback callback)
+{
+    // Multipart form data upload
+    QString boundary = "adaptix-mcp-boundary-" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    QByteArray body;
+    
+    body.append("--" + boundary.toUtf8() + "\r\n");
+    body.append("Content-Disposition: form-data; name=\"file_name\"\r\n\r\n");
+    body.append(fileName.toUtf8() + "\r\n");
+    
+    body.append("--" + boundary.toUtf8() + "\r\n");
+    body.append("Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName.toUtf8() + "\"\r\n");
+    body.append("Content-Type: application/octet-stream\r\n\r\n");
+    body.append(fileData);
+    body.append("\r\n");
+    body.append("--" + boundary.toUtf8() + "--\r\n");
+
+    QMap<QString, QString> headers;
+    headers["Content-Type"] = "multipart/form-data; boundary=" + boundary;
+
+    HttpRequestManager::instance().post(profile.GetURL(), "/filedelivery/upload", profile.GetAccessToken(), body, callback, 60000, headers);
+}
+
+void HttpReqFileDeliveryDeleteAsync(const QString &fileId, AuthProfile& profile, HttpCallback callback)
+{
+    QJsonObject dataJson;
+    dataJson["file_id"] = fileId;
+    QByteArray jsonData = QJsonDocument(dataJson).toJson();
+
+    HttpRequestManager::instance().post(profile.GetURL(), "/filedelivery/delete", profile.GetAccessToken(), jsonData, callback);
+}
+
+void HttpReqFileDeliveryLinkCreateAsync(const QString &fileId, int expireHours, int maxUses, const QString &allowedIp, AuthProfile& profile, HttpCallback callback)
+{
+    QJsonObject dataJson;
+    dataJson["file_id"] = fileId;
+    dataJson["expire_hours"] = expireHours;
+    dataJson["max_uses"] = maxUses;
+    dataJson["allowed_ip"] = allowedIp;
+    QByteArray jsonData = QJsonDocument(dataJson).toJson();
+
+    HttpRequestManager::instance().post(profile.GetURL(), "/filedelivery/link/create", profile.GetAccessToken(), jsonData, callback);
+}
+
 void HttpReqDownloadActionAsync(const QString &action, const QString &fileId, AuthProfile& profile, HttpCallback callback)
 {
     QJsonObject dataJson;

@@ -14,6 +14,7 @@
 #include <UI/Widgets/ChatWidget.h>
 #include <UI/Widgets/ListenersWidget.h>
 #include <UI/Widgets/DownloadsWidget.h>
+#include <UI/Widgets/FileDeliveryWidget.h>
 #include <UI/Widgets/ScreenshotsWidget.h>
 #include <UI/Widgets/CredentialsWidget.h>
 #include <UI/Widgets/TargetsWidget.h>
@@ -28,6 +29,7 @@
 #include <Client/AxScript/AxScriptManager.h>
 #include <Client/AxScript/AxCommandWrappers.h>
 #include <Workers/MCP/MCPBridgeWorker.h>
+#include <Workers/MCP/MCPTerminalManager.h>
 #include <kddockwidgets/core/DockRegistry.h>
 
 AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, WebSocketWorker* channelWsWorker)
@@ -39,6 +41,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     this->ChannelWsWorker = channelWsWorker;
 
     ScriptManager = new AxScriptManager(this, this);
+    McpTerminalManager = new MCPTerminalManager(this);
     connect(this, &AdaptixWidget::eventNewAgent,           ScriptManager, &AxScriptManager::emitNewAgent);
     connect(this, &AdaptixWidget::eventFileBrowserDisks,   ScriptManager, &AxScriptManager::emitFileBrowserDisks);
     connect(this, &AdaptixWidget::eventFileBrowserList,    ScriptManager, &AxScriptManager::emitFileBrowserList);
@@ -81,6 +84,10 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     dockBottom->addDockWidgetAsTab( DownloadsDock->dock() );
     DownloadsDock->dock()->toggleAction()->trigger();
 
+    FileDeliveryDock = new FileDeliveryWidget(this);
+    dockBottom->addDockWidgetAsTab( FileDeliveryDock->dock() );
+    FileDeliveryDock->dock()->toggleAction()->trigger();
+
     ScreenshotsDock = new ScreenshotsWidget(this);
     dockBottom->addDockWidgetAsTab( ScreenshotsDock->dock() );
     ScreenshotsDock->dock()->toggleAction()->trigger();
@@ -110,6 +117,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     connect( graphButton,     &QPushButton::clicked, this, &AdaptixWidget::SetGraphUI);
     connect( tasksButton,     &QPushButton::clicked, this, &AdaptixWidget::SetTasksUI);
     connect( tunnelButton,    &QPushButton::clicked, this, &AdaptixWidget::LoadTunnelsUI);
+    connect( deliveryButton,  &QPushButton::clicked, this, &AdaptixWidget::LoadFileDeliveryUI);
     connect( downloadsButton, &QPushButton::clicked, this, &AdaptixWidget::LoadDownloadsUI);
     connect( screensButton,   &QPushButton::clicked, this, &AdaptixWidget::LoadScreenshotsUI);
     connect( credsButton,     &QPushButton::clicked, this, &AdaptixWidget::LoadCredentialsUI);
@@ -200,6 +208,11 @@ void AdaptixWidget::createUI()
     tunnelButton->setFixedSize(37, 28);
     tunnelButton->setToolTip("Tunnels table");
 
+    deliveryButton = new QPushButton( QIcon(":/icons/storage"), "", this );
+    deliveryButton->setIconSize( QSize( 24,24 ));
+    deliveryButton->setFixedSize(37, 28);
+    deliveryButton->setToolTip("File Delivery");
+
     line_3 = new QFrame(this);
     line_3->setFrameShape(QFrame::VLine);
     line_3->setMinimumHeight(25);
@@ -256,6 +269,7 @@ void AdaptixWidget::createUI()
     topHLayout->addWidget(tasksButton);
     topHLayout->addWidget(line_2);
     topHLayout->addWidget(tunnelButton);
+    topHLayout->addWidget(deliveryButton);
     topHLayout->addWidget(line_3);
     topHLayout->addWidget(downloadsButton);
     topHLayout->addWidget(targetsButton);
@@ -425,6 +439,7 @@ void AdaptixWidget::ClearAdaptix()
     LogsDock->Clear();
     ChatDock->Clear();
     DownloadsDock->Clear();
+    FileDeliveryDock->Clear();
     ScreenshotsDock->Clear();
     TasksDock->Clear();
     ListenersDock->Clear();
@@ -878,6 +893,7 @@ void AdaptixWidget::OnSynced()
     this->CredentialsDock->UpdateColumnsSize();
     this->CredentialsDock->UpdateFilterComboBoxes();
     this->TargetsDock->UpdateColumnsSize();
+    this->FileDeliveryDock->UpdateColumnsSize();
 
     // Start MCP Bridge
     if (!McpBridge) {
@@ -909,6 +925,8 @@ void AdaptixWidget::LoadChatUI() const { this->AddDockBottom( ChatDock->dock() )
 void AdaptixWidget::LoadListenersUI() const { this->AddDockBottom( ListenersDock->dock() ); }
 
 void AdaptixWidget::LoadTunnelsUI() const { this->AddDockBottom( TunnelsDock->dock() ); }
+
+void AdaptixWidget::LoadFileDeliveryUI() const { this->AddDockBottom( FileDeliveryDock->dock() ); }
 
 void AdaptixWidget::LoadDownloadsUI() const { this->AddDockBottom( DownloadsDock->dock() ); }
 

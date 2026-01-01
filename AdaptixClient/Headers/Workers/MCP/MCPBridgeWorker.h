@@ -20,6 +20,7 @@ public:
     bool isRunning() const { return wsServer != nullptr && wsServer->isListening(); }
     quint16 getPort() const;
     int getConnectionCount() const;
+    void sendResponse(const MCP::MCPResponse& response);
 
 Q_SIGNALS:
     void started(quint16 port);
@@ -42,7 +43,6 @@ private Q_SLOTS:
 private:
     MCP::MCPResponse processRequest(const MCP::MCPRequest& request);
     MCP::MCPResponse handleBuiltinCommand(const MCP::MCPRequest& request);
-    void sendResponse(const MCP::MCPResponse& response);
     
     QWebSocketServer* wsServer;
     QWebSocket* mcpConnection;

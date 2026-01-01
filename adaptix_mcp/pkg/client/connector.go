@@ -78,8 +78,14 @@ func (c *Connector) Close() error {
 }
 
 func (c *Connector) SendCommand(commandType string, params map[string]interface{}) (*Response, error) {
-	if !c.connected {
-		return nil, fmt.Errorf("not connected to Client MCP Bridge")
+	c.mu.RLock()
+	isConnected := c.connected
+	c.mu.RUnlock()
+
+	if !isConnected {
+		if err := c.Connect(); err != nil {
+			return nil, fmt.Errorf("not connected to Client MCP Bridge: %w", err)
+		}
 	}
 
 	requestID := generateID()

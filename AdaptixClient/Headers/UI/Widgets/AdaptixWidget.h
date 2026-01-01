@@ -25,6 +25,7 @@ class CredentialsWidget;
 class TargetsWidget;
 class TasksWidget;
 class TunnelsWidget;
+class FileDeliveryWidget;
 class TunnelEndpoint;
 class DialogSyncPacket;
 class AuthProfile;
@@ -60,6 +61,7 @@ Q_OBJECT
     QPushButton*    tasksButton       = nullptr;
     QPushButton*    targetsButton     = nullptr;
     QPushButton*    tunnelButton      = nullptr;
+    QPushButton*    deliveryButton    = nullptr;
     QPushButton*    downloadsButton   = nullptr;
     QPushButton*    credsButton       = nullptr;
     QPushButton*    screensButton     = nullptr;
@@ -95,6 +97,7 @@ public:
 
     AxScriptManager* ScriptManager = nullptr;
     MCPBridgeWorker* McpBridge = nullptr;
+    class MCPTerminalManager* McpTerminalManager = nullptr;
 
     AxConsoleWidget*     AxConsoleDock     = nullptr;
     LogsWidget*          LogsDock          = nullptr;
@@ -103,6 +106,7 @@ public:
     SessionsTableWidget* SessionsTableDock = nullptr;
     SessionsGraph*       SessionsGraphDock = nullptr;
     TunnelsWidget*       TunnelsDock       = nullptr;
+    FileDeliveryWidget*  FileDeliveryDock  = nullptr;
     DownloadsWidget*     DownloadsDock     = nullptr;
     ScreenshotsWidget*   ScreenshotsDock   = nullptr;
     CredentialsWidget*   CredentialsDock   = nullptr;
@@ -113,6 +117,7 @@ public:
     QVector<RegAgentConfig>        RegisterAgents;
     QVector<ListenerData>          Listeners;
     QVector<TunnelData>            Tunnels;
+    QMap<QString, FileDeliveryData> FileDeliveries;
     QMap<QString, DownloadData>    Downloads;
     QMap<QString, ScreenData>      Screenshots;
     QVector<CredentialData>        Credentials;
@@ -185,6 +190,7 @@ public Q_SLOTS:
     void LoadChatUI() const;
     void LoadListenersUI() const;
     void LoadTunnelsUI() const;
+    void LoadFileDeliveryUI() const;
     void LoadDownloadsUI() const;
     void LoadScreenshotsUI() const;
     void LoadCredentialsUI() const;

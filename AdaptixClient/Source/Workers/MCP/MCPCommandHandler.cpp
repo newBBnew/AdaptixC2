@@ -2,6 +2,8 @@
 #include <UI/Widgets/AdaptixWidget.h>
 #include <UI/Widgets/ConsoleWidget.h>
 #include <Agent/Agent.h>
+#include <Client/Requestor.h>
+#include <Workers/MCP/MCPBridgeWorker.h>
 
 MCPCommandHandler::MCPCommandHandler(AdaptixWidget* widget, QObject* parent)
     : QObject(parent)
@@ -19,6 +21,7 @@ MCP::MCPResponse MCPCommandHandler::handleCommand(const MCP::MCPRequest& request
     if (request.type == GET_AGENT_INFO)       return handleGetAgentInfo(request);
     if (request.type == UPDATE_AGENT_CONFIG)  return handleUpdateAgentConfig(request);
     if (request.type == UPDATE_AGENT_METADATA)return handleUpdateAgentMetadata(request);
+    if (request.type == MANAGE_PTY)           return handleManagePty(request);
     if (request.type == EXECUTE_COMMAND)      return handleExecuteCommand(request);
     if (request.type == GET_CONSOLE_OUTPUT)   return handleGetConsoleOutput(request);
     if (request.type == CLEAR_CONSOLE)        return handleClearConsole(request);
@@ -29,7 +32,10 @@ MCP::MCPResponse MCPCommandHandler::handleCommand(const MCP::MCPRequest& request
     if (request.type == MANAGE_LISTENER)      return handleManageListener(request);
     if (request.type == LIST_TUNNELS)         return handleListTunnels(request);
     if (request.type == MANAGE_TUNNEL)        return handleManageTunnel(request);
+    if (request.type == LIST_FILEDELIVERY)    return handleListFileDelivery(request);
+    if (request.type == MANAGE_FILEDELIVERY)  return handleManageFileDelivery(request);
     if (request.type == LIST_TARGETS)         return handleListTargets(request);
+    if (request.type == MANAGE_TARGET)        return handleManageTarget(request);
     if (request.type == LIST_PIVOTS)          return handleListPivots(request);
     if (request.type == LIST_COLLECTED_DATA)  return handleListCollectedData(request);
     if (request.type == GET_CAPABILITIES)     return handleGetCapabilities(request);
@@ -214,6 +220,108 @@ MCP::MCPResponse MCPCommandHandler::handleUpdateAgentMetadata(const MCP::MCPRequ
     return MCP::MCPResponse::success(req.requestId, "Metadata updated", data);
 }
 
+#include <Workers/MCP/MCPTerminalManager.h>
+
+MCP::MCPResponse MCPCommandHandler::handleManagePty(const MCP::MCPRequest& req)
+{
+    QString action = req.params["action"].toString();
+    if (action == "open") {
+        QString agentId = req.params["agent_id"].toString();
+        QString program = req.params["program"].toString();
+        int rows = req.params["rows"].toInt(24);
+        int cols = req.params["cols"].toInt(80);
+
+        if (agentId.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing agent_id parameter");
+
+        if (!adaptixWidget->AgentsMap.contains(agentId))
+            return MCP::MCPResponse::error(req.requestId, "Agent not found: " + agentId);
+
+        Agent* agent = adaptixWidget->AgentsMap[agentId];
+        auto profile = adaptixWidget->GetProfile();
+
+        QString urlTemplate = "wss://%1:%2%3/channel";
+        QString sUrl = urlTemplate.arg(profile->GetHost()).arg(profile->GetPort()).arg(profile->GetEndpoint());
+        QString token = profile->GetAccessToken();
+        int oemCP = agent->data.OemCP;
+
+        if (program.isEmpty()) {
+            if (agent->data.Os == OS_WINDOWS) program = "C:\\Windows\\System32\\cmd.exe";
+            else if (agent->data.Os == OS_LINUX) program = "/bin/sh";
+            else program = "/bin/zsh";
+        }
+
+        QString ptyId = MCPTerminalManager::instance()->openSession(agentId, program, rows, cols, token, QUrl(sUrl), oemCP);
+
+        QJsonObject data;
+        data["pty_id"] = ptyId;
+        data["agent_id"] = agentId;
+        data["program"] = program;
+        return MCP::MCPResponse::success(req.requestId, "PTY session opened", data);
+    }
+    else if (action == "write") {
+        QString ptyId = req.params["pty_id"].toString();
+        QString text = req.params["data"].toString();
+        bool base64 = req.params["base64"].toBool(false);
+
+        if (ptyId.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing pty_id parameter");
+
+        QByteArray data;
+        if (base64) {
+            data = QByteArray::fromBase64(text.toUtf8());
+        } else {
+            data = text.toUtf8();
+        }
+
+        if (MCPTerminalManager::instance()->writeSession(ptyId, data)) {
+            return MCP::MCPResponse::success(req.requestId, "Data sent to PTY", QJsonObject());
+        } else {
+            return MCP::MCPResponse::error(req.requestId, "PTY session not found: " + ptyId);
+        }
+    }
+    else if (action == "read") {
+        QString ptyId = req.params["pty_id"].toString();
+        bool clear = req.params["clear"].toBool(true);
+
+        if (ptyId.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing pty_id parameter");
+
+        QByteArray output = MCPTerminalManager::instance()->readSession(ptyId, clear);
+        
+        QJsonObject data;
+        data["pty_id"] = ptyId;
+        data["data"] = QString::fromUtf8(output.toBase64());
+        data["text"] = MCPTerminalManager::instance()->cleanAnsi(output);
+        data["length"] = output.size();
+        data["format"] = "base64";
+        
+        return MCP::MCPResponse::success(req.requestId, "", data);
+    }
+    else if (action == "close") {
+        QString ptyId = req.params["pty_id"].toString();
+
+        if (ptyId.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing pty_id parameter");
+
+        MCPTerminalManager::instance()->closeSession(ptyId);
+        return MCP::MCPResponse::success(req.requestId, "PTY session closed", QJsonObject());
+    }
+    else if (action == "list") {
+        QJsonArray ptyList;
+        for (const QString& id : MCPTerminalManager::instance()->getSessionIds()) {
+            ptyList.append(id);
+        }
+        
+        QJsonObject data;
+        data["ptys"] = ptyList;
+        data["total"] = ptyList.size();
+        return MCP::MCPResponse::success(req.requestId, "", data);
+    }
+
+    return MCP::MCPResponse::error(req.requestId, "Unsupported PTY action: " + action);
+}
+
 MCP::MCPResponse MCPCommandHandler::handleExecuteCommand(const MCP::MCPRequest& req)
 {
     QString agentId = req.params["agent_id"].toString();
@@ -324,8 +432,53 @@ MCP::MCPResponse MCPCommandHandler::handleListListeners(const MCP::MCPRequest& r
 
 MCP::MCPResponse MCPCommandHandler::handleManageListener(const MCP::MCPRequest& req)
 {
-    // TODO: Implement listener management via server API
-    return MCP::MCPResponse::error(req.requestId, "Not implemented yet");
+    QString action = req.params["action"].toString();
+    QString name = req.params["name"].toString();
+    QString type = req.params["type"].toString();
+
+    if (action.isEmpty() || name.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing action or name parameter");
+
+    if (action == "start") {
+        QString configData = req.params["data"].toString();
+        if (type.isEmpty() || configData.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing type or data for start action");
+
+        HttpReqListenerStartAsync(name, type, configData, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Listener started", QJsonObject()));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+    else if (action == "stop") {
+        if (type.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing type for stop action");
+
+        HttpReqListenerStopAsync(name, type, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Listener stopped", QJsonObject()));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+    else if (action == "edit") {
+        QString configData = req.params["data"].toString();
+        if (type.isEmpty() || configData.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing type or data for edit action");
+
+        HttpReqListenerEditAsync(name, type, configData, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Listener updated", QJsonObject()));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+
+    return MCP::MCPResponse::error(req.requestId, "Unsupported action: " + action);
 }
 
 MCP::MCPResponse MCPCommandHandler::handleListTunnels(const MCP::MCPRequest& req)
@@ -344,8 +497,142 @@ MCP::MCPResponse MCPCommandHandler::handleListTunnels(const MCP::MCPRequest& req
 
 MCP::MCPResponse MCPCommandHandler::handleManageTunnel(const MCP::MCPRequest& req)
 {
-    // TODO: Implement tunnel management via server API
-    return MCP::MCPResponse::error(req.requestId, "Not implemented yet");
+    QString action = req.params["action"].toString();
+    
+    if (action.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing action parameter");
+
+    if (action == "start") {
+        QString tunnelType = req.params["type"].toString();
+        QJsonObject tunnelData;
+        
+        if (req.params["data"].isObject()) {
+            tunnelData = req.params["data"].toObject();
+        } else if (req.params["data"].isString()) {
+            QString dataStr = req.params["data"].toString();
+            QJsonDocument doc = QJsonDocument::fromJson(dataStr.toUtf8());
+            if (doc.isObject()) {
+                tunnelData = doc.object();
+            }
+        }
+        
+        if (tunnelType.isEmpty() || tunnelData.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing type or data for start action (data must be an object or a valid JSON string)");
+
+        QByteArray jsonData = QJsonDocument(tunnelData).toJson();
+        HttpReqTunnelStartServerAsync(tunnelType, jsonData, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Tunnel started", QJsonObject()));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+    else if (action == "stop") {
+        QString tunnelId = req.params["tunnel_id"].toString();
+        if (tunnelId.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing tunnel_id for stop action");
+
+        HttpReqTunnelStopAsync(tunnelId, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Tunnel stopped", QJsonObject()));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+    else if (action == "edit") {
+        QString tunnelId = req.params["tunnel_id"].toString();
+        QString info = req.params["info"].toString();
+        if (tunnelId.isEmpty() || info.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing tunnel_id or info for edit action");
+
+        HttpReqTunnelSetInfoAsync(tunnelId, info, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Tunnel info updated", QJsonObject()));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+
+    return MCP::MCPResponse::error(req.requestId, "Unsupported action: " + action);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleListFileDelivery(const MCP::MCPRequest& req)
+{
+    HttpReqFileDeliveryListAsync(*(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject& data) {
+        if (success)
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "", data));
+        else
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+    });
+    return MCP::MCPResponse::deferred();
+}
+
+MCP::MCPResponse MCPCommandHandler::handleManageFileDelivery(const MCP::MCPRequest& req)
+{
+    QString action = req.params["action"].toString();
+    if (action.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing action parameter");
+
+    if (action == "upload") {
+        QString filePath = req.params["local_path"].toString();
+        QString fileName = req.params["file_name"].toString();
+        
+        if (filePath.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing local_path for upload");
+            
+        QFile file(filePath);
+        if (!file.open(QIODevice::ReadOnly))
+            return MCP::MCPResponse::error(req.requestId, "Failed to open local file: " + file.errorString());
+            
+        QByteArray fileData = file.readAll();
+        file.close();
+        
+        if (fileName.isEmpty())
+            fileName = QFileInfo(filePath).fileName();
+
+        HttpReqFileDeliveryUploadAsync(fileName, fileData, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject& data) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "File uploaded", data));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+    else if (action == "delete") {
+        QString fileId = req.params["file_id"].toString();
+        if (fileId.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing file_id for delete action");
+
+        HttpReqFileDeliveryDeleteAsync(fileId, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "File deleted", QJsonObject()));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+    else if (action == "create_link") {
+        QString fileId = req.params["file_id"].toString();
+        int expireHours = req.params["expire_hours"].toInt(24);
+        int maxUses = req.params["max_uses"].toInt(0);
+        QString allowedIp = req.params["allowed_ip"].toString();
+
+        if (fileId.isEmpty())
+            return MCP::MCPResponse::error(req.requestId, "Missing file_id for link creation");
+
+        HttpReqFileDeliveryLinkCreateAsync(fileId, expireHours, maxUses, allowedIp, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject& data) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Link created", data));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+
+    return MCP::MCPResponse::error(req.requestId, "Unsupported action: " + action);
 }
 
 MCP::MCPResponse MCPCommandHandler::handleListTargets(const MCP::MCPRequest& req)
@@ -360,6 +647,33 @@ MCP::MCPResponse MCPCommandHandler::handleListTargets(const MCP::MCPRequest& req
     data["targets"] = targets;
     data["total"] = targets.size();
     return MCP::MCPResponse::success(req.requestId, "", data);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleManageTarget(const MCP::MCPRequest& req)
+{
+    QString action = req.params["action"].toString();
+    QStringList targetIds = req.params["target_ids"].toVariant().toStringList();
+
+    if (targetIds.isEmpty()) {
+        QString singleId = req.params["target_id"].toString();
+        if (!singleId.isEmpty())
+            targetIds.append(singleId);
+    }
+
+    if (action.isEmpty() || targetIds.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing action or target_ids parameter");
+
+    if (action == "remove") {
+        HttpReqTargetRemoveAsync(targetIds, *(adaptixWidget->GetProfile()), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Targets removed", QJsonObject()));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+
+    return MCP::MCPResponse::error(req.requestId, "Unsupported action: " + action);
 }
 
 MCP::MCPResponse MCPCommandHandler::handleListPivots(const MCP::MCPRequest& req)
@@ -447,15 +761,21 @@ MCP::MCPResponse MCPCommandHandler::handleGetCapabilities(const MCP::MCPRequest&
     addCap("execute_command", "Execute command on agent");
     addCap("get_console_output", "Get agent console output");
     addCap("clear_console", "Clear agent console");
-    addCap("list_tasks", "List tasks");
+    addCap("list_tasks", "List tasks (optionally filtered by agent)");
     addCap("get_task_output", "Get task output");
     addCap("list_listeners", "List listeners");
+    addCap("manage_listener", "Manage listeners (start, stop, edit)");
     addCap("list_tunnels", "List tunnels");
+    addCap("manage_tunnel", "Manage tunnels (start, stop, edit)");
     addCap("list_targets", "List discovered targets");
+    addCap("manage_target", "Manage discovered targets (remove)");
     addCap("list_pivots", "List pivots");
     addCap("list_collected_data", "List credentials/downloads/screenshots");
+    addCap("list_filedelivery", "List hosted files for delivery");
+    addCap("manage_filedelivery", "Manage hosted files (upload, delete, create link)");
     addCap("update_agent_config", "Update agent sleep/jitter");
     addCap("update_agent_metadata", "Update agent tag/mark");
+    addCap("manage_pty", "Manage PTY sessions (open, read, write, close, list)");
     
     QJsonObject data;
     data["capabilities"] = capabilities;

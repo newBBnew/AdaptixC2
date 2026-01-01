@@ -48,17 +48,70 @@ QNetworkRequest HttpRequestManager::createRequest(const QString& url, const QStr
     return request;
 }
 
-int HttpRequestManager::post(const QString& baseUrl, const QString& endpoint, const QString& accessToken, const QByteArray& jsonData, HttpCallback callback, int timeout)
-{
-    return postWithRetry(baseUrl, endpoint, accessToken, jsonData, callback, 0, timeout);
-}
-
-int HttpRequestManager::postWithRetry(const QString& baseUrl, const QString& endpoint, const QString& accessToken, const QByteArray& jsonData, HttpCallback callback, int maxRetries, int timeout)
+int HttpRequestManager::get(const QString& baseUrl, const QString& endpoint, const QString& accessToken, HttpCallback callback, int timeout)
 {
     int requestId = ++m_requestIdCounter;
 
     QString fullUrl = buildFullUrl(baseUrl, endpoint);
     QNetworkRequest request = createRequest(fullUrl, accessToken);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QNetworkReply* reply = m_manager->get(request);
+
+    RequestContext ctx;
+    ctx.requestId = requestId;
+    ctx.url = fullUrl;
+    ctx.accessToken = accessToken;
+    ctx.callback = callback;
+    ctx.reply = reply;
+    ctx.startTime = QDateTime::currentDateTime();
+    ctx.retryCount = 0;
+    ctx.maxRetries = 0;
+    ctx.requestData = QByteArray();
+    ctx.timeout = timeout;
+
+    m_pendingRequests[requestId] = ctx;
+    m_replyToRequestId[reply] = requestId;
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onReplyFinished(reply);
+    });
+    connect(reply, &QNetworkReply::sslErrors, this, [this, reply](const QList<QSslError>& errors) {
+        onSslErrors(reply, errors);
+    });
+
+    if (timeout > 0) {
+        QTimer* timer = new QTimer(this);
+        timer->setSingleShot(true);
+        timer->setProperty("requestId", requestId);
+        connect(timer, &QTimer::timeout, this, &HttpRequestManager::onRequestTimeout);
+        m_timeoutTimers[requestId] = timer;
+        timer->start(timeout);
+    }
+
+    Q_EMIT requestStarted(requestId);
+
+    return requestId;
+}
+
+int HttpRequestManager::post(const QString& baseUrl, const QString& endpoint, const QString& accessToken, const QByteArray& jsonData, HttpCallback callback, int timeout, const QMap<QString, QString>& headers)
+{
+    return postWithRetry(baseUrl, endpoint, accessToken, jsonData, callback, 0, timeout, headers);
+}
+
+int HttpRequestManager::postWithRetry(const QString& baseUrl, const QString& endpoint, const QString& accessToken, const QByteArray& jsonData, HttpCallback callback, int maxRetries, int timeout, const QMap<QString, QString>& headers)
+{
+    int requestId = ++m_requestIdCounter;
+
+    QString fullUrl = buildFullUrl(baseUrl, endpoint);
+    QNetworkRequest request = createRequest(fullUrl, accessToken);
+    
+    // Apply custom headers
+    QMapIterator<QString, QString> i(headers);
+    while (i.hasNext()) {
+        i.next();
+        request.setRawHeader(i.key().toUtf8(), i.value().toUtf8());
+    }
 
     QNetworkReply* reply = m_manager->post(request, jsonData);
 

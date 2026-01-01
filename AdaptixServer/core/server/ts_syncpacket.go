@@ -3,7 +3,7 @@ package server
 import (
 	"time"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
 
 const (
@@ -79,6 +79,10 @@ const (
 	TYPE_TARGETS_EDIT    = 0x88
 	TYPE_TARGETS_DELETE  = 0x89
 	TYPE_TARGETS_SET_TAG = 0x8a
+
+	TYPE_FILEDELIVERY_CREATE = 0x91
+	TYPE_FILEDELIVERY_UPDATE = 0x92
+	TYPE_FILEDELIVERY_DELETE = 0x93
 )
 
 func CreateSpEvent(event int, message string) SpEvent {
@@ -680,5 +684,40 @@ func CreateSpTunnelDelete(tunnelData adaptix.TunnelData) SyncPackerTunnelDelete 
 		SpType: TYPE_TUNNEL_DELETE,
 
 		TunnelId: tunnelData.TunnelId,
+	}
+}
+
+/// FILEDELIVERY
+
+func CreateSpFileDeliveryCreate(fdData FileDeliveryFile) SyncPackerFileDeliveryCreate {
+	return SyncPackerFileDeliveryCreate{
+		SpType: TYPE_FILEDELIVERY_CREATE,
+
+		FileId:    fdData.ID,
+		Name:      fdData.FileName,
+		Size:      fdData.Size,
+		Sha256:    fdData.Sha256,
+		Type:      "file", // Default type
+		URL:       fdData.URL,
+		Downloads: fdData.Downloads,
+		Date:      fdData.CreatedAt.Unix(),
+	}
+}
+
+func CreateSpFileDeliveryUpdate(fileID string, url string, downloads *int) SyncPackerFileDeliveryUpdate {
+	return SyncPackerFileDeliveryUpdate{
+		SpType: TYPE_FILEDELIVERY_UPDATE,
+
+		FileId:    fileID,
+		URL:       url,
+		Downloads: downloads,
+	}
+}
+
+func CreateSpFileDeliveryDelete(fileId []string) SyncPackerFileDeliveryDelete {
+	return SyncPackerFileDeliveryDelete{
+		SpType: TYPE_FILEDELIVERY_DELETE,
+
+		FileId: fileId,
 	}
 }

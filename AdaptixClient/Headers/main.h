@@ -150,6 +150,10 @@
 #define TYPE_TARGETS_DELETE  0x89
 #define TYPE_TARGETS_SET_TAG 0x8a
 
+#define TYPE_FILEDELIVERY_CREATE 0x91
+#define TYPE_FILEDELIVERY_UPDATE 0x92
+#define TYPE_FILEDELIVERY_DELETE 0x93
+
 //////////
 
 #define DOWNLOAD_STATE_RUNNING  0x1
@@ -366,6 +370,31 @@ typedef struct PivotData
     QString ParentAgentId;
     QString ChildAgentId;
 } PivotData;
+
+typedef struct FileDeliveryData
+{
+    QString FileId;
+    QString Name;
+    qint64  Size;
+    QString Sha256;
+    QString Type;
+    QString URL;
+    int     Downloads;
+    QString Date;
+    qint64  DateTimestamp = 0;
+} FileDeliveryData;
+
+typedef struct FileDeliveryLinkData
+{
+    QString LinkId;
+    QString FileId;
+    QString Token;
+    QString ExpireAt;
+    int     MaxUses;
+    int     Uses;
+    QString AllowedIp;
+    QString Date;
+} FileDeliveryLinkData;
 
 typedef struct ExtensionFile
 {
