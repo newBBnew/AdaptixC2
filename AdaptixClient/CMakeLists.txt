@@ -106,6 +106,7 @@ SET( HEADERS
         Headers/UI/Dialogs/DialogListener.h
         Headers/UI/Widgets/SessionsTableWidget.h
         Headers/UI/Dialogs/DialogAgent.h
+        Headers/UI/Dialogs/DialogPlugin.h
         Headers/UI/Widgets/ConsoleWidget.h
         Headers/Agent/Agent.h
         Headers/Workers/LastTickWorker.h
@@ -193,6 +194,7 @@ add_executable(AdaptixClient
         Source/UI/Widgets/SessionsTableWidget.cpp
         Source/UI/Dialogs/DialogAgent.cpp
         Source/UI/Dialogs/DialogAgentData.cpp
+        Source/UI/Dialogs/DialogPlugin.cpp
         Source/UI/Widgets/ConsoleWidget.cpp
         Source/Agent/Agent.cpp
         Source/Workers/LastTickWorker.cpp

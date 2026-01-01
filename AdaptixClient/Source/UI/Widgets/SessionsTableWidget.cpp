@@ -406,6 +406,10 @@ void SessionsTableWidget::handleSessionsTableMenu(const QPoint &pos)
         else
             ctxMenu.removeAction(accessMenu->menuAction());
 
+        // Plugins menu
+        int pluginCount = adaptixWidget->ScriptManager->AddPluginsMenu(&ctxMenu, agentIds);
+        Q_UNUSED(pluginCount);
+
         adaptixWidget->ScriptManager->AddMenuSession(&ctxMenu, "SessionMain", agentIds);
 
         ctxMenu.addSeparator();

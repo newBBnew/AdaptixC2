@@ -79,6 +79,11 @@ public Q_SLOTS:
     QJSValue screenshots();
     void     show_message(const QString &title, const QString &text);
     QJSValue targets() const;
+    
+    // Plugin system
+    bool     plugin_register(const QString &category, const QString &commandPath, const QJSValue &agents = QJSValue(), const QJSValue &os = QJSValue());
+    void     plugin_build_menu();
+    QJSValue plugin_list();
     void     targets_add(const QString &computer, const QString &domain, const QString &address, const QString &os = "unknown", const QString &osDesc = "", const QString &tag = "", const QString &info = "", bool alive = true);
     void     targets_add_list(const QVariantList &array);
     int      ticks();

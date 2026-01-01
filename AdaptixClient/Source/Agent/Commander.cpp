@@ -581,3 +581,55 @@ QStringList Commander::GetCommands()
 
     return commandList;
 }
+
+bool Commander::FindCommand(const QString &commandPath, Command &outCommand, QString &outDescription) const
+{
+    QStringList parts = commandPath.split(" ", Qt::SkipEmptyParts);
+    if (parts.isEmpty())
+        return false;
+    
+    QString commandName = parts[0];
+    QString subcommandName = parts.size() > 1 ? parts[1] : QString();
+    
+    // Search in registered commands
+    if (!regCommandsGroup.commands.isEmpty()) {
+        for (const Command &cmd : regCommandsGroup.commands) {
+            if (cmd.name == commandName) {
+                if (subcommandName.isEmpty() && cmd.subcommands.isEmpty()) {
+                    outCommand = cmd;
+                    outDescription = cmd.description;
+                    return true;
+                }
+                for (const Command &subcmd : cmd.subcommands) {
+                    if (subcmd.name == subcommandName) {
+                        outCommand = subcmd;
+                        outDescription = subcmd.description;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Search in ax commands
+    for (const auto &group : axCommandsGroup) {
+        for (const Command &cmd : group.commands) {
+            if (cmd.name == commandName) {
+                if (subcommandName.isEmpty() && cmd.subcommands.isEmpty()) {
+                    outCommand = cmd;
+                    outDescription = cmd.description;
+                    return true;
+                }
+                for (const Command &subcmd : cmd.subcommands) {
+                    if (subcmd.name == subcommandName) {
+                        outCommand = subcmd;
+                        outDescription = subcmd.description;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    
+    return false;
+}

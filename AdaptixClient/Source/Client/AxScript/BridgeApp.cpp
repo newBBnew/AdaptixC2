@@ -937,3 +937,47 @@ QJSValue BridgeApp::validate_command(const QString &id, const QString &command) 
 
     return scriptEngine->engine()->toScriptValue(result);
 }
+
+/// PLUGIN SYSTEM
+
+bool BridgeApp::plugin_register(const QString &category, const QString &commandPath, const QJSValue &agents, const QJSValue &os)
+{
+    QStringList agentsList;
+    QStringList osList;
+    
+    if (agents.isArray()) {
+        int len = agents.property("length").toInt();
+        for (int i = 0; i < len; i++)
+            agentsList.append(agents.property(i).toString());
+    }
+    
+    if (os.isArray()) {
+        int len = os.property("length").toInt();
+        for (int i = 0; i < len; i++)
+            osList.append(os.property(i).toString());
+    }
+    
+    return scriptEngine->manager()->PluginRegister(category, commandPath, agentsList, osList);
+}
+
+void BridgeApp::plugin_build_menu()
+{
+    scriptEngine->manager()->PluginBuildMenu();
+}
+
+QJSValue BridgeApp::plugin_list()
+{
+    QVariantList result;
+    auto plugins = scriptEngine->manager()->GetPlugins();
+    
+    for (const auto& p : plugins) {
+        QVariantMap map;
+        map["category"] = p.category;
+        map["command"] = p.commandPath;
+        map["agents"] = p.agents;
+        map["os"] = p.os;
+        result.append(map);
+    }
+    
+    return scriptEngine->engine()->toScriptValue(result);
+}

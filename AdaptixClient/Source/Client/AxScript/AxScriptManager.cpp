@@ -13,6 +13,8 @@
 #include <UI/Widgets/AdaptixWidget.h>
 #include <UI/Widgets/SessionsTableWidget.h>
 #include <UI/Widgets/AxConsoleWidget.h>
+#include <UI/Widgets/ConsoleWidget.h>
+#include <UI/Dialogs/DialogPlugin.h>
 
 namespace {
 
@@ -614,6 +616,145 @@ void AxScriptManager::emitDisconnectClient()
 {
     for (const auto& event : collectEvents("disconnect"))
         safeCallHandler(event);
+}
+
+/// PLUGIN SYSTEM
+
+bool AxScriptManager::PluginRegister(const QString &category, const QString &commandPath, const QStringList &agents, const QStringList &os)
+{
+    // Check if already registered
+    for (const auto& entry : pluginRegistry) {
+        if (entry.category == category && entry.commandPath == commandPath)
+            return false;
+    }
+    
+    PluginEntry entry;
+    entry.category = category;
+    entry.commandPath = commandPath;
+    entry.agents = agents.isEmpty() ? QStringList{"beacon", "gopher"} : agents;
+    entry.os = os;
+    entry.description = "";  // Will be filled from command definition
+    
+    pluginRegistry.append(entry);
+    consolePrintMessage(QString("[Plugin] Registered: %1 / %2").arg(category, commandPath));
+    return true;
+}
+
+void AxScriptManager::PluginBuildMenu()
+{
+    if (pluginsMenuBuilt || pluginRegistry.isEmpty())
+        return;
+    
+    // This will be called to build the Plugins menu
+    // The actual menu building happens in AddMenuSession when right-clicking
+    pluginsMenuBuilt = true;
+    consolePrintMessage(QString("[Plugin] Menu ready with %1 entries").arg(pluginRegistry.size()));
+}
+
+QList<PluginEntry> AxScriptManager::GetPlugins() const
+{
+    return pluginRegistry;
+}
+
+void AxScriptManager::PluginClear()
+{
+    pluginRegistry.clear();
+    pluginsMenuBuilt = false;
+}
+
+int AxScriptManager::AddPluginsMenu(QMenu* menu, const QStringList &agentIds)
+{
+    if (pluginRegistry.isEmpty())
+        return 0;
+    
+    // Get agent info for filtering
+    QSet<QString> agentTypes;
+    QSet<QString> osTypes;
+    for (const auto& agentId : agentIds) {
+        if (adaptixWidget->AgentsMap.contains(agentId)) {
+            const auto& agent = adaptixWidget->AgentsMap[agentId];
+            agentTypes.insert(agent->data.Name);
+            if (agent->data.Os == OS_WINDOWS) osTypes.insert("windows");
+            else if (agent->data.Os == OS_LINUX) osTypes.insert("linux");
+            else if (agent->data.Os == OS_MAC) osTypes.insert("macos");
+        }
+    }
+    
+    // Group plugins by category
+    QMap<QString, QList<PluginEntry>> categoryMap;
+    for (const auto& entry : pluginRegistry) {
+        // Filter by agent type
+        bool agentMatch = entry.agents.isEmpty();
+        for (const auto& a : entry.agents) {
+            if (agentTypes.contains(a)) {
+                agentMatch = true;
+                break;
+            }
+        }
+        if (!agentMatch) continue;
+        
+        // Filter by OS
+        bool osMatch = entry.os.isEmpty();
+        for (const auto& o : entry.os) {
+            if (osTypes.contains(o)) {
+                osMatch = true;
+                break;
+            }
+        }
+        if (!osMatch) continue;
+        
+        categoryMap[entry.category].append(entry);
+    }
+    
+    if (categoryMap.isEmpty())
+        return 0;
+    
+    // Create Plugins menu
+    QMenu* pluginsMenu = menu->addMenu("Plugins");
+    int count = 0;
+    
+    QStringList categories = categoryMap.keys();
+    categories.sort();
+    
+    for (const auto& category : categories) {
+        QMenu* categoryMenu = pluginsMenu->addMenu(category);
+        
+        for (const auto& entry : categoryMap[category]) {
+            QAction* action = categoryMenu->addAction(entry.commandPath.split(" ").last());
+            action->setData(QVariant::fromValue(QPair<QString, QStringList>(entry.commandPath, agentIds)));
+            
+            connect(action, &QAction::triggered, this, [this, entry, agentIds]() {
+                if (agentIds.isEmpty()) return;
+                QString agentId = agentIds.first();
+                
+                if (!adaptixWidget->AgentsMap.contains(agentId)) return;
+                auto agent = adaptixWidget->AgentsMap[agentId];
+                
+                // Find command definition
+                Command cmd;
+                QString description;
+                if (agent->commander->FindCommand(entry.commandPath, cmd, description)) {
+                    // Show plugin dialog with parameters
+                    DialogPlugin dialog(entry.commandPath, description, cmd.args);
+                    if (dialog.exec() == QDialog::Accepted) {
+                        QString cmdLine = dialog.buildCommandLine();
+                        adaptixWidget->LoadConsoleUI(agentId);
+                        agent->Console->SetInput(cmdLine);
+                        agent->Console->processInput();
+                    }
+                } else {
+                    // Fallback: just fill command in console
+                    adaptixWidget->LoadConsoleUI(agentId);
+                    agent->Console->SetInput(entry.commandPath + " ");
+                    agent->Console->InputFocus();
+                }
+            });
+            
+            count++;
+        }
+    }
+    
+    return count;
 }
 
 /// SLOTS

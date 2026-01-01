@@ -40,6 +40,14 @@ struct DataMenuDownload {
     QString state;
 };
 
+struct PluginEntry {
+    QString category;
+    QString commandPath;      // e.g., "jump psexec" or "token make"
+    QStringList agents;       // e.g., ["beacon", "gopher"]
+    QStringList os;           // e.g., ["windows"]
+    QString description;      // from command definition
+};
+
 class AxScriptManager : public QObject {
 Q_OBJECT
     AdaptixWidget*  adaptixWidget = nullptr;
@@ -48,6 +56,10 @@ Q_OBJECT
     QMap<QString, AxScriptEngine*> scripts;
     QMap<QString, AxScriptEngine*> listeners_scripts;
     QMap<QString, AxScriptEngine*> agents_scripts;
+    
+    // Global plugin registry
+    QList<PluginEntry> pluginRegistry;
+    bool pluginsMenuBuilt = false;
 
 public:
     AxScriptManager(AdaptixWidget* main_widget, QObject *parent = nullptr);
@@ -116,6 +128,13 @@ public:
     int AddMenuTask(QMenu* menu, const QString &menuType, const QStringList &tasks);
     int AddMenuTargets(QMenu* menu, const QString &menuType, const QStringList &targets);
     int AddMenuCreds(QMenu* menu, const QString &menuType, const QStringList &creds);
+
+    // Plugin system
+    bool PluginRegister(const QString &category, const QString &commandPath, const QStringList &agents, const QStringList &os);
+    void PluginBuildMenu();
+    QList<PluginEntry> GetPlugins() const;
+    void PluginClear();
+    int  AddPluginsMenu(QMenu* menu, const QStringList &agentIds);
 
 public Q_SLOTS:
     void consolePrintMessage(const QString &message);

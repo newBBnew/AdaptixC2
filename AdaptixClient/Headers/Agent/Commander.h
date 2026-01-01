@@ -88,6 +88,9 @@ public:
     QString GetError();
     QStringList GetCommands();
     CommanderResult ProcessInput(QString agentId, QString cmdline);
+    
+    // Get command definition by path (e.g., "jump psexec" or "token make")
+    bool FindCommand(const QString &commandPath, Command &outCommand, QString &outDescription) const;
 
 Q_SIGNALS:
     void commandsUpdated();
