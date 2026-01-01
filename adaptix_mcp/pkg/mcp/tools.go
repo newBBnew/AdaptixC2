@@ -1,5 +1,10 @@
 package mcp
 
+import (
+	"fmt"
+	"time"
+)
+
 func (s *MCPServer) registerTools() {
 	s.tools["list_agents"] = s.handleListAgents
 	s.tools["get_agent_info"] = s.handleGetAgentInfo
@@ -16,7 +21,7 @@ func (s *MCPServer) registerTools() {
 	s.tools["list_collected_data"] = s.handleListCollectedData
 	s.tools["update_agent_config"] = s.handleUpdateAgentConfig
 	s.tools["update_agent_metadata"] = s.handleUpdateAgentMetadata
-	s.tools["get_ui_info"] = s.handleGetUIInfo
+	s.tools["execute_and_wait"] = s.handleExecuteAndWait
 }
 
 func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
@@ -36,7 +41,7 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 		{"name": "list_collected_data", "description": "List collected data (credentials, downloads, screenshots)", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"data_type": map[string]interface{}{"type": "string", "enum": []string{"credentials", "downloads", "screenshots"}}}, "required": []string{"data_type"}}},
 		{"name": "update_agent_config", "description": "Update agent sleep/jitter", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"agent_id": map[string]interface{}{"type": "string"}, "sleep": map[string]interface{}{"type": "number"}, "jitter": map[string]interface{}{"type": "number"}}, "required": []string{"agent_id"}}},
 		{"name": "update_agent_metadata", "description": "Update agent tag/mark", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"agent_id": map[string]interface{}{"type": "string"}, "metadata_type": map[string]interface{}{"type": "string", "enum": []string{"tag", "mark"}}, "value": map[string]interface{}{"type": "string"}}, "required": []string{"agent_id", "metadata_type"}}},
-		{"name": "get_ui_info", "description": "Get UI and data summary info (window size, counts, registered agents/listeners)", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
+		{"name": "execute_and_wait", "description": "Execute command and wait for result (recommended for getting command output)", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"agent_id": map[string]interface{}{"type": "string", "description": "Agent ID"}, "command": map[string]interface{}{"type": "string", "description": "Command to execute"}, "timeout": map[string]interface{}{"type": "number", "description": "Timeout in seconds (default 60)"}}, "required": []string{"agent_id", "command"}}},
 	}
 }
 
@@ -100,6 +105,114 @@ func (s *MCPServer) handleUpdateAgentMetadata(params map[string]interface{}) (in
 	return s.clientConnector.SendCommand("update_agent_metadata", params)
 }
 
-func (s *MCPServer) handleGetUIInfo(params map[string]interface{}) (interface{}, error) {
-	return s.clientConnector.SendCommand("get_ui_info", params)
+func (s *MCPServer) handleExecuteAndWait(params map[string]interface{}) (interface{}, error) {
+	agentId, _ := params["agent_id"].(string)
+	command, _ := params["command"].(string)
+	timeout := 60.0
+	if t, ok := params["timeout"].(float64); ok && t > 0 {
+		timeout = t
+	}
+
+	// Step 1: Get current tasks to detect new task
+	tasksResp, err := s.clientConnector.SendCommand("list_tasks", map[string]interface{}{"agent_id": agentId})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get initial tasks: %v", err)
+	}
+
+	var existingTaskIds []string
+	if tasksResp != nil && tasksResp.Data != nil {
+		if tasks, ok := tasksResp.Data["tasks"].([]interface{}); ok {
+			for _, t := range tasks {
+				if task, ok := t.(map[string]interface{}); ok {
+					if id, ok := task["task_id"].(string); ok {
+						existingTaskIds = append(existingTaskIds, id)
+					}
+				}
+			}
+		}
+	}
+
+	// Step 2: Execute command
+	_, err = s.clientConnector.SendCommand("execute_command", params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute command: %v", err)
+	}
+
+	// Step 3: Wait for new task to appear and complete
+	startTime := time.Now()
+	pollInterval := 500 * time.Millisecond
+	var newTaskId string
+
+	for time.Since(startTime).Seconds() < timeout {
+		time.Sleep(pollInterval)
+
+		tasksResp, err := s.clientConnector.SendCommand("list_tasks", map[string]interface{}{"agent_id": agentId})
+		if err != nil || tasksResp == nil || tasksResp.Data == nil {
+			continue
+		}
+
+		tasks, ok := tasksResp.Data["tasks"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		// Find new task
+		for _, t := range tasks {
+			task, ok := t.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			taskId, _ := task["task_id"].(string)
+			cmdLine, _ := task["command_line"].(string)
+
+			// Check if this is our new task
+			isNew := true
+			for _, existingId := range existingTaskIds {
+				if taskId == existingId {
+					isNew = false
+					break
+				}
+			}
+
+			if isNew && cmdLine == command {
+				newTaskId = taskId
+				completed, _ := task["completed"].(bool)
+				if completed {
+					// Task completed, return result
+					return map[string]interface{}{
+						"task_id":      taskId,
+						"agent_id":     agentId,
+						"command_line": cmdLine,
+						"status":       task["status"],
+						"message":      task["message"],
+						"output":       task["output"],
+						"start_time":   task["start_time"],
+						"finish_time":  task["finish_time"],
+						"completed":    true,
+					}, nil
+				}
+				break
+			}
+		}
+	}
+
+	// Timeout
+	if newTaskId != "" {
+		return map[string]interface{}{
+			"task_id":   newTaskId,
+			"agent_id":  agentId,
+			"command":   command,
+			"status":    "timeout",
+			"message":   fmt.Sprintf("Task not completed within %.0f seconds", timeout),
+			"completed": false,
+		}, nil
+	}
+
+	return map[string]interface{}{
+		"agent_id":  agentId,
+		"command":   command,
+		"status":    "timeout",
+		"message":   "Task not found within timeout",
+		"completed": false,
+	}, nil
 }

@@ -27,7 +27,6 @@ namespace Commands {
     const QString LIST_TARGETS = "list_targets";
     const QString LIST_PIVOTS = "list_pivots";
     const QString LIST_COLLECTED_DATA = "list_collected_data";
-    const QString GET_UI_INFO = "get_ui_info";
     const QString PING = "ping";
     const QString GET_VERSION = "get_version";
     const QString GET_CAPABILITIES = "get_capabilities";

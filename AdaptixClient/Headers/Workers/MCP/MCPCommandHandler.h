@@ -36,7 +36,6 @@ private:
     MCP::MCPResponse handleListTargets(const MCP::MCPRequest& req);
     MCP::MCPResponse handleListPivots(const MCP::MCPRequest& req);
     MCP::MCPResponse handleListCollectedData(const MCP::MCPRequest& req);
-    MCP::MCPResponse handleGetUIInfo(const MCP::MCPRequest& req);
     MCP::MCPResponse handleGetCapabilities(const MCP::MCPRequest& req);
 
     QJsonObject agentToJson(const QString& agentId);
