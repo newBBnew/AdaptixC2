@@ -29,6 +29,7 @@ class TunnelEndpoint;
 class DialogSyncPacket;
 class AuthProfile;
 class AxScriptManager;
+class MCPBridgeWorker;
 
 typedef struct RegListenerConfig {
     QString name;
@@ -93,6 +94,7 @@ public:
     LastTickWorker*  TickWorker      = nullptr;
 
     AxScriptManager* ScriptManager = nullptr;
+    MCPBridgeWorker* McpBridge = nullptr;
 
     AxConsoleWidget*     AxConsoleDock     = nullptr;
     LogsWidget*          LogsDock          = nullptr;

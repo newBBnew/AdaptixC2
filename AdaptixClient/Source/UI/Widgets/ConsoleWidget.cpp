@@ -201,6 +201,8 @@ void ConsoleWidget::SetInput(const QString &command) { InputLineEdit->setText(co
 
 void ConsoleWidget::Clear() { OutputTextEdit->clear(); }
 
+QString ConsoleWidget::GetOutput() const { return OutputTextEdit->toPlainText(); }
+
 void ConsoleWidget::ConsoleOutputMessage(const qint64 timestamp, const QString &taskId, const int type, const QString &message, const QString &text, const bool completed)
 {
     QString promptTime = "";

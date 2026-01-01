@@ -66,6 +66,7 @@ public:
     void AddToHistory(const QString& command);
     void SetInput(const QString &command);
     void Clear();
+    QString GetOutput() const;
 
     void ConsoleOutputMessage(qint64 timestamp, const QString &taskId, int type, const QString &message, const QString &text, bool completed);
     void ConsoleOutputPrompt(qint64 timestamp, const QString &taskId, const QString &user, const QString &commandLine) const;

@@ -27,6 +27,7 @@
 #include <Client/TunnelEndpoint.h>
 #include <Client/AxScript/AxScriptManager.h>
 #include <Client/AxScript/AxCommandWrappers.h>
+#include <Workers/MCP/MCPBridgeWorker.h>
 #include <kddockwidgets/core/DockRegistry.h>
 
 AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, WebSocketWorker* channelWsWorker)
@@ -877,6 +878,18 @@ void AdaptixWidget::OnSynced()
     this->CredentialsDock->UpdateColumnsSize();
     this->CredentialsDock->UpdateFilterComboBoxes();
     this->TargetsDock->UpdateColumnsSize();
+
+    // Start MCP Bridge
+    if (!McpBridge) {
+        McpBridge = new MCPBridgeWorker(this, 9999, this);
+        connect(McpBridge, &MCPBridgeWorker::started, this, [](quint16 port) {
+            LogInfo("[MCP] Bridge started on port %d", port);
+        });
+        connect(McpBridge, &MCPBridgeWorker::errorOccurred, this, [](const QString& err) {
+            LogError("[MCP] %s", err.toUtf8().constData());
+        });
+        McpBridge->start();
+    }
 
     Q_EMIT SyncedOnReloadSignal(profile->GetProject());
 }
