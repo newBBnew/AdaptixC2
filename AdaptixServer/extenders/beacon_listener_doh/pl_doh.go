@@ -144,6 +144,20 @@ func (d *DoHListener) Start(ts Teamserver) error {
 
 	addr := net.JoinHostPort(d.Config.HostBind, strconv.Itoa(d.Config.PortBind))
 
+	// Check if UDP port is available before starting
+	testUDP, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		return fmt.Errorf("UDP port %d is not available: %v", d.Config.PortBind, err)
+	}
+	testUDP.Close()
+
+	// Check if TCP port is available before starting
+	testTCP, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("TCP port %d is not available: %v", d.Config.PortBind, err)
+	}
+	testTCP.Close()
+
 	mux := dns.NewServeMux()
 	mux.HandleFunc(".", d.handleDNS)
 

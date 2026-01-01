@@ -221,23 +221,30 @@ void SessionsTableWidget::UpdateColumnsSize() const
     if (hasCustomWidths)
         return;
 
-    // First, resize all columns to fit content
-    tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    QHeaderView* header = tableView->horizontalHeader();
 
-    // Capture the calculated widths
-    int widths[SC_ColumnCount];
-    for (int i = 0; i < SC_ColumnCount; i++) {
-        widths[i] = tableView->columnWidth(i);
-    }
+    // If currently in ResizeToContents mode, capture widths and switch to Interactive
+    // This allows the columns to auto-fit content first, then become manually adjustable
+    if (header->sectionResizeMode(0) == QHeaderView::ResizeToContents) {
+        // Force layout update to get accurate content-based widths
+        tableView->resizeColumnsToContents();
 
-    // Set all columns to Interactive mode for manual resizing
-    for (int i = 0; i < SC_ColumnCount; i++) {
-        tableView->horizontalHeader()->setSectionResizeMode(i, QHeaderView::Interactive);
-    }
+        // Capture the calculated widths
+        int widths[SC_ColumnCount];
+        for (int i = 0; i < SC_ColumnCount; i++) {
+            widths[i] = tableView->columnWidth(i);
+            if (widths[i] < 50) widths[i] = 50; // Minimum width
+        }
 
-    // Apply the captured widths
-    for (int i = 0; i < SC_ColumnCount; i++) {
-        tableView->setColumnWidth(i, widths[i]);
+        // Set all columns to Interactive mode for manual resizing
+        for (int i = 0; i < SC_ColumnCount; i++) {
+            header->setSectionResizeMode(i, QHeaderView::Interactive);
+        }
+
+        // Apply the captured widths
+        for (int i = 0; i < SC_ColumnCount; i++) {
+            tableView->setColumnWidth(i, widths[i]);
+        }
     }
 }
 
@@ -721,11 +728,6 @@ void SessionsTableWidget::RestoreColumnState() const
 {
     QHeaderView* header = tableView->horizontalHeader();
 
-    // Ensure all columns are Interactive mode first
-    for (int i = 0; i < SC_ColumnCount; i++) {
-        header->setSectionResizeMode(i, QHeaderView::Interactive);
-    }
-
     // Restore column order
     for (int logicalIndex = 0; logicalIndex < SC_ColumnCount; logicalIndex++) {
         int savedVisualIndex = GlobalClient->settings->data.SessionsColumnOrder[logicalIndex];
@@ -737,19 +739,28 @@ void SessionsTableWidget::RestoreColumnState() const
         }
     }
 
-    // Restore column widths or set defaults
+    // Check if user has saved custom widths
     bool hasAnyWidth = false;
     for (int i = 0; i < SC_ColumnCount; i++) {
-        int savedWidth = GlobalClient->settings->data.SessionsColumnWidths[i];
-        if (savedWidth > 0) {
-            tableView->setColumnWidth(i, savedWidth);
+        if (GlobalClient->settings->data.SessionsColumnWidths[i] > 0) {
             hasAnyWidth = true;
+            break;
         }
     }
 
-    // If no saved widths, set last column (Sleep) to stretch to fill remaining space
-    if (!hasAnyWidth) {
-        header->setSectionResizeMode(SC_Sleep, QHeaderView::Stretch);
+    if (hasAnyWidth) {
+        // Restore saved column widths
+        for (int i = 0; i < SC_ColumnCount; i++) {
+            header->setSectionResizeMode(i, QHeaderView::Interactive);
+            int savedWidth = GlobalClient->settings->data.SessionsColumnWidths[i];
+            if (savedWidth > 0) {
+                tableView->setColumnWidth(i, savedWidth);
+            }
+        }
+    } else {
+        // No saved widths: use ResizeToContents mode initially
+        // This will auto-fit to content as data is loaded
+        header->setSectionResizeMode(QHeaderView::ResizeToContents);
     }
 }
 

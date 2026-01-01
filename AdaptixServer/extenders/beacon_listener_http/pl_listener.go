@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 	"github.com/gin-gonic/gin"
 )
 
@@ -87,9 +89,9 @@ func (m *ModuleExtender) HandlerListenerValid(data string) error {
 		return errors.New("user_agent is required")
 	}
 
-	match, _ := regexp.MatchString("^[0-9a-f]{32}$", conf.EncryptKey)
-	if len(conf.EncryptKey) != 32 || !match {
-		return errors.New("encrypt_key must be 32 hex characters")
+	keyLen := len(conf.EncryptKey)
+	if keyLen < 6 || keyLen > 32 {
+		return errors.New("encrypt_key must be 6-32 characters")
 	}
 
 	if !strings.Contains(conf.WebPageOutput, "<<<PAYLOAD_DATA>>>") {
@@ -149,6 +151,19 @@ func (m *ModuleExtender) HandlerCreateListenerDataAndStart(name string, configDa
 			conf.ResponseHeaders[key] = value
 		}
 		conf.Protocol = "http"
+
+		// Normalize EncryptKey to 32 hex (16 bytes)
+		keyLen := len(conf.EncryptKey)
+		if keyLen == 32 {
+			match, _ := regexp.MatchString("^[0-9a-f]{32}$", conf.EncryptKey)
+			if !match {
+				hash := sha256.Sum256([]byte(conf.EncryptKey))
+				conf.EncryptKey = hex.EncodeToString(hash[:16])
+			}
+		} else {
+			hash := sha256.Sum256([]byte(conf.EncryptKey))
+			conf.EncryptKey = hex.EncodeToString(hash[:16])
+		}
 
 	} else {
 		err = json.Unmarshal(listenerCustomData, &conf)

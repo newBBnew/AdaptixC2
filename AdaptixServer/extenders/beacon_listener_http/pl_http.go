@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -65,6 +66,14 @@ type HTTP struct {
 
 func (handler *HTTP) Start(ts Teamserver) error {
 	var err error = nil
+
+	// Check if port is available before starting
+	addr := fmt.Sprintf("%s:%d", handler.Config.HostBind, handler.Config.PortBind)
+	testListener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("port %d is not available: %v", handler.Config.PortBind, err)
+	}
+	testListener.Close()
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
