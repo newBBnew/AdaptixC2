@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import ListenersList from './ListenersList';
 import TasksList from './TasksList';
+import LogsList from './LogsList';
+import ChatList from './ChatList';
 import { 
   Radio, 
   ListTodo, 
@@ -9,12 +11,12 @@ import {
   Key, 
   Target, 
   Wind,
+  ScrollText,
+  MessageSquare,
   ChevronDown,
   ChevronUp,
   X
 } from 'lucide-react';
-import { clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { cn } from '../../utils/cn';
 
 const Dock = ({ activeDock, setActiveDock }) => {
@@ -22,6 +24,8 @@ const Dock = ({ activeDock, setActiveDock }) => {
 
   const dockItems = [
     { id: 'listeners', label: 'Listeners', icon: Radio },
+    { id: 'logs', label: 'Logs', icon: ScrollText },
+    { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'tasks', label: 'Tasks', icon: ListTodo },
     { id: 'downloads', label: 'Downloads', icon: Download },
     { id: 'screenshots', label: 'Screenshots', icon: ImageIcon },
@@ -71,9 +75,11 @@ const Dock = ({ activeDock, setActiveDock }) => {
       {/* Dock Content */}
       {isExpanded && (
         <div className="flex-1 overflow-auto bg-dark-900/30">
-          {activeDock === 'listeners' ? (
-            <ListenersList />
-          ) : (
+          {activeDock === 'listeners' && <ListenersList />}
+          {activeDock === 'tasks' && <TasksList />}
+          {activeDock === 'logs' && <LogsList />}
+          {activeDock === 'chat' && <ChatList />}
+          {!['listeners', 'tasks', 'logs', 'chat'].includes(activeDock) && (
             <div className="flex items-center justify-center h-full text-gray-600 italic text-sm">
               {activeDock.toUpperCase()} panel content will be loaded here.
             </div>

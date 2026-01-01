@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
-const Toolbar = () => {
+const Toolbar = ({ onButtonClick, activeDock }) => {
   const sections = [
     [
       { id: 'listeners', label: 'Listeners', icon: Radio, tooltip: 'Listeners & Sites' },
@@ -34,7 +34,7 @@ const Toolbar = () => {
       { id: 'tasks', label: 'Tasks', icon: Briefcase, tooltip: 'Jobs & Tasks' },
     ],
     [
-      { id: 'tunnel', label: 'Tunnels', icon: Shield, tooltip: 'Tunnels table' },
+      { id: 'tunnels', label: 'Tunnels', icon: Shield, tooltip: 'Tunnels table' },
       { id: 'delivery', label: 'Delivery', icon: Database, tooltip: 'File Delivery' },
     ],
     [
@@ -79,14 +79,15 @@ const Toolbar = () => {
                   <button
                     key={btn.id}
                     title={btn.tooltip}
+                    onClick={() => onButtonClick?.(btn.id)}
                     className={cn(
                       "p-1.5 rounded hover:bg-dark-700 transition-all group relative",
-                      btn.color || "text-gray-400 hover:text-white"
+                      btn.color || (activeDock === btn.id ? "text-accent-primary bg-accent-primary/10" : "text-gray-400 hover:text-white")
                     )}
                   >
                     <btn.icon className={cn(
                       "w-4.5 h-4.5 group-active:scale-90 transition-transform",
-                      !btn.color && "text-accent-primary/90"
+                      !btn.color && (activeDock === btn.id ? "text-accent-primary" : "text-accent-primary/90")
                     )} />
                   </button>
                 ))}

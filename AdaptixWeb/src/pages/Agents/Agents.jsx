@@ -125,7 +125,22 @@ const ControlPlatform = () => {
   return (
     <div className="flex flex-col h-full overflow-hidden bg-dark-900 select-none text-[#e0e0e0]" onClick={() => setMenu(null)}>
       {/* 1. Top Toolbar (Directly from Qt Client) */}
-      <Toolbar />
+      <Toolbar 
+        activeDock={activeDock} 
+        onButtonClick={(id) => {
+          if (id === 'sessions') {
+            // Sessions button might reset filters or scroll to top
+            setIsSearchVisible(false);
+            setSearchQuery('');
+            setFilterType('All types');
+            setFilterActiveOnly(false);
+          } else if (id === 'reconnect') {
+            window.location.reload();
+          } else {
+            setActiveDock(id);
+          }
+        }} 
+      />
 
       {/* 2. Main Content Splitter */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
