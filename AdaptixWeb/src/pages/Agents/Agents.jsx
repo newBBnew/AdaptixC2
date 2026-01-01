@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { agentApi } from '../../api/agent';
 import { useAgents } from '../../context/AgentContext';
 import AgentConsole from './AgentConsole';
+import SessionsGraph from './SessionsGraph';
 import ContextMenu from '../../components/ContextMenu';
 import Toolbar from './Toolbar';
 import Dock from './Dock';
@@ -32,6 +33,7 @@ const ControlPlatform = () => {
   const [menu, setMenu] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDock, setActiveDock] = useState('listeners');
+  const [viewMode, setViewMode] = useState('sessions'); // 'sessions' or 'graph'
   const [tableHeight, setTableHeight] = useState(300); 
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [filterActiveOnly, setFilterActiveOnly] = useState(false);
@@ -129,11 +131,13 @@ const ControlPlatform = () => {
         activeDock={activeDock} 
         onButtonClick={(id) => {
           if (id === 'sessions') {
-            // Sessions button might reset filters or scroll to top
+            setViewMode('sessions');
             setIsSearchVisible(false);
             setSearchQuery('');
             setFilterType('All types');
             setFilterActiveOnly(false);
+          } else if (id === 'graph') {
+            setViewMode('graph');
           } else if (id === 'reconnect') {
             window.location.reload();
           } else {
@@ -237,58 +241,64 @@ const ControlPlatform = () => {
             </div>
           )}
 
-          <div className="flex-1 overflow-auto scrollbar-thin bg-dark-900">
-            <table className="w-full text-left border-collapse table-fixed">
-              <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
-                <tr className="border-b border-dark-700 text-gray-400 text-[10px] font-bold uppercase tracking-tight">
-                  <th className="py-1.5 px-4 w-40 border-r border-dark-700/50">External IP</th>
-                  <th className="py-1.5 px-4 w-40 border-r border-dark-700/50">Internal IP</th>
-                  <th className="py-1.5 px-4 w-32 border-r border-dark-700/50">User</th>
-                  <th className="py-1.5 px-4 w-32 border-r border-dark-700/50">Computer</th>
-                  <th className="py-1.5 px-4 border-r border-dark-700/50">OS Descriptor</th>
-                  <th className="py-1.5 px-4 w-24 border-r border-dark-700/50">PID</th>
-                  <th className="py-1.5 px-4 w-32 text-right">Last Check-in</th>
-                </tr>
-              </thead>
-              <tbody className="text-[11px] font-medium">
-                {filteredAgents.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" className="px-6 py-20 text-center">
-                      <div className="flex flex-col items-center space-y-3 opacity-20">
-                        <Activity size={48} className="text-gray-600" />
-                        <p className="text-sm font-medium tracking-widest uppercase">No active beacons matching criteria</p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredAgents.map((agent) => (
-                    <tr 
-                      key={agent.a_id} 
-                      onDoubleClick={() => openAgentTab(agent)}
-                      onContextMenu={(e) => handleContextMenu(e, agent)}
-                      className={cn(
-                        "border-b border-dark-800/50 hover:bg-accent-primary/5 transition-colors group cursor-pointer h-7",
-                        activeTabId === agent.a_id && "bg-accent-primary/10 border-l-2 border-l-accent-primary"
-                      )}
-                    >
-                      <td className="px-4 text-gray-400 font-mono truncate">{agent.a_external_ip || '---'}</td>
-                      <td className="px-4 text-accent-primary font-mono font-bold truncate">{agent.a_internal_ip}</td>
-                      <td className="px-4 text-gray-300 italic truncate">{agent.a_username}</td>
-                      <td className="px-4 text-gray-300 truncate">{agent.a_computer || 'Unknown'}</td>
-                      <td className="px-4 text-gray-400 truncate text-[10px]">{agent.a_os_desc}</td>
-                      <td className="px-4 text-gray-500 font-mono truncate">{agent.a_pid || '---'}</td>
-                      <td className="px-4 text-right text-gray-500 font-mono flex items-center justify-end space-x-2 pr-4">
-                        <span>{Math.max(0, Math.floor(Date.now() / 1000) - agent.a_last_tick)}s</span>
-                        <div className={cn(
-                          "w-1.5 h-1.5 rounded-full flex-shrink-0",
-                          (Math.floor(Date.now() / 1000) - agent.a_last_tick) < 60 ? 'bg-accent-secondary shadow-[0_0_6px_rgba(16,185,129,0.4)]' : 'bg-gray-600'
-                        )} />
-                      </td>
+          <div className="flex-1 overflow-hidden bg-dark-900 relative">
+            {viewMode === 'sessions' ? (
+              <div className="h-full overflow-auto scrollbar-thin">
+                <table className="w-full text-left border-collapse table-fixed">
+                  <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
+                    <tr className="border-b border-dark-700 text-gray-400 text-[10px] font-bold uppercase tracking-tight">
+                      <th className="py-1.5 px-4 w-40 border-r border-dark-700/50">External IP</th>
+                      <th className="py-1.5 px-4 w-40 border-r border-dark-700/50">Internal IP</th>
+                      <th className="py-1.5 px-4 w-32 border-r border-dark-700/50">User</th>
+                      <th className="py-1.5 px-4 w-32 border-r border-dark-700/50">Computer</th>
+                      <th className="py-1.5 px-4 border-r border-dark-700/50">OS Descriptor</th>
+                      <th className="py-1.5 px-4 w-24 border-r border-dark-700/50">PID</th>
+                      <th className="py-1.5 px-4 w-32 text-right">Last Check-in</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="text-[11px] font-medium">
+                    {filteredAgents.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" className="px-6 py-20 text-center">
+                          <div className="flex flex-col items-center space-y-3 opacity-20">
+                            <Activity size={48} className="text-gray-600" />
+                            <p className="text-sm font-medium tracking-widest uppercase">No active beacons matching criteria</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredAgents.map((agent) => (
+                        <tr 
+                          key={agent.a_id} 
+                          onDoubleClick={() => openAgentTab(agent)}
+                          onContextMenu={(e) => handleContextMenu(e, agent)}
+                          className={cn(
+                            "border-b border-dark-800/50 hover:bg-accent-primary/5 transition-colors group cursor-pointer h-7",
+                            activeTabId === agent.a_id && "bg-accent-primary/10 border-l-2 border-l-accent-primary"
+                          )}
+                        >
+                          <td className="px-4 text-gray-400 font-mono truncate">{agent.a_external_ip || '---'}</td>
+                          <td className="px-4 text-accent-primary font-mono font-bold truncate">{agent.a_internal_ip}</td>
+                          <td className="px-4 text-gray-300 italic truncate">{agent.a_username}</td>
+                          <td className="px-4 text-gray-300 truncate">{agent.a_computer || 'Unknown'}</td>
+                          <td className="px-4 text-gray-400 truncate text-[10px]">{agent.a_os_desc}</td>
+                          <td className="px-4 text-gray-500 font-mono truncate">{agent.a_pid || '---'}</td>
+                          <td className="px-4 text-right text-gray-500 font-mono flex items-center justify-end space-x-2 pr-4">
+                            <span>{Math.max(0, Math.floor(Date.now() / 1000) - agent.a_last_tick)}s</span>
+                            <div className={cn(
+                              "w-1.5 h-1.5 rounded-full flex-shrink-0",
+                              (Math.floor(Date.now() / 1000) - agent.a_last_tick) < 60 ? 'bg-accent-secondary shadow-[0_0_6px_rgba(16,185,129,0.4)]' : 'bg-gray-600'
+                            )} />
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <SessionsGraph />
+            )}
           </div>
         </div>
 

@@ -1,34 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Radio, 
+  Key, 
   Search, 
   Filter, 
-  Plus, 
-  Edit3, 
   Trash2, 
-  Cpu, 
+  Edit3, 
+  Plus, 
   RefreshCw,
-  MoreVertical,
-  X
+  X,
+  Copy,
+  Tag,
+  Shield,
+  User,
+  Database
 } from 'lucide-react';
-import { controlApi } from '../../api/control';
+import { dataApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 
-const ListenersList = () => {
-  const [listeners, setListeners] = useState([]);
+const CredentialsList = () => {
+  const [creds, setCreds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [filterType, setFilterType] = useState('All Types');
 
-  const fetchListeners = async () => {
+  const fetchCreds = async () => {
     try {
       setLoading(true);
-      const response = await controlApi.listenerList();
-      setListeners(Array.isArray(response.data) ? response.data : []);
+      const response = await dataApi.creds();
+      setCreds(Array.isArray(response.data) ? response.data : []);
       setError(null);
     } catch (err) {
-      console.error('Failed to fetch listeners:', err);
+      console.error('Failed to fetch credentials:', err);
       setError('Connection failed');
     } finally {
       setLoading(false);
@@ -36,8 +40,8 @@ const ListenersList = () => {
   };
 
   useEffect(() => {
-    fetchListeners();
-    const interval = setInterval(fetchListeners, 30000);
+    fetchCreds();
+    const interval = setInterval(fetchCreds, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -52,20 +56,28 @@ const ListenersList = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const filteredListeners = listeners.filter(l => 
-    Object.values(l).some(val => 
+  const credTypes = ['All Types', ...new Set(creds.map(c => c.type).filter(Boolean))].sort();
+
+  const filteredCreds = creds.filter(c => {
+    const matchesSearch = Object.values(c).some(val => 
       String(val).toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  );
+    );
+    const matchesType = filterType === 'All Types' || c.type === filterType;
+    return matchesSearch && matchesType;
+  });
+
+  const handleCopyPassword = (pass) => {
+    navigator.clipboard.writeText(pass);
+  };
 
   return (
     <div className="flex flex-col h-full bg-dark-900 text-gray-300 font-sans select-none overflow-hidden">
-      {/* 1. Header with Controls (Mimics ListenersWidget.cpp) */}
+      {/* 1. Header with Controls (Mimics CredentialsWidget.cpp) */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
-            <Radio className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Listeners</span>
+            <Key className="w-3.5 h-3.5 text-accent-primary" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Credentials</span>
           </div>
           <div className="h-4 w-px bg-dark-600" />
           <button 
@@ -82,7 +94,7 @@ const ListenersList = () => {
 
         <div className="flex items-center space-x-1">
           <button 
-            onClick={fetchListeners}
+            onClick={fetchCreds}
             className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
             title="Refresh"
           >
@@ -91,14 +103,14 @@ const ListenersList = () => {
           <div className="h-4 w-px bg-dark-600 mx-1" />
           <button className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group">
             <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-bold uppercase">Create</span>
+            <span className="text-[10px] font-bold uppercase">Add Cred</span>
           </button>
         </div>
       </div>
 
       {/* 2. Search Panel */}
       {isSearchVisible && (
-        <div className="flex items-center px-4 py-2 bg-dark-800/50 border-b border-dark-700 animate-in slide-in-from-top-2 duration-200 shrink-0">
+        <div className="flex items-center px-4 py-2 bg-dark-800/50 border-b border-dark-700 animate-in slide-in-from-top-2 duration-200 shrink-0 space-x-4">
           <div className="relative flex-1 max-w-md">
             <Filter className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600" />
             <input 
@@ -106,85 +118,85 @@ const ListenersList = () => {
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="filter: (http | https) & ^(test)" 
-              className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50 placeholder:text-gray-700"
+              placeholder="filter: (adm | user) & hash..." 
+              className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
             />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
           </div>
+          <select 
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="bg-dark-950/50 border border-dark-600 rounded px-2 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
+          >
+            {credTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
         </div>
       )}
 
       {/* 3. Table Area */}
-      <div className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-dark-600">
-        <table className="w-full text-left border-collapse table-auto min-w-[800px]">
+      <div className="flex-1 overflow-auto scrollbar-thin">
+        <table className="w-full text-left border-collapse table-auto min-w-[1000px]">
           <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
             <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-              <th className="py-2 px-4 border-r border-dark-700/30">Name</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">User</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Password / Hash</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Realm / Domain</th>
               <th className="py-2 px-4 border-r border-dark-700/30">Type</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Protocol</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Bind Host</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Bind Port</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Status</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Source</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Tag</th>
               <th className="py-2 px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
-            {filteredListeners.length === 0 ? (
+            {filteredCreds.length === 0 ? (
               <tr>
-                <td colSpan="7" className="py-20 text-center">
+                <td colSpan="7" className="py-20 text-center text-gray-600 italic">
                   <div className="flex flex-col items-center space-y-3 opacity-20">
-                    <Radio size={40} className="text-gray-600" />
-                    <p className="text-xs font-medium tracking-widest uppercase">No listeners configured</p>
+                    <Key size={40} />
+                    <p className="text-xs font-medium tracking-widest uppercase">No credentials looted</p>
                   </div>
                 </td>
               </tr>
             ) : (
-              filteredListeners.map((l) => (
+              filteredCreds.map((c) => (
                 <tr 
-                  key={l.l_name} 
+                  key={c.cred_id} 
                   className="hover:bg-accent-primary/5 transition-colors group h-8 cursor-default"
                 >
-                  <td className="px-4 text-accent-primary font-bold font-mono truncate">{l.l_name}</td>
-                  <td className="px-4 text-gray-300 truncate">
-                    <span className="px-1.5 py-0.5 rounded bg-dark-700 text-[9px] font-black uppercase text-gray-400">
-                      {l.l_type}
+                  <td className="px-4 text-accent-primary font-bold truncate flex items-center space-x-2">
+                    <User size={12} className="text-gray-500" />
+                    <span>{c.username}</span>
+                  </td>
+                  <td className="px-4 text-gray-300 font-mono truncate max-w-xs select-text" onClick={() => handleCopyPassword(c.password)}>
+                    {c.password}
+                  </td>
+                  <td className="px-4 text-gray-400 font-mono truncate">{c.realm || '---'}</td>
+                  <td className="px-4">
+                    <span className="px-1.5 py-0.5 rounded bg-dark-700 text-[9px] font-black uppercase text-gray-400 border border-dark-600">
+                      {c.type}
                     </span>
                   </td>
-                  <td className="px-4 text-gray-400 font-mono truncate uppercase">{l.l_protocol}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{l.l_bind_host}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{l.l_bind_port}</td>
-                  <td className="px-4 truncate">
-                    <div className="flex items-center space-x-2">
-                      <div className={cn(
-                        "w-1.5 h-1.5 rounded-full shadow-[0_0_4px]",
-                        l.l_status === 'running' 
-                          ? "bg-accent-secondary shadow-accent-secondary/50 animate-pulse" 
-                          : "bg-accent-danger shadow-accent-danger/50"
-                      )} />
-                      <span className={cn(
-                        "text-[10px] font-black uppercase tracking-tighter",
-                        l.l_status === 'running' ? "text-accent-secondary" : "text-accent-danger"
-                      )}>
-                        {l.l_status}
-                      </span>
+                  <td className="px-4 text-gray-500 text-[10px] truncate">
+                    <div className="flex items-center space-x-1">
+                      <Database size={10} />
+                      <span>{c.host || c.agent_id?.substring(0,8)}</span>
                     </div>
+                  </td>
+                  <td className="px-4">
+                    {c.tag && (
+                      <span className="px-1.5 py-0.5 rounded bg-accent-secondary/10 text-[9px] font-black uppercase text-accent-secondary border border-accent-secondary/20">
+                        {c.tag}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 text-right">
                     <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => handleCopyPassword(c.password)} className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Copy Password">
+                        <Copy size={14} />
+                      </button>
                       <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Edit">
                         <Edit3 size={14} />
                       </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-primary transition-colors" title="Generate Agent">
-                        <Cpu size={14} />
-                      </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-danger transition-colors" title="Remove">
+                      <button className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" title="Delete">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -199,17 +211,15 @@ const ListenersList = () => {
       {/* 4. Footer Summary */}
       <div className="px-4 py-1.5 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tighter shrink-0">
         <div className="flex items-center space-x-4">
-          <span>Active: <span className="text-accent-secondary">{listeners.filter(l => l.l_status === 'running').length}</span></span>
-          <div className="w-px h-3 bg-dark-600" />
-          <span>Total: <span className="text-gray-300">{listeners.length}</span></span>
+          <span>Total Credentials: <span className="text-accent-primary">{creds.length}</span></span>
         </div>
         <div className="flex items-center space-x-1">
-          <div className="w-1.5 h-1.5 rounded-full bg-accent-secondary animate-pulse" />
-          <span className="text-accent-secondary/80">Teamserver Synchronized</span>
+          <Shield size={10} className="text-accent-secondary" />
+          <span className="text-accent-secondary/80">Encrypted Loot Sync</span>
         </div>
       </div>
     </div>
   );
 };
 
-export default ListenersList;
+export default CredentialsList;

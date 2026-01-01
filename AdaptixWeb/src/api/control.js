@@ -11,3 +11,21 @@ export const taskApi = {
   cancel: (agentId, taskIds) => api.post('/agent/task/cancel', { agent_id: agentId, tasks_array: taskIds }),
   delete: (agentId, taskIds) => api.post('/agent/task/delete', { agent_id: agentId, tasks_array: taskIds }),
 };
+
+export const tunnelApi = {
+  list: () => api.get('/tunnel/list'),
+  stop: (tunnelId) => api.post('/tunnel/stop', { tunnel_id: tunnelId }),
+  setInfo: (tunnelId, info) => api.post('/tunnel/set_info', { tunnel_id: tunnelId, info }),
+};
+
+export const deliveryApi = {
+  list: () => api.get('/file_delivery/list'),
+  stop: (id) => api.post('/file_delivery/stop', { id }),
+};
+
+export const dataApi = {
+  downloads: () => api.get('/data/downloads'),
+  targets: () => api.get('/data/targets'),
+  creds: () => api.get('/data/creds'),
+  screenshots: () => api.get('/data/screenshots'),
+};

@@ -3,6 +3,12 @@ import ListenersList from './ListenersList';
 import TasksList from './TasksList';
 import LogsList from './LogsList';
 import ChatList from './ChatList';
+import TunnelsList from './TunnelsList';
+import FileDeliveryList from './FileDeliveryList';
+import DownloadsList from './DownloadsList';
+import TargetsList from './TargetsList';
+import CredentialsList from './CredentialsList';
+import ScreenshotsList from './ScreenshotsList';
 import { 
   Radio, 
   ListTodo, 
@@ -15,7 +21,9 @@ import {
   MessageSquare,
   ChevronDown,
   ChevronUp,
-  X
+  X,
+  Shield,
+  Database
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
@@ -27,11 +35,12 @@ const Dock = ({ activeDock, setActiveDock }) => {
     { id: 'logs', label: 'Logs', icon: ScrollText },
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'tasks', label: 'Tasks', icon: ListTodo },
+    { id: 'tunnels', label: 'Tunnels', icon: Shield },
+    { id: 'delivery', label: 'Delivery', icon: Database },
     { id: 'downloads', label: 'Downloads', icon: Download },
-    { id: 'screenshots', label: 'Screenshots', icon: ImageIcon },
-    { id: 'creds', label: 'Credentials', icon: Key },
     { id: 'targets', label: 'Targets', icon: Target },
-    { id: 'tunnels', label: 'Tunnels', icon: Wind },
+    { id: 'creds', label: 'Credentials', icon: Key },
+    { id: 'screens', label: 'Screenshots', icon: ImageIcon },
   ];
 
   return (
@@ -79,7 +88,13 @@ const Dock = ({ activeDock, setActiveDock }) => {
           {activeDock === 'tasks' && <TasksList />}
           {activeDock === 'logs' && <LogsList />}
           {activeDock === 'chat' && <ChatList />}
-          {!['listeners', 'tasks', 'logs', 'chat'].includes(activeDock) && (
+          {activeDock === 'tunnels' && <TunnelsList />}
+          {activeDock === 'delivery' && <FileDeliveryList />}
+          {activeDock === 'downloads' && <DownloadsList />}
+          {activeDock === 'targets' && <TargetsList />}
+          {activeDock === 'creds' && <CredentialsList />}
+          {activeDock === 'screens' && <ScreenshotsList />}
+          {!['listeners', 'tasks', 'logs', 'chat', 'tunnels', 'delivery', 'downloads', 'targets', 'creds', 'screens'].includes(activeDock) && (
             <div className="flex items-center justify-center h-full text-gray-600 italic text-sm">
               {activeDock.toUpperCase()} panel content will be loaded here.
             </div>

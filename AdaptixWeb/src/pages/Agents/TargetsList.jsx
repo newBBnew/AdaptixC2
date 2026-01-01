@@ -1,34 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Radio, 
+  Target, 
   Search, 
   Filter, 
-  Plus, 
-  Edit3, 
   Trash2, 
-  Cpu, 
+  Edit3, 
+  Plus, 
   RefreshCw,
-  MoreVertical,
-  X
+  X,
+  Monitor,
+  Copy,
+  FileText,
+  Tag
 } from 'lucide-react';
-import { controlApi } from '../../api/control';
+import { dataApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 
-const ListenersList = () => {
-  const [listeners, setListeners] = useState([]);
+const TargetsList = () => {
+  const [targets, setTargets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
 
-  const fetchListeners = async () => {
+  const fetchTargets = async () => {
     try {
       setLoading(true);
-      const response = await controlApi.listenerList();
-      setListeners(Array.isArray(response.data) ? response.data : []);
+      const response = await dataApi.targets();
+      setTargets(Array.isArray(response.data) ? response.data : []);
       setError(null);
     } catch (err) {
-      console.error('Failed to fetch listeners:', err);
+      console.error('Failed to fetch targets:', err);
       setError('Connection failed');
     } finally {
       setLoading(false);
@@ -36,8 +38,8 @@ const ListenersList = () => {
   };
 
   useEffect(() => {
-    fetchListeners();
-    const interval = setInterval(fetchListeners, 30000);
+    fetchTargets();
+    const interval = setInterval(fetchTargets, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -52,20 +54,20 @@ const ListenersList = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const filteredListeners = listeners.filter(l => 
-    Object.values(l).some(val => 
+  const filteredTargets = targets.filter(t => 
+    Object.values(t).some(val => 
       String(val).toLowerCase().includes(searchQuery.toLowerCase())
     )
   );
 
   return (
     <div className="flex flex-col h-full bg-dark-900 text-gray-300 font-sans select-none overflow-hidden">
-      {/* 1. Header with Controls (Mimics ListenersWidget.cpp) */}
+      {/* 1. Header with Controls (Mimics TargetsWidget.cpp) */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
-            <Radio className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Listeners</span>
+            <Target className="w-3.5 h-3.5 text-accent-primary" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Target Data</span>
           </div>
           <div className="h-4 w-px bg-dark-600" />
           <button 
@@ -82,7 +84,7 @@ const ListenersList = () => {
 
         <div className="flex items-center space-x-1">
           <button 
-            onClick={fetchListeners}
+            onClick={fetchTargets}
             className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
             title="Refresh"
           >
@@ -91,7 +93,7 @@ const ListenersList = () => {
           <div className="h-4 w-px bg-dark-600 mx-1" />
           <button className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group">
             <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-bold uppercase">Create</span>
+            <span className="text-[10px] font-bold uppercase">Add Target</span>
           </button>
         </div>
       </div>
@@ -106,85 +108,72 @@ const ListenersList = () => {
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="filter: (http | https) & ^(test)" 
+              placeholder="filter: (win | linux) & ^(test)" 
               className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50 placeholder:text-gray-700"
             />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
           </div>
         </div>
       )}
 
       {/* 3. Table Area */}
-      <div className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-dark-600">
+      <div className="flex-1 overflow-auto scrollbar-thin">
         <table className="w-full text-left border-collapse table-auto min-w-[800px]">
           <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
             <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-              <th className="py-2 px-4 border-r border-dark-700/30">Name</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Type</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Protocol</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Bind Host</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Bind Port</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Status</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Computer</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Domain</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Address</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">OS</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Tag</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Info</th>
               <th className="py-2 px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
-            {filteredListeners.length === 0 ? (
+            {filteredTargets.length === 0 ? (
               <tr>
-                <td colSpan="7" className="py-20 text-center">
+                <td colSpan="7" className="py-20 text-center text-gray-600 italic">
                   <div className="flex flex-col items-center space-y-3 opacity-20">
-                    <Radio size={40} className="text-gray-600" />
-                    <p className="text-xs font-medium tracking-widest uppercase">No listeners configured</p>
+                    <Target size={40} />
+                    <p className="text-xs font-medium tracking-widest uppercase">No targets identified</p>
                   </div>
                 </td>
               </tr>
             ) : (
-              filteredListeners.map((l) => (
+              filteredTargets.map((t) => (
                 <tr 
-                  key={l.l_name} 
+                  key={t.t_target_id} 
                   className="hover:bg-accent-primary/5 transition-colors group h-8 cursor-default"
                 >
-                  <td className="px-4 text-accent-primary font-bold font-mono truncate">{l.l_name}</td>
-                  <td className="px-4 text-gray-300 truncate">
-                    <span className="px-1.5 py-0.5 rounded bg-dark-700 text-[9px] font-black uppercase text-gray-400">
-                      {l.l_type}
-                    </span>
-                  </td>
-                  <td className="px-4 text-gray-400 font-mono truncate uppercase">{l.l_protocol}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{l.l_bind_host}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{l.l_bind_port}</td>
+                  <td className="px-4 text-accent-primary font-bold truncate">{t.t_computer}</td>
+                  <td className="px-4 text-gray-300 truncate">{t.t_domain || '---'}</td>
+                  <td className="px-4 text-gray-300 font-mono truncate">{t.t_address}</td>
                   <td className="px-4 truncate">
                     <div className="flex items-center space-x-2">
-                      <div className={cn(
-                        "w-1.5 h-1.5 rounded-full shadow-[0_0_4px]",
-                        l.l_status === 'running' 
-                          ? "bg-accent-secondary shadow-accent-secondary/50 animate-pulse" 
-                          : "bg-accent-danger shadow-accent-danger/50"
-                      )} />
-                      <span className={cn(
-                        "text-[10px] font-black uppercase tracking-tighter",
-                        l.l_status === 'running' ? "text-accent-secondary" : "text-accent-danger"
-                      )}>
-                        {l.l_status}
-                      </span>
+                      <Monitor className="w-3 h-3 text-gray-500" />
+                      <span className="text-gray-400 text-[10px]">{t.t_os_desk}</span>
                     </div>
                   </td>
+                  <td className="px-4">
+                    {t.t_tag && (
+                      <span className="px-1.5 py-0.5 rounded bg-dark-700 text-[9px] font-black uppercase text-accent-secondary border border-accent-secondary/20">
+                        {t.t_tag}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 text-gray-500 italic truncate max-w-xs">{t.t_info || '---'}</td>
                   <td className="px-4 text-right">
                     <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Copy Info">
+                        <Copy size={14} />
+                      </button>
+                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-secondary transition-colors" title="Set Tag">
+                        <Tag size={14} />
+                      </button>
                       <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Edit">
                         <Edit3 size={14} />
                       </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-primary transition-colors" title="Generate Agent">
-                        <Cpu size={14} />
-                      </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-danger transition-colors" title="Remove">
+                      <button className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" title="Remove">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -199,17 +188,17 @@ const ListenersList = () => {
       {/* 4. Footer Summary */}
       <div className="px-4 py-1.5 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tighter shrink-0">
         <div className="flex items-center space-x-4">
-          <span>Active: <span className="text-accent-secondary">{listeners.filter(l => l.l_status === 'running').length}</span></span>
-          <div className="w-px h-3 bg-dark-600" />
-          <span>Total: <span className="text-gray-300">{listeners.length}</span></span>
+          <span>Total Targets: <span className="text-gray-300">{targets.length}</span></span>
         </div>
         <div className="flex items-center space-x-1">
-          <div className="w-1.5 h-1.5 rounded-full bg-accent-secondary animate-pulse" />
-          <span className="text-accent-secondary/80">Teamserver Synchronized</span>
+          <button className="flex items-center space-x-1 hover:text-white transition-colors">
+            <FileText size={10} />
+            <span>Export to File</span>
+          </button>
         </div>
       </div>
     </div>
   );
 };
 
-export default ListenersList;
+export default TargetsList;

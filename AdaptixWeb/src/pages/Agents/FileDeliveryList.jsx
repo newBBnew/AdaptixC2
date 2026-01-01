@@ -1,34 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Radio, 
+  Database, 
   Search, 
   Filter, 
   Plus, 
-  Edit3, 
   Trash2, 
-  Cpu, 
+  Link, 
+  Copy,
   RefreshCw,
-  MoreVertical,
-  X
+  X,
+  FileUp,
+  Download
 } from 'lucide-react';
-import { controlApi } from '../../api/control';
+import { deliveryApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 
-const ListenersList = () => {
-  const [listeners, setListeners] = useState([]);
+const FileDeliveryList = () => {
+  const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
 
-  const fetchListeners = async () => {
+  const fetchFiles = async () => {
     try {
       setLoading(true);
-      const response = await controlApi.listenerList();
-      setListeners(Array.isArray(response.data) ? response.data : []);
+      const response = await deliveryApi.list();
+      setFiles(Array.isArray(response.data) ? response.data : []);
       setError(null);
     } catch (err) {
-      console.error('Failed to fetch listeners:', err);
+      console.error('Failed to fetch hosted files:', err);
       setError('Connection failed');
     } finally {
       setLoading(false);
@@ -36,8 +37,8 @@ const ListenersList = () => {
   };
 
   useEffect(() => {
-    fetchListeners();
-    const interval = setInterval(fetchListeners, 30000);
+    fetchFiles();
+    const interval = setInterval(fetchFiles, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -52,20 +53,35 @@ const ListenersList = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const filteredListeners = listeners.filter(l => 
-    Object.values(l).some(val => 
+  const filteredFiles = files.filter(f => 
+    Object.values(f).some(val => 
       String(val).toLowerCase().includes(searchQuery.toLowerCase())
     )
   );
 
+  const handleDeleteFile = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this hosted file?')) return;
+    try {
+      await deliveryApi.stop(id);
+      fetchFiles();
+    } catch (err) {
+      console.error('Failed to delete file:', err);
+    }
+  };
+
+  const handleCopyUrl = (url) => {
+    navigator.clipboard.writeText(url);
+    // Could add a toast here
+  };
+
   return (
     <div className="flex flex-col h-full bg-dark-900 text-gray-300 font-sans select-none overflow-hidden">
-      {/* 1. Header with Controls (Mimics ListenersWidget.cpp) */}
+      {/* 1. Header with Controls (Mimics FileDeliveryWidget.cpp) */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
-            <Radio className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Listeners</span>
+            <Database className="w-3.5 h-3.5 text-accent-primary" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">File Delivery</span>
           </div>
           <div className="h-4 w-px bg-dark-600" />
           <button 
@@ -82,7 +98,7 @@ const ListenersList = () => {
 
         <div className="flex items-center space-x-1">
           <button 
-            onClick={fetchListeners}
+            onClick={fetchFiles}
             className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
             title="Refresh"
           >
@@ -90,8 +106,8 @@ const ListenersList = () => {
           </button>
           <div className="h-4 w-px bg-dark-600 mx-1" />
           <button className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group">
-            <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-bold uppercase">Create</span>
+            <FileUp className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+            <span className="text-[10px] font-bold uppercase">Upload</span>
           </button>
         </div>
       </div>
@@ -106,85 +122,75 @@ const ListenersList = () => {
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="filter: (http | https) & ^(test)" 
-              className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50 placeholder:text-gray-700"
+              placeholder="Filter files..." 
+              className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
             />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
           </div>
         </div>
       )}
 
       {/* 3. Table Area */}
-      <div className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-dark-600">
+      <div className="flex-1 overflow-auto scrollbar-thin">
         <table className="w-full text-left border-collapse table-auto min-w-[800px]">
           <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
             <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-              <th className="py-2 px-4 border-r border-dark-700/30">Name</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Type</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Protocol</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Bind Host</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Bind Port</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Status</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Filename</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Size</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Downloads</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">URL</th>
+              <th className="py-2 px-4 border-r border-dark-700/30">Date Added</th>
               <th className="py-2 px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
-            {filteredListeners.length === 0 ? (
+            {filteredFiles.length === 0 ? (
               <tr>
-                <td colSpan="7" className="py-20 text-center">
+                <td colSpan="6" className="py-20 text-center text-gray-600 italic">
                   <div className="flex flex-col items-center space-y-3 opacity-20">
-                    <Radio size={40} className="text-gray-600" />
-                    <p className="text-xs font-medium tracking-widest uppercase">No listeners configured</p>
+                    <Database size={40} />
+                    <p className="text-xs font-medium tracking-widest uppercase">No hosted files</p>
                   </div>
                 </td>
               </tr>
             ) : (
-              filteredListeners.map((l) => (
+              filteredFiles.map((f) => (
                 <tr 
-                  key={l.l_name} 
+                  key={f.id} 
                   className="hover:bg-accent-primary/5 transition-colors group h-8 cursor-default"
                 >
-                  <td className="px-4 text-accent-primary font-bold font-mono truncate">{l.l_name}</td>
-                  <td className="px-4 text-gray-300 truncate">
-                    <span className="px-1.5 py-0.5 rounded bg-dark-700 text-[9px] font-black uppercase text-gray-400">
-                      {l.l_type}
+                  <td className="px-4 text-accent-primary font-bold font-mono truncate">{f.filename}</td>
+                  <td className="px-4 text-gray-300 font-mono truncate">{f.size || '---'}</td>
+                  <td className="px-4 text-gray-300 font-mono text-center w-24">
+                    <span className="px-1.5 py-0.5 rounded bg-dark-700 text-[9px] font-black text-accent-secondary">
+                      {f.downloads || 0}
                     </span>
                   </td>
-                  <td className="px-4 text-gray-400 font-mono truncate uppercase">{l.l_protocol}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{l.l_bind_host}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{l.l_bind_port}</td>
-                  <td className="px-4 truncate">
-                    <div className="flex items-center space-x-2">
-                      <div className={cn(
-                        "w-1.5 h-1.5 rounded-full shadow-[0_0_4px]",
-                        l.l_status === 'running' 
-                          ? "bg-accent-secondary shadow-accent-secondary/50 animate-pulse" 
-                          : "bg-accent-danger shadow-accent-danger/50"
-                      )} />
-                      <span className={cn(
-                        "text-[10px] font-black uppercase tracking-tighter",
-                        l.l_status === 'running' ? "text-accent-secondary" : "text-accent-danger"
-                      )}>
-                        {l.l_status}
-                      </span>
-                    </div>
+                  <td className="px-4 text-gray-400 font-mono truncate max-w-xs select-text hover:text-white transition-colors cursor-pointer" onClick={() => handleCopyUrl(f.url)}>
+                    {f.url || '---'}
+                  </td>
+                  <td className="px-4 text-gray-500 font-mono truncate">
+                    {f.date ? new Date(f.date * 1000).toLocaleString() : '---'}
                   </td>
                   <td className="px-4 text-right">
                     <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Edit">
-                        <Edit3 size={14} />
+                      <button 
+                        onClick={() => handleCopyUrl(f.url)}
+                        className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" 
+                        title="Copy URL"
+                      >
+                        <Copy size={14} />
                       </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-primary transition-colors" title="Generate Agent">
-                        <Cpu size={14} />
+                      <button 
+                        className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-secondary transition-colors" 
+                        title="Create Link"
+                      >
+                        <Link size={14} />
                       </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-danger transition-colors" title="Remove">
+                      <button 
+                        onClick={() => handleDeleteFile(f.id)}
+                        className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" 
+                        title="Delete File"
+                      >
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -199,17 +205,15 @@ const ListenersList = () => {
       {/* 4. Footer Summary */}
       <div className="px-4 py-1.5 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tighter shrink-0">
         <div className="flex items-center space-x-4">
-          <span>Active: <span className="text-accent-secondary">{listeners.filter(l => l.l_status === 'running').length}</span></span>
-          <div className="w-px h-3 bg-dark-600" />
-          <span>Total: <span className="text-gray-300">{listeners.length}</span></span>
+          <span>Hosted Files: <span className="text-accent-primary">{files.length}</span></span>
         </div>
         <div className="flex items-center space-x-1">
           <div className="w-1.5 h-1.5 rounded-full bg-accent-secondary animate-pulse" />
-          <span className="text-accent-secondary/80">Teamserver Synchronized</span>
+          <span className="text-accent-secondary/80">File Delivery Sync Active</span>
         </div>
       </div>
     </div>
   );
 };
 
-export default ListenersList;
+export default FileDeliveryList;
