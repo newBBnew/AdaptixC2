@@ -2,7 +2,6 @@
 #include <UI/Widgets/AdaptixWidget.h>
 #include <UI/Widgets/ConsoleWidget.h>
 #include <Agent/Agent.h>
-#include <QBuffer>
 
 MCPCommandHandler::MCPCommandHandler(AdaptixWidget* widget, QObject* parent)
     : QObject(parent)
@@ -33,7 +32,6 @@ MCP::MCPResponse MCPCommandHandler::handleCommand(const MCP::MCPRequest& request
     if (request.type == LIST_TARGETS)         return handleListTargets(request);
     if (request.type == LIST_PIVOTS)          return handleListPivots(request);
     if (request.type == LIST_COLLECTED_DATA)  return handleListCollectedData(request);
-    if (request.type == CAPTURE_SCREENSHOT)   return handleCaptureScreenshot(request);
     if (request.type == GET_UI_INFO)          return handleGetUIInfo(request);
     if (request.type == GET_CAPABILITIES)     return handleGetCapabilities(request);
     
@@ -433,32 +431,6 @@ MCP::MCPResponse MCPCommandHandler::handleListCollectedData(const MCP::MCPReques
     return MCP::MCPResponse::success(req.requestId, "", data);
 }
 
-MCP::MCPResponse MCPCommandHandler::handleCaptureScreenshot(const MCP::MCPRequest& req)
-{
-    Q_UNUSED(req)
-    
-    QWidget* mainWindow = adaptixWidget->window();
-    if (!mainWindow)
-        return MCP::MCPResponse::error(req.requestId, "No main window found");
-    
-    QPixmap pixmap = mainWindow->grab();
-    
-    QByteArray byteArray;
-    QBuffer buffer(&byteArray);
-    buffer.open(QIODevice::WriteOnly);
-    pixmap.save(&buffer, "PNG");
-    
-    QString base64 = QString::fromLatin1(byteArray.toBase64());
-    
-    QJsonObject data;
-    data["format"] = "png";
-    data["width"] = pixmap.width();
-    data["height"] = pixmap.height();
-    data["data"] = base64;
-    
-    return MCP::MCPResponse::success(req.requestId, "Screenshot captured", data);
-}
-
 MCP::MCPResponse MCPCommandHandler::handleGetUIInfo(const MCP::MCPRequest& req)
 {
     Q_UNUSED(req)
@@ -537,7 +509,6 @@ MCP::MCPResponse MCPCommandHandler::handleGetCapabilities(const MCP::MCPRequest&
     addCap("list_collected_data", "List credentials/downloads/screenshots");
     addCap("update_agent_config", "Update agent sleep/jitter");
     addCap("update_agent_metadata", "Update agent tag/mark");
-    addCap("capture_screenshot", "Capture Client UI screenshot");
     addCap("get_ui_info", "Get UI and data summary info");
     
     QJsonObject data;

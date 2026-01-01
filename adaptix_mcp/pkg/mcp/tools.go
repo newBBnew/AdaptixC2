@@ -16,7 +16,6 @@ func (s *MCPServer) registerTools() {
 	s.tools["list_collected_data"] = s.handleListCollectedData
 	s.tools["update_agent_config"] = s.handleUpdateAgentConfig
 	s.tools["update_agent_metadata"] = s.handleUpdateAgentMetadata
-	s.tools["capture_screenshot"] = s.handleCaptureScreenshot
 	s.tools["get_ui_info"] = s.handleGetUIInfo
 }
 
@@ -37,7 +36,6 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 		{"name": "list_collected_data", "description": "List collected data (credentials, downloads, screenshots)", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"data_type": map[string]interface{}{"type": "string", "enum": []string{"credentials", "downloads", "screenshots"}}}, "required": []string{"data_type"}}},
 		{"name": "update_agent_config", "description": "Update agent sleep/jitter", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"agent_id": map[string]interface{}{"type": "string"}, "sleep": map[string]interface{}{"type": "number"}, "jitter": map[string]interface{}{"type": "number"}}, "required": []string{"agent_id"}}},
 		{"name": "update_agent_metadata", "description": "Update agent tag/mark", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"agent_id": map[string]interface{}{"type": "string"}, "metadata_type": map[string]interface{}{"type": "string", "enum": []string{"tag", "mark"}}, "value": map[string]interface{}{"type": "string"}}, "required": []string{"agent_id", "metadata_type"}}},
-		{"name": "capture_screenshot", "description": "Capture Client UI screenshot (returns base64 PNG)", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "get_ui_info", "description": "Get UI and data summary info (window size, counts, registered agents/listeners)", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 	}
 }
@@ -100,10 +98,6 @@ func (s *MCPServer) handleUpdateAgentConfig(params map[string]interface{}) (inte
 
 func (s *MCPServer) handleUpdateAgentMetadata(params map[string]interface{}) (interface{}, error) {
 	return s.clientConnector.SendCommand("update_agent_metadata", params)
-}
-
-func (s *MCPServer) handleCaptureScreenshot(params map[string]interface{}) (interface{}, error) {
-	return s.clientConnector.SendCommand("capture_screenshot", params)
 }
 
 func (s *MCPServer) handleGetUIInfo(params map[string]interface{}) (interface{}, error) {
