@@ -33,7 +33,7 @@ const ControlPlatform = () => {
   const [error, setError] = useState(null);
   const [menu, setMenu] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeDock, setActiveDock] = useState('listeners');
+  const [activeDock, setActiveDock] = useState('logs');
   const [viewMode, setViewMode] = useState('sessions'); // 'sessions' or 'graph'
   const [isDataDialogOpen, setIsDataDialogOpen] = useState(false);
   const [selectedAgentForData, setSelectedAgentForData] = useState(null);
