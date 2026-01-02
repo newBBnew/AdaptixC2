@@ -39,6 +39,16 @@ const AgentConsole = ({ agent }) => {
     'help', 'shell', 'upload', 'download', 'execute', 'exit', 'sleep', 'jitter', 'pwd', 'ls', 'cd', 'whoami', 'ps', 'kill'
   ];
 
+  // Message type colors (aligned with Qt ConsoleWidget.cpp)
+  const getMsgPrefix = (msgType) => {
+    switch (msgType) {
+      case 1: return { prefix: '[+] ', color: 'text-[#FDFD96]' };    // Success - Yellow
+      case 2: return { prefix: '[-] ', color: 'text-[#E32227]' };    // Error - ChiliPepper
+      case 5: return { prefix: '[*] ', color: 'text-[#89CFF0]' };    // Info - BabyBlue
+      default: return { prefix: '', color: 'text-gray-300' };
+    }
+  };
+
   const getMsgColor = (msgType) => {
     switch (msgType) {
       case 1: return 'text-[#39FF14] font-bold'; // NeonGreen (Success)
@@ -51,6 +61,12 @@ const AgentConsole = ({ agent }) => {
       case 11: return 'text-[#808080]';          // Gray
       default: return 'text-gray-300';
     }
+  };
+
+  const formatTimestamp = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    return d.toLocaleString();
   };
 
   const history = consoleHistory[agent.a_id] || [
@@ -229,22 +245,29 @@ const AgentConsole = ({ agent }) => {
               className="flex-1 overflow-y-auto p-4 font-mono text-[12px] space-y-1 scrollbar-thin select-text"
             >
               {history.map((item, idx) => {
-                if (item.type === 'clear') return null; // Logic handled by not rendering previous items? 
-                // Better approach: filter history in context or handle here
+                if (item.type === 'clear') return null;
+                const prefixInfo = getMsgPrefix(item.msgType);
                 return (
-                  <div key={idx} className={cn(
-                    "flex items-start space-x-2 group",
-                    item.type === 'info' ? "text-blue-500/80 italic text-[11px]" : ""
-                  )}>
+                  <div key={idx} className="flex items-start group">
                     {item.type === 'input' ? (
                       <>
-                        <ChevronRight className="w-3 h-3 mt-1 flex-shrink-0 text-accent-secondary" />
-                        <span className="whitespace-pre-wrap text-accent-secondary font-bold">{item.content}</span>
+                        {item.timestamp && <span className="text-[#808080] mr-2">[{formatTimestamp(item.timestamp)}]</span>}
+                        {item.user && <span className="text-[#808080] mr-1">{item.user}</span>}
+                        {item.taskId && <span className="text-[#808080] mr-1">[{item.taskId.substring(0,6)}]</span>}
+                        <span className="text-[#808080] underline mr-1">{agent.a_name}</span>
+                        <span className="text-[#808080] mr-2">&gt;</span>
+                        <span className="whitespace-pre-wrap font-bold text-white">{item.content}</span>
                       </>
+                    ) : item.type === 'info' ? (
+                      <span className="text-blue-400/80 italic text-[11px]">{item.content}</span>
                     ) : (
-                      <span className={cn("whitespace-pre-wrap break-words w-full", getMsgColor(item.msgType))}>
-                        {item.content}
-                      </span>
+                      <>
+                        {item.timestamp && <span className="text-[#808080] mr-2">[{formatTimestamp(item.timestamp)}]</span>}
+                        {prefixInfo.prefix && <span className={prefixInfo.color}>{prefixInfo.prefix}</span>}
+                        <span className={cn("whitespace-pre-wrap break-words", getMsgColor(item.msgType))}>
+                          {item.content}
+                        </span>
+                      </>
                     )}
                   </div>
                 );
