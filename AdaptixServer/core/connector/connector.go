@@ -97,6 +97,8 @@ type Teamserver interface {
 
 	TsAgentTerminalCreateChannel(terminalData string, wsconn *websocket.Conn) error
 
+	TsGetExtensionPath() string
+
 	TsTunnelList() (string, error)
 	TsTunnelClientStart(AgentId string, Listen bool, Type int, Info string, Lhost string, Lport int, Client string, Thost string, Tport int, AuthUser string, AuthPass string) (string, error)
 	TsTunnelClientNewChannel(TunnelData string, wsconn *websocket.Conn) error
@@ -276,6 +278,11 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 		api_group.POST("/tunnel/start/rportfwd", connector.TcTunnelStartRpf)
 		api_group.POST("/tunnel/stop", connector.TcTunnelStop)
 		api_group.POST("/tunnel/set/info", connector.TcTunnelSetIno)
+
+		api_group.GET("/script/basepath", connector.TcScriptGetBasePath)
+		api_group.GET("/script/list", connector.TcScriptList)
+		api_group.POST("/script/read", connector.TcScriptRead)
+		api_group.POST("/script/bof", connector.TcScriptReadBof)
 	}
 
 	connector.Engine.NoRoute(limitTimeoutMiddleware(), default404Middleware(tsResponse), func(c *gin.Context) { _ = c.Error(errors.New("NoRoute")) })
