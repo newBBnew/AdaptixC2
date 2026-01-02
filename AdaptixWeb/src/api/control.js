@@ -3,7 +3,8 @@ import api from './agent';
 export const listenerApi = {
   list: () => api.get('/listener/list'),
   start: (data) => api.post('/listener/create', data),
-  stop: (name, type) => api.post('/listener/stop', { name, type }),
+  stop: (name, type) => api.post('/listener/stop', { name, type, config: '' }),
+  edit: (data) => api.post('/listener/edit', data),
 };
 
 export const taskApi = {
