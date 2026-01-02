@@ -180,11 +180,18 @@ const ProcessBrowser = ({ agent }) => {
         <table className="w-full text-left border-collapse table-fixed">
           <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
             <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-              <th className="py-2 px-4 w-1/2 border-r border-dark-700/30">Process Name</th>
-              <th className="py-2 px-4 w-20 border-r border-dark-700/30 text-center">PID</th>
-              <th className="py-2 px-4 w-20 border-r border-dark-700/30 text-center">PPID</th>
-              <th className="py-2 px-4 w-20 border-r border-dark-700/30 text-center">Arch</th>
-              <th className="py-2 px-4">Context</th>
+              <th className="py-2 px-4 w-16 border-r border-dark-700/30 text-center">PID</th>
+              <th className="py-2 px-4 w-16 border-r border-dark-700/30 text-center">PPID</th>
+              {agent.a_os === 1 ? (
+                <>
+                  <th className="py-2 px-4 w-16 border-r border-dark-700/30 text-center">Arch</th>
+                  <th className="py-2 px-4 w-16 border-r border-dark-700/30 text-center">Session</th>
+                </>
+              ) : (
+                <th className="py-2 px-4 w-20 border-r border-dark-700/30 text-center">TTY</th>
+              )}
+              <th className="py-2 px-4 w-48 border-r border-dark-700/30">Context</th>
+              <th className="py-2 px-4">Process</th>
             </tr>
           </thead>
           <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
@@ -202,23 +209,30 @@ const ProcessBrowser = ({ agent }) => {
                       isCurrentAgent && "bg-accent-danger/5"
                     )}
                   >
+                    <td className="px-4 text-center font-mono text-gray-500 text-[10px]">{p.b_pid}</td>
+                    <td className="px-4 text-center font-mono text-gray-500 text-[10px]">{p.b_ppid}</td>
+                    {agent.a_os === 1 ? (
+                      <>
+                        <td className="px-4 text-center font-mono text-gray-600 text-[10px]">{p.b_arch || '---'}</td>
+                        <td className="px-4 text-center font-mono text-gray-600 text-[10px]">{p.b_session || '---'}</td>
+                      </>
+                    ) : (
+                      <td className="px-4 text-center font-mono text-gray-600 text-[10px]">{p.b_tty || '---'}</td>
+                    )}
+                    <td className="px-4 truncate text-gray-500 text-[10px]">{p.b_context || '---'}</td>
                     <td className="px-4 flex items-center space-x-2 truncate">
                       <Cpu size={14} className={cn("shrink-0", isCurrentAgent ? "text-accent-danger" : "text-gray-600")} />
                       <span className={cn(isCurrentAgent ? "text-accent-danger font-bold" : "text-gray-300", "truncate font-mono")}>
                         {p.b_process_name}
                       </span>
                     </td>
-                    <td className="px-4 text-center font-mono text-gray-500 text-[10px]">{p.b_pid}</td>
-                    <td className="px-4 text-center font-mono text-gray-500 text-[10px]">{p.b_ppid}</td>
-                    <td className="px-4 text-center font-mono text-gray-600 text-[10px]">{p.b_arch || '---'}</td>
-                    <td className="px-4 truncate text-gray-500 text-[10px]">{p.b_context || '---'}</td>
                   </tr>
                 );
               })
             )}
             {filteredProcesses.length === 0 && (
               <tr>
-                <td colSpan="5" className="py-20 text-center opacity-20">
+                <td colSpan={agent.a_os === 1 ? 6 : 5} className="py-20 text-center opacity-20">
                   <div className="flex flex-col items-center">
                     <Activity size={48} className="text-gray-600" />
                     <p className="mt-2 uppercase tracking-widest text-[10px]">No processes found</p>
