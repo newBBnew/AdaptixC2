@@ -1,43 +1,164 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAgents } from '../../context/AgentContext';
+import { agentApi } from '../../api/agent';
+import FileBrowser from './FileBrowser';
+import ProcessBrowser from './ProcessBrowser';
 import { 
   Terminal, 
   Files, 
   Activity, 
   Info,
   ChevronRight,
-  Send
+  Send,
+  AlertCircle,
+  Search,
+  History,
+  X,
+  ArrowUp,
+  ArrowDown,
+  Trash2
 } from 'lucide-react';
-import { clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { cn } from '../../utils/cn';
 
 const AgentConsole = ({ agent }) => {
-  const { setActiveSubTab } = useAgents();
+  const { setActiveSubTab, consoleHistory, addConsoleLine, agentConfigs } = useAgents();
   const activeSubTab = agent.activeSubTab || 'console';
   const [inputValue, setInputValue] = useState('');
-  const [history, setHistory] = useState([
-    { type: 'info', content: `Session established with ${agent.a_name || agent.a_id}` },
-    { type: 'info', content: 'Type "help" for a list of available commands.' }
-  ]);
-  const scrollRef = React.useRef(null);
+  const [commandHistory, setCommandHistory] = useState([]);
+  const [historyIndex, setCommandHistoryIndex] = useState(-1);
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const scrollRef = useRef(null);
+  const inputRef = useRef(null);
+  const searchInputRef = useRef(null);
 
-  React.useEffect(() => {
+  // Get available commands for this agent type from metadata
+  const availableCommands = agentConfigs[agent.a_name]?.commands || [
+    'help', 'shell', 'upload', 'download', 'execute', 'exit', 'sleep', 'jitter', 'pwd', 'ls', 'cd', 'whoami', 'ps', 'kill'
+  ];
+
+  const getMsgColor = (msgType) => {
+    switch (msgType) {
+      case 1: return 'text-[#39FF14] font-bold'; // NeonGreen (Success)
+      case 2: return 'text-[#E32227] font-bold'; // ChiliPepper (Error)
+      case 3: return 'text-[#FFA500]';           // BrightOrange (Warning)
+      case 4: return 'text-[#A01641] font-bold'; // Berry (Critical)
+      case 5: return 'text-[#89CFF0] italic';    // BabyBlue (Info)
+      case 6: return 'text-[#FDFD96]';           // PastelYellow (System)
+      case 10: return 'text-[#E0E0E0]';          // ConsoleWhite
+      case 11: return 'text-[#808080]';          // Gray
+      default: return 'text-gray-300';
+    }
+  };
+
+  const history = consoleHistory[agent.a_id] || [
+    { type: 'info', content: `Session established with ${agent.a_name || agent.a_id.substring(0,8)}` },
+    { type: 'info', content: 'Type "help" for a list of available commands.' }
+  ];
+
+  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [history]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
     
-    setHistory([...history, { type: 'input', content: inputValue }]);
-    // 模拟响应 - 真实下发逻辑将在下一步对接
-    setTimeout(() => {
-      setHistory(prev => [...prev, { type: 'output', content: `[+] Task queued: ${inputValue}` }]);
-    }, 100);
+    const cmd = inputValue.trim();
+    if (cmd.toLowerCase() === 'clear') {
+      addConsoleLine(agent.a_id, { type: 'clear' });
+      setInputValue('');
+      return;
+    }
+
     setInputValue('');
+    setCommandHistory(prev => [cmd, ...prev].slice(0, 50));
+    setCommandHistoryIndex(-1);
+
+    // Add locally to history immediately
+    addConsoleLine(agent.a_id, { type: 'input', content: cmd });
+
+    try {
+      await agentApi.executeCommand({
+        name: agent.a_name,
+        id: agent.a_id,
+        ui: true,
+        cmdline: cmd,
+        data: "{}",
+        ax_hook_id: "",
+        ax_handler_id: ""
+      });
+    } catch (err) {
+      console.error('Command execution failed:', err);
+      addConsoleLine(agent.a_id, { 
+        type: 'output', 
+        content: `[-] Error: ${err.response?.data?.message || 'Command failed to send'}`,
+        msgType: 2 // Error type
+      });
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (historyIndex < commandHistory.length - 1) {
+        const nextIndex = historyIndex + 1;
+        setCommandHistoryIndex(nextIndex);
+        setInputValue(commandHistory[nextIndex]);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIndex > 0) {
+        const nextIndex = historyIndex - 1;
+        setCommandHistoryIndex(nextIndex);
+        setInputValue(commandHistory[nextIndex]);
+      } else if (historyIndex === 0) {
+        setCommandHistoryIndex(-1);
+        setInputValue('');
+      }
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const currentInput = inputValue.trim().toLowerCase();
+      if (!currentInput) return;
+
+      const matches = availableCommands.filter(cmd => cmd.toLowerCase().startsWith(currentInput));
+      if (matches.length === 1) {
+        setInputValue(matches[0] + ' ');
+      } else if (matches.length > 1) {
+        // Show possible matches in console
+        addConsoleLine(agent.a_id, { 
+          type: 'info', 
+          content: `Possibilities: ${matches.join(', ')}` 
+        });
+      }
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      setIsSearchVisible(prev => !prev);
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+      e.preventDefault();
+      setIsHistoryDialogOpen(true);
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+      e.preventDefault();
+      addConsoleLine(agent.a_id, { type: 'clear' });
+    }
+  };
+
+  // Search functionality
+  const searchMatches = searchQuery ? history.filter(item => 
+    item.content?.toLowerCase().includes(searchQuery.toLowerCase())
+  ) : [];
+
+  const navigateSearch = (direction) => {
+    if (searchMatches.length === 0) return;
+    const newIndex = direction === 'up' 
+      ? (searchIndex + 1) % searchMatches.length
+      : (searchIndex - 1 + searchMatches.length) % searchMatches.length;
+    setSearchIndex(newIndex);
   };
 
   const subTabs = [
@@ -72,30 +193,75 @@ const AgentConsole = ({ agent }) => {
       <div className="flex-1 overflow-hidden flex flex-col">
         {activeSubTab === 'console' && (
           <>
+            {/* Search Panel (Ctrl+F) */}
+            {isSearchVisible && (
+              <div className="flex items-center px-3 py-1.5 bg-dark-800 border-b border-dark-700 space-x-2 animate-in slide-in-from-top-1 duration-150">
+                <Search className="w-3.5 h-3.5 text-gray-500" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setSearchIndex(0); }}
+                  placeholder="Search in console..."
+                  className="flex-1 bg-dark-950/50 border border-dark-600 rounded px-2 py-0.5 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setIsSearchVisible(false);
+                    if (e.key === 'Enter') navigateSearch('down');
+                  }}
+                />
+                <span className="text-[10px] text-gray-500">
+                  {searchMatches.length > 0 ? `${searchIndex + 1}/${searchMatches.length}` : '0/0'}
+                </span>
+                <button onClick={() => navigateSearch('up')} className="p-1 hover:bg-dark-700 rounded">
+                  <ArrowUp className="w-3 h-3 text-gray-400" />
+                </button>
+                <button onClick={() => navigateSearch('down')} className="p-1 hover:bg-dark-700 rounded">
+                  <ArrowDown className="w-3 h-3 text-gray-400" />
+                </button>
+                <button onClick={() => setIsSearchVisible(false)} className="p-1 hover:bg-dark-700 rounded">
+                  <X className="w-3 h-3 text-gray-400" />
+                </button>
+              </div>
+            )}
+
             <div 
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 font-mono text-[12px] space-y-1 scrollbar-thin"
+              className="flex-1 overflow-y-auto p-4 font-mono text-[12px] space-y-1 scrollbar-thin select-text"
             >
-              {history.map((item, idx) => (
-                <div key={idx} className={cn(
-                  item.type === 'input' ? "text-accent-secondary flex items-start space-x-2" : 
-                  item.type === 'info' ? "text-blue-500/80 italic text-[11px]" : "text-gray-300"
-                )}>
-                  {item.type === 'input' && <ChevronRight className="w-3 h-3 mt-1 flex-shrink-0" />}
-                  <span className="whitespace-pre-wrap">{item.content}</span>
-                </div>
-              ))}
+              {history.map((item, idx) => {
+                if (item.type === 'clear') return null; // Logic handled by not rendering previous items? 
+                // Better approach: filter history in context or handle here
+                return (
+                  <div key={idx} className={cn(
+                    "flex items-start space-x-2 group",
+                    item.type === 'info' ? "text-blue-500/80 italic text-[11px]" : ""
+                  )}>
+                    {item.type === 'input' ? (
+                      <>
+                        <ChevronRight className="w-3 h-3 mt-1 flex-shrink-0 text-accent-secondary" />
+                        <span className="whitespace-pre-wrap text-accent-secondary font-bold">{item.content}</span>
+                      </>
+                    ) : (
+                      <span className={cn("whitespace-pre-wrap break-words w-full", getMsgColor(item.msgType))}>
+                        {item.content}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             
             <form onSubmit={handleSubmit} className="p-2 bg-dark-800/50 border-t border-dark-700 flex items-center space-x-2">
               <span className="text-accent-primary font-mono font-black text-xs ml-2">adaptix&gt;</span>
               <input
+                ref={inputRef}
                 type="text"
                 autoFocus
                 className="flex-1 bg-transparent outline-none text-gray-200 font-mono text-[12px]"
                 placeholder="Type command..."
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
               />
               <button type="submit" className="text-gray-600 hover:text-accent-primary transition-colors pr-2">
                 <Send className="w-3.5 h-3.5" />
@@ -105,19 +271,11 @@ const AgentConsole = ({ agent }) => {
         )}
 
         {activeSubTab === 'files' && (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-600">
-            <Files className="w-12 h-12 mb-4 opacity-20" />
-            <p className="italic text-xs font-bold uppercase tracking-widest">File Browser: {agent.a_computer}</p>
-            <p className="text-[10px] mt-2 opacity-50">Fetching remote filesystem...</p>
-          </div>
+          <FileBrowser agent={agent} />
         )}
         
         {activeSubTab === 'procs' && (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-600">
-            <Activity className="w-12 h-12 mb-4 opacity-20" />
-            <p className="italic text-xs font-bold uppercase tracking-widest">Process Monitor: PID {agent.a_pid}</p>
-            <p className="text-[10px] mt-2 opacity-50">Retrieving task list...</p>
-          </div>
+          <ProcessBrowser agent={agent} />
         )}
 
         {activeSubTab === 'info' && (
@@ -139,6 +297,47 @@ const AgentConsole = ({ agent }) => {
           </div>
         )}
       </div>
+
+      {/* Command History Dialog (Ctrl+H) */}
+      {isHistoryDialogOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" onClick={() => setIsHistoryDialogOpen(false)}>
+          <div className="bg-dark-800 border border-dark-600 rounded-lg shadow-2xl w-96 max-h-96 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700">
+              <div className="flex items-center space-x-2">
+                <History className="w-4 h-4 text-accent-primary" />
+                <span className="text-sm font-bold text-white">Command History</span>
+              </div>
+              <button onClick={() => setIsHistoryDialogOpen(false)} className="p-1 hover:bg-dark-700 rounded">
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto scrollbar-thin">
+              {commandHistory.length === 0 ? (
+                <p className="p-4 text-center text-gray-500 text-sm italic">No commands in history</p>
+              ) : (
+                commandHistory.map((cmd, idx) => (
+                  <div 
+                    key={idx}
+                    className="px-4 py-2 hover:bg-dark-700 cursor-pointer border-b border-dark-700/50 flex items-center justify-between group"
+                    onClick={() => { setInputValue(cmd); setIsHistoryDialogOpen(false); inputRef.current?.focus(); }}
+                  >
+                    <span className="text-[11px] font-mono text-gray-300 truncate">{cmd}</span>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setCommandHistory(prev => prev.filter((_, i) => i !== idx)); }}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-dark-600 rounded"
+                    >
+                      <Trash2 className="w-3 h-3 text-gray-500" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="px-4 py-2 border-t border-dark-700 text-[10px] text-gray-500">
+              Click to insert • Ctrl+H to toggle
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

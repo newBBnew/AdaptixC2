@@ -16,32 +16,20 @@ import {
 import { dataApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 
+import CreateTargetDialog from './CreateTargetDialog';
+import { useAgents } from '../../context/AgentContext';
+import ContextMenu from '../../components/ContextMenu';
+
 const TargetsList = () => {
-  const [targets, setTargets] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { targets, fetchAgents } = useAgents();
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
-
-  const fetchTargets = async () => {
-    try {
-      setLoading(true);
-      const response = await dataApi.targets();
-      setTargets(Array.isArray(response.data) ? response.data : []);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch targets:', err);
-      setError('Connection failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchTargets();
-    const interval = setInterval(fetchTargets, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const [menu, setMenu] = useState(null);
+  
+  // Dialog states
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editData, setEditData] = useState(null);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -54,6 +42,66 @@ const TargetsList = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const handleRemove = async (id) => {
+    if (!window.confirm('Are you sure you want to remove this target?')) return;
+    try {
+      await dataApi.removeTarget([id]);
+    } catch (err) {
+      console.error('Failed to remove target:', err);
+    }
+  };
+
+  const handleEdit = (target) => {
+    setEditData(target);
+    setIsCreateOpen(true);
+  };
+
+  const handleSetTag = async (target) => {
+    const newTag = window.prompt('Enter new tag:', target.t_tag || '');
+    if (newTag !== null) {
+      try {
+        await dataApi.editTarget({ ...target, t_tag: newTag });
+        fetchAgents();
+      } catch (err) {
+        console.error('Failed to set tag:', err);
+      }
+    }
+  };
+
+  const handleContextMenu = (e, target) => {
+    e.preventDefault();
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      options: [
+        { label: 'Edit', icon: Edit3, onClick: () => handleEdit(target) },
+        { label: 'Remove', icon: Trash2, onClick: () => handleRemove(target.t_target_id) },
+        { divider: true },
+        { label: 'Set Tag...', icon: Tag, onClick: () => handleSetTag(target) },
+        { label: 'Export to file', icon: FileText, onClick: () => {
+          const format = window.prompt('Format (use %computer%, %domain%, %address%, %os%):', '%computer%,%address%,%os%');
+          if (!format) return;
+          const text = format
+            .replace(/%computer%/g, target.t_computer || '')
+            .replace(/%domain%/g, target.t_domain || '')
+            .replace(/%address%/g, target.t_address || '')
+            .replace(/%os%/g, target.t_os_desk || '');
+          const blob = new Blob([text], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'targets.txt';
+          a.click();
+          URL.revokeObjectURL(url);
+        }},
+        { label: 'Copy to clipboard', icon: Copy, onClick: () => {
+          const text = `${target.t_computer} - ${target.t_address}`;
+          navigator.clipboard.writeText(text);
+        }},
+      ]
+    });
+  };
+
   const filteredTargets = targets.filter(t => 
     Object.values(t).some(val => 
       String(val).toLowerCase().includes(searchQuery.toLowerCase())
@@ -61,9 +109,9 @@ const TargetsList = () => {
   );
 
   return (
-    <div className="flex flex-col h-full bg-dark-900 text-gray-300 font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-dark-900 select-none overflow-hidden" onClick={() => setMenu(null)}>
       {/* 1. Header with Controls (Mimics TargetsWidget.cpp) */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 bg-dark-800 border-b border-dark-700 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
             <Target className="w-3.5 h-3.5 text-accent-primary" />
@@ -84,14 +132,20 @@ const TargetsList = () => {
 
         <div className="flex items-center space-x-1">
           <button 
-            onClick={fetchTargets}
+            onClick={fetchAgents}
             className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
             title="Refresh"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-accent-primary")} />
+            <RefreshCw className={cn("w-3.5 h-3.5", false && "animate-spin text-accent-primary")} />
           </button>
           <div className="h-4 w-px bg-dark-600 mx-1" />
-          <button className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group">
+          <button 
+            onClick={() => {
+              setEditData(null);
+              setIsCreateOpen(true);
+            }}
+            className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group"
+          >
             <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
             <span className="text-[10px] font-bold uppercase">Add Target</span>
           </button>
@@ -144,6 +198,7 @@ const TargetsList = () => {
                 <tr 
                   key={t.t_target_id} 
                   className="hover:bg-accent-primary/5 transition-colors group h-8 cursor-default"
+                  onContextMenu={(e) => handleContextMenu(e, t)}
                 >
                   <td className="px-4 text-accent-primary font-bold truncate">{t.t_computer}</td>
                   <td className="px-4 text-gray-300 truncate">{t.t_domain || '---'}</td>
@@ -170,10 +225,18 @@ const TargetsList = () => {
                       <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-secondary transition-colors" title="Set Tag">
                         <Tag size={14} />
                       </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Edit">
+                      <button 
+                        onClick={() => handleEdit(t)}
+                        className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" 
+                        title="Edit"
+                      >
                         <Edit3 size={14} />
                       </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" title="Remove">
+                      <button 
+                        onClick={() => handleRemove(t.t_target_id)}
+                        className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" 
+                        title="Remove"
+                      >
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -197,6 +260,23 @@ const TargetsList = () => {
           </button>
         </div>
       </div>
+
+      <CreateTargetDialog 
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onSaved={() => {}}
+        editMode={!!editData}
+        initialData={editData}
+      />
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          options={menu.options}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 };

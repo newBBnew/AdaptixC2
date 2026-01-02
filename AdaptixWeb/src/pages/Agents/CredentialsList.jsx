@@ -12,38 +12,27 @@ import {
   Tag,
   Shield,
   User,
-  Database
+  Database,
+  FileDown
 } from 'lucide-react';
 import { dataApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 
+import CreateCredentialDialog from './CreateCredentialDialog';
+import { useAgents } from '../../context/AgentContext';
+import ContextMenu from '../../components/ContextMenu';
+
 const CredentialsList = () => {
-  const [creds, setCreds] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { credentials, fetchAgents } = useAgents();
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [filterType, setFilterType] = useState('All Types');
-
-  const fetchCreds = async () => {
-    try {
-      setLoading(true);
-      const response = await dataApi.creds();
-      setCreds(Array.isArray(response.data) ? response.data : []);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch credentials:', err);
-      setError('Connection failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchCreds();
-    const interval = setInterval(fetchCreds, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const [menu, setMenu] = useState(null);
+  
+  // Dialog states
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editData, setEditData] = useState(null);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -56,9 +45,24 @@ const CredentialsList = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const credTypes = ['All Types', ...new Set(creds.map(c => c.type).filter(Boolean))].sort();
+  const handleRemove = async (id) => {
+    if (!window.confirm('Are you sure you want to remove this credential?')) return;
+    try {
+      await dataApi.removeCred([id]);
+      fetchAgents();
+    } catch (err) {
+      console.error('Failed to remove credential:', err);
+    }
+  };
 
-  const filteredCreds = creds.filter(c => {
+  const handleEdit = (cred) => {
+    setEditData(cred);
+    setIsCreateOpen(true);
+  };
+
+  const credTypes = ['All Types', ...new Set(credentials.map(c => c.type).filter(Boolean))].sort();
+
+  const filteredCreds = credentials.filter(c => {
     const matchesSearch = Object.values(c).some(val => 
       String(val).toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -70,10 +74,82 @@ const CredentialsList = () => {
     navigator.clipboard.writeText(pass);
   };
 
+  const handleCopyCommand = (cred, format) => {
+    let text = '';
+    const { username, password, realm } = cred;
+    switch (format) {
+      case 'realm_user_pass': text = `${realm}\\${username}:${password}`; break;
+      case 'user': text = username; break;
+      case 'pass': text = password; break;
+      case 'impacket_1': text = `'${realm}/${username}:${password}'`; break;
+      case 'impacket_2': text = `-hashes :${password} '${realm}/${username}'`; break;
+      case 'netexec_1': text = `-u '${username}' -p '${password}'`; break;
+      case 'netexec_2': text = `-u '${username}' -H '${password}'`; break;
+      case 'certipy': text = `-u '${username}@${realm}' -p '${password}'`; break;
+      default: text = password;
+    }
+    navigator.clipboard.writeText(text);
+    // Optional: add a toast notification here
+  };
+
+  const handleSetTag = async (id, currentTag) => {
+    const newTag = window.prompt('Enter new tag:', currentTag || '');
+    if (newTag !== null) {
+      try {
+        await dataApi.editCred({ ...credentials.find(c => c.cred_id === id), tag: newTag });
+      } catch (err) {
+        console.error('Failed to set tag:', err);
+      }
+    }
+  };
+
+  const handleContextMenu = (e, cred) => {
+    e.preventDefault();
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      options: [
+        { label: 'Edit Credential', icon: Edit3, onClick: () => handleEdit(cred) },
+        { label: 'Remove Credential', icon: Trash2, onClick: () => handleRemove(cred.cred_id) },
+        { divider: true },
+        { label: 'Set Tag...', icon: Tag, onClick: () => handleSetTag(cred.cred_id, cred.tag) },
+        { label: 'Export to file', icon: FileDown, onClick: () => {
+          const format = window.prompt('Format (use %realm%, %username%, %password%):', '%realm%\\%username%:%password%');
+          if (!format) return;
+          const text = format
+            .replace(/%realm%/g, cred.realm || '')
+            .replace(/%username%/g, cred.username || '')
+            .replace(/%password%/g, cred.password || '');
+          const blob = new Blob([text], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'creds.txt';
+          a.click();
+          URL.revokeObjectURL(url);
+        }},
+        { 
+          label: 'Copy to Clipboard', 
+          icon: Copy,
+          children: [
+            { label: 'Realm\\User:Pass', onClick: () => handleCopyCommand(cred, 'realm_user_pass') },
+            { label: 'User only', onClick: () => handleCopyCommand(cred, 'user') },
+            { label: 'Password/Hash only', onClick: () => handleCopyCommand(cred, 'pass') },
+            { divider: true },
+            { label: 'Impacket Format', onClick: () => handleCopyCommand(cred, 'impacket_1') },
+            { label: 'NetExec (-p)', onClick: () => handleCopyCommand(cred, 'netexec_1') },
+            { label: 'NetExec (-H)', onClick: () => handleCopyCommand(cred, 'netexec_2') },
+            { label: 'Certipy', onClick: () => handleCopyCommand(cred, 'certipy') },
+          ]
+        },
+      ]
+    });
+  };
+
   return (
-    <div className="flex flex-col h-full bg-dark-900 text-gray-300 font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-dark-900 select-none overflow-hidden" onClick={() => setMenu(null)}>
       {/* 1. Header with Controls (Mimics CredentialsWidget.cpp) */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 bg-dark-800 border-b border-dark-700 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
             <Key className="w-3.5 h-3.5 text-accent-primary" />
@@ -94,14 +170,20 @@ const CredentialsList = () => {
 
         <div className="flex items-center space-x-1">
           <button 
-            onClick={fetchCreds}
+            onClick={fetchAgents}
             className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
             title="Refresh"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-accent-primary")} />
+            <RefreshCw className={cn("w-3.5 h-3.5", false && "animate-spin text-accent-primary")} />
           </button>
           <div className="h-4 w-px bg-dark-600 mx-1" />
-          <button className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group">
+          <button 
+            onClick={() => {
+              setEditData(null);
+              setIsCreateOpen(true);
+            }}
+            className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group"
+          >
             <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
             <span className="text-[10px] font-bold uppercase">Add Cred</span>
           </button>
@@ -193,10 +275,18 @@ const CredentialsList = () => {
                       <button onClick={() => handleCopyPassword(c.password)} className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Copy Password">
                         <Copy size={14} />
                       </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Edit">
+                      <button 
+                        onClick={() => handleEdit(c)}
+                        className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" 
+                        title="Edit"
+                      >
                         <Edit3 size={14} />
                       </button>
-                      <button className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" title="Delete">
+                      <button 
+                        onClick={() => handleRemove(c.cred_id)}
+                        className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" 
+                        title="Delete"
+                      >
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -211,13 +301,30 @@ const CredentialsList = () => {
       {/* 4. Footer Summary */}
       <div className="px-4 py-1.5 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tighter shrink-0">
         <div className="flex items-center space-x-4">
-          <span>Total Credentials: <span className="text-accent-primary">{creds.length}</span></span>
+          <span>Total Credentials: <span className="text-accent-primary">{credentials.length}</span></span>
         </div>
         <div className="flex items-center space-x-1">
           <Shield size={10} className="text-accent-secondary" />
           <span className="text-accent-secondary/80">Encrypted Loot Sync</span>
         </div>
       </div>
+
+      <CreateCredentialDialog 
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onSaved={() => {}}
+        editMode={!!editData}
+        initialData={editData}
+      />
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          options={menu.options}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 };

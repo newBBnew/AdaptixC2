@@ -15,32 +15,25 @@ import {
 import { deliveryApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 
+import CreateLinkDialog from './CreateLinkDialog';
+import UploadFileDialog from './UploadFileDialog';
+import { useAgents } from '../../context/AgentContext';
+import ContextMenu from '../../components/ContextMenu';
+
 const FileDeliveryList = () => {
-  const [files, setFiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { fileDeliveries, fetchAgents } = useAgents();
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
+  
+  // Dialog states
+  const [isLinkOpen, setIsLinkOpen] = useState(false);
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [menu, setMenu] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
 
-  const fetchFiles = async () => {
-    try {
-      setLoading(true);
-      const response = await deliveryApi.list();
-      setFiles(Array.isArray(response.data) ? response.data : []);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch hosted files:', err);
-      setError('Connection failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchFiles();
-    const interval = setInterval(fetchFiles, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  // Convert object to array for listing
+  const filesArray = Object.values(fileDeliveries);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -53,7 +46,12 @@ const FileDeliveryList = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const filteredFiles = files.filter(f => 
+  const handleCreateLink = (file) => {
+    setSelectedFile(file);
+    setIsLinkOpen(true);
+  };
+
+  const filteredFiles = filesArray.filter(f => 
     Object.values(f).some(val => 
       String(val).toLowerCase().includes(searchQuery.toLowerCase())
     )
@@ -63,7 +61,6 @@ const FileDeliveryList = () => {
     if (!window.confirm('Are you sure you want to delete this hosted file?')) return;
     try {
       await deliveryApi.stop(id);
-      fetchFiles();
     } catch (err) {
       console.error('Failed to delete file:', err);
     }
@@ -71,13 +68,26 @@ const FileDeliveryList = () => {
 
   const handleCopyUrl = (url) => {
     navigator.clipboard.writeText(url);
-    // Could add a toast here
+  };
+
+  const handleContextMenu = (e, file) => {
+    e.preventDefault();
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      options: [
+        { label: 'Copy download URL', icon: Copy, onClick: () => handleCopyUrl(file.url) },
+        { label: 'Create download link', icon: Link, onClick: () => handleCreateLink(file) },
+        { divider: true },
+        { label: 'Delete hosted file', icon: Trash2, color: 'text-accent-danger', onClick: () => handleDeleteFile(file.id) },
+      ]
+    });
   };
 
   return (
-    <div className="flex flex-col h-full bg-dark-900 text-gray-300 font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-dark-900 select-none overflow-hidden" onClick={() => setMenu(null)}>
       {/* 1. Header with Controls (Mimics FileDeliveryWidget.cpp) */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 bg-dark-800 border-b border-dark-700 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
             <Database className="w-3.5 h-3.5 text-accent-primary" />
@@ -98,14 +108,16 @@ const FileDeliveryList = () => {
 
         <div className="flex items-center space-x-1">
           <button 
-            onClick={fetchFiles}
             className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
             title="Refresh"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-accent-primary")} />
+            <RefreshCw className={cn("w-3.5 h-3.5", false && "animate-spin text-accent-primary")} />
           </button>
           <div className="h-4 w-px bg-dark-600 mx-1" />
-          <button className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group">
+          <button 
+            onClick={() => setIsUploadOpen(true)}
+            className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group"
+          >
             <FileUp className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
             <span className="text-[10px] font-bold uppercase">Upload</span>
           </button>
@@ -157,6 +169,7 @@ const FileDeliveryList = () => {
                 <tr 
                   key={f.id} 
                   className="hover:bg-accent-primary/5 transition-colors group h-8 cursor-default"
+                  onContextMenu={(e) => handleContextMenu(e, f)}
                 >
                   <td className="px-4 text-accent-primary font-bold font-mono truncate">{f.filename}</td>
                   <td className="px-4 text-gray-300 font-mono truncate">{f.size || '---'}</td>
@@ -181,6 +194,7 @@ const FileDeliveryList = () => {
                         <Copy size={14} />
                       </button>
                       <button 
+                        onClick={() => handleCreateLink(f)}
                         className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-secondary transition-colors" 
                         title="Create Link"
                       >
@@ -205,13 +219,36 @@ const FileDeliveryList = () => {
       {/* 4. Footer Summary */}
       <div className="px-4 py-1.5 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tighter shrink-0">
         <div className="flex items-center space-x-4">
-          <span>Hosted Files: <span className="text-accent-primary">{files.length}</span></span>
+          <span>Hosted Files: <span className="text-accent-primary">{filesArray.length}</span></span>
         </div>
         <div className="flex items-center space-x-1">
           <div className="w-1.5 h-1.5 rounded-full bg-accent-secondary animate-pulse" />
           <span className="text-accent-secondary/80">File Delivery Sync Active</span>
         </div>
       </div>
+
+      {/* Dialogs */}
+      <CreateLinkDialog 
+        isOpen={isLinkOpen}
+        onClose={() => setIsLinkOpen(false)}
+        fileId={selectedFile?.id}
+        filename={selectedFile?.filename}
+      />
+
+      <UploadFileDialog
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        onUploaded={() => {}}
+      />
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          options={menu.options}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 };

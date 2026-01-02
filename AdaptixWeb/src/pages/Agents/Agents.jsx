@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { agentApi } from '../../api/agent';
 import { useAgents } from '../../context/AgentContext';
-import AgentConsole from './AgentConsole';
+import { useSocket } from '../../context/SocketContext';
 import SessionsGraph from './SessionsGraph';
+import SetAgentDataDialog from './SetAgentDataDialog';
 import ContextMenu from '../../components/ContextMenu';
 import Toolbar from './Toolbar';
 import Dock from './Dock';
@@ -34,12 +35,18 @@ const ControlPlatform = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDock, setActiveDock] = useState('listeners');
   const [viewMode, setViewMode] = useState('sessions'); // 'sessions' or 'graph'
-  const [tableHeight, setTableHeight] = useState(300); 
+  const [isDataDialogOpen, setIsDataDialogOpen] = useState(false);
+  const [selectedAgentForData, setSelectedAgentForData] = useState(null);
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [filterActiveOnly, setFilterActiveOnly] = useState(false);
   const [filterType, setFilterType] = useState('All types');
-  const isResizing = useRef(false);
-  const { openTabs, activeTabId, setActiveTabId, openAgentTab, closeTab } = useAgents();
+  const { agents: contextAgents, openTabs, activeTabId, setActiveTabId, openAgentTab, closeTab } = useAgents();
+  const { isSyncing, syncProgress } = useSocket();
+  const fetchAgents = useAgents().fetchAgents;
+
+  useEffect(() => {
+    setAgents(contextAgents);
+  }, [contextAgents]);
 
   // 获取所有 Agent 类型用于过滤器
   const agentTypes = ['All types', ...new Set(agents.map(a => a.a_name).filter(Boolean))].sort();
@@ -68,64 +75,142 @@ const ControlPlatform = () => {
   }, []);
 
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (!isResizing.current) return;
-      const newHeight = e.clientY - 48; // 减去 Top Toolbar 高度
-      if (newHeight > 100 && newHeight < window.innerHeight - 200) {
-        setTableHeight(newHeight);
-      }
-    };
-    const handleMouseUp = () => {
-      isResizing.current = false;
-      document.body.style.cursor = 'default';
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
-
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        setLoading(true);
-        const response = await agentApi.list();
-        // Server returns []AgentData directly
-        setAgents(Array.isArray(response.data) ? response.data : []);
-        setError(null);
-      } catch (err) {
-        console.error('Failed to fetch agents:', err);
-        setError('Connection to Teamserver failed');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchAgents();
     const interval = setInterval(fetchAgents, 10000); 
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchAgents]);
+
+  const handleSetColor = async (ids, reset = false) => {
+    let bc = '', fc = '';
+    if (!reset) {
+      bc = window.prompt('Enter background color hex (e.g. #A01641):', '#A01641');
+      if (!bc) return;
+      fc = window.prompt('Enter foreground color hex (e.g. #FFFFFF):', '#FFFFFF');
+      if (!fc) return;
+    }
+    try {
+      await agentApi.setColor(ids, bc, fc, reset);
+      fetchAgents();
+    } catch (err) {
+      console.error('Failed to set color:', err);
+    }
+  };
 
   const handleContextMenu = (e, agent) => {
     e.preventDefault();
+    const ids = [agent.a_id];
     setMenu({
       x: e.clientX,
       y: e.clientY,
       options: [
-        { label: 'Interact', icon: Terminal, onClick: () => openAgentTab(agent, 'console') },
-        { label: 'File Browser', icon: Files, onClick: () => openAgentTab(agent, 'files') },
-        { label: 'Process List', icon: Activity, onClick: () => openAgentTab(agent, 'procs') },
+        { label: 'Console', icon: Terminal, onClick: () => openAgentTab(agent, 'console') },
         { divider: true },
-        { label: 'Elevate...', icon: ShieldAlert, onClick: () => console.log('Elevate', agent.a_id) },
-        { label: 'Exit Agent', icon: Power, onClick: () => console.log('Exit', agent.a_id) },
+        { 
+          label: 'Agent', 
+          icon: ChevronRight,
+          children: [
+            { label: 'Execute command', onClick: () => {
+              const cmd = window.prompt('Enter command to execute:');
+              if (cmd) {
+                openAgentTab(agent, 'console');
+                // Command will be executed via console
+              }
+            }},
+            { label: 'Task manager', onClick: () => {
+              setActiveDock('tasks');
+              // TODO: Set agent filter in tasks
+            }},
+            { divider: true },
+            { label: 'Remove console data', onClick: () => {
+              if (window.confirm('Clear console history for this agent?')) agentApi.removeConsole(ids);
+            }},
+            { label: 'Remove from server', color: 'text-accent-danger', onClick: () => {
+              if (window.confirm('Are you sure you want to delete all information about this agent from the server?')) agentApi.remove(ids);
+            }},
+          ]
+        },
+        { 
+          label: 'Session', 
+          icon: ChevronRight,
+          children: [
+            { label: 'Mark as Active', onClick: () => agentApi.setMark(ids, '') },
+            { label: 'Mark as Inactive', onClick: () => agentApi.setMark(ids, 'Inactive') },
+            { divider: true },
+            { label: 'Set data', onClick: () => {
+              setSelectedAgentForData(agent);
+              setIsDataDialogOpen(true);
+            }},
+            { label: 'Set tag...', onClick: () => {
+              const tag = window.prompt('Enter tag:', agent.a_tags || '');
+              if (tag !== null) agentApi.setTag(ids, tag);
+            }},
+            { divider: true },
+            { label: 'Set items color', onClick: () => {
+              const bc = window.prompt('Enter background color hex (e.g. #A01641):', '#A01641');
+              if (bc) agentApi.setColor(ids, bc, '', false).then(fetchAgents);
+            }},
+            { label: 'Set text color', onClick: () => {
+              const fc = window.prompt('Enter text color hex (e.g. #FFFFFF):', '#FFFFFF');
+              if (fc) agentApi.setColor(ids, '', fc, false).then(fetchAgents);
+            }},
+            { label: 'Reset color', onClick: () => agentApi.setColor(ids, '', '', true).then(fetchAgents) },
+            { divider: true },
+            { label: 'Hide on client', onClick: () => {
+              // Local hide - not persisted to server
+              console.log('Hide agent:', agent.a_id);
+            }},
+          ]
+        },
+        { 
+          label: 'Browsers', 
+          icon: ChevronRight,
+          children: [
+            { label: 'File Browser', icon: Files, onClick: () => openAgentTab(agent, 'files') },
+            { label: 'Process List', icon: Activity, onClick: () => openAgentTab(agent, 'procs') },
+          ]
+        },
       ]
     });
   };
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-dark-900 select-none text-[#e0e0e0]" onClick={() => setMenu(null)}>
+      {/* Sync Overlay (Mimics Qt Sync Dialog) */}
+      {isSyncing && (
+        <div className="absolute inset-0 z-[100] bg-dark-900/80 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-dark-800 border border-dark-700 p-8 rounded-2xl shadow-2xl max-w-md w-full mx-4 space-y-6">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 bg-accent-primary/20 rounded-xl">
+                <RefreshCw className="w-6 h-6 text-accent-primary animate-spin" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white tracking-tight">Synchronizing Data</h3>
+                <p className="text-xs text-gray-500 uppercase tracking-widest font-black">Fetching established sessions...</p>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-mono text-gray-400 uppercase">
+                <span>Synchronizing objects</span>
+                <span>{syncProgress.current} / {syncProgress.total}</span>
+              </div>
+              <div className="h-1.5 w-full bg-dark-950 rounded-full overflow-hidden border border-dark-700">
+                <div 
+                  className="h-full bg-accent-primary transition-all duration-300 shadow-[0_0_10px_rgba(59,130,246,0.5)]"
+                  style={{ width: `${syncProgress.total > 0 ? (syncProgress.current / syncProgress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+            
+            <div className="pt-2 flex justify-center">
+              <span className="text-[9px] text-gray-600 font-mono animate-pulse uppercase tracking-tighter">
+                Establishing encrypted tunnel to teamserver...
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. Top Toolbar (Directly from Qt Client) */}
       <Toolbar 
         activeDock={activeDock} 
@@ -148,14 +233,8 @@ const ControlPlatform = () => {
 
       {/* 2. Main Content Splitter */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-        {/* Top: Agent List Table */}
-        <div 
-          style={{ height: openTabs.length > 0 ? `${tableHeight}px` : '100%' }}
-          className={cn(
-            "flex flex-col border-b border-dark-700 transition-all duration-75 overflow-hidden",
-            !openTabs.length && "flex-1"
-          )}
-        >
+        {/* Top: Agent List Table - Now takes full remaining height */}
+        <div className="flex-1 flex flex-col border-b border-dark-700 overflow-hidden">
           {/* Header Controls (Mimics SessionsTableWidget.cpp) */}
           <div className="flex items-center justify-between px-4 py-1.5 bg-dark-800/80 border-b border-dark-700">
             <div className="flex items-center space-x-4">
@@ -247,19 +326,28 @@ const ControlPlatform = () => {
                 <table className="w-full text-left border-collapse table-fixed">
                   <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
                     <tr className="border-b border-dark-700 text-gray-400 text-[10px] font-bold uppercase tracking-tight">
-                      <th className="py-1.5 px-4 w-40 border-r border-dark-700/50">External IP</th>
-                      <th className="py-1.5 px-4 w-40 border-r border-dark-700/50">Internal IP</th>
-                      <th className="py-1.5 px-4 w-32 border-r border-dark-700/50">User</th>
-                      <th className="py-1.5 px-4 w-32 border-r border-dark-700/50">Computer</th>
-                      <th className="py-1.5 px-4 border-r border-dark-700/50">OS Descriptor</th>
-                      <th className="py-1.5 px-4 w-24 border-r border-dark-700/50">PID</th>
-                      <th className="py-1.5 px-4 w-32 text-right">Last Check-in</th>
+                      <th className="py-1.5 px-2 w-20 border-r border-dark-700/50">Agent Id</th>
+                      <th className="py-1.5 px-2 w-16 border-r border-dark-700/50">Type</th>
+                      <th className="py-1.5 px-2 w-24 border-r border-dark-700/50">External</th>
+                      <th className="py-1.5 px-2 w-20 border-r border-dark-700/50">Listener</th>
+                      <th className="py-1.5 px-2 w-24 border-r border-dark-700/50">Internal</th>
+                      <th className="py-1.5 px-2 w-20 border-r border-dark-700/50">Domain</th>
+                      <th className="py-1.5 px-2 w-20 border-r border-dark-700/50">Computer</th>
+                      <th className="py-1.5 px-2 w-24 border-r border-dark-700/50">User</th>
+                      <th className="py-1.5 px-2 w-28 border-r border-dark-700/50">OS</th>
+                      <th className="py-1.5 px-2 w-28 border-r border-dark-700/50">Process</th>
+                      <th className="py-1.5 px-2 w-12 border-r border-dark-700/50">PID</th>
+                      <th className="py-1.5 px-2 w-12 border-r border-dark-700/50">TID</th>
+                      <th className="py-1.5 px-2 w-16 border-r border-dark-700/50">Tags</th>
+                      <th className="py-1.5 px-2 w-24 border-r border-dark-700/50">Created</th>
+                      <th className="py-1.5 px-2 w-20 border-r border-dark-700/50">Last</th>
+                      <th className="py-1.5 px-2 w-24">Sleep</th>
                     </tr>
                   </thead>
                   <tbody className="text-[11px] font-medium">
                     {filteredAgents.length === 0 ? (
                       <tr>
-                        <td colSpan="7" className="px-6 py-20 text-center">
+                        <td colSpan="16" className="px-6 py-20 text-center">
                           <div className="flex flex-col items-center space-y-3 opacity-20">
                             <Activity size={48} className="text-gray-600" />
                             <p className="text-sm font-medium tracking-widest uppercase">No active beacons matching criteria</p>
@@ -267,7 +355,13 @@ const ControlPlatform = () => {
                         </td>
                       </tr>
                     ) : (
-                      filteredAgents.map((agent) => (
+                      filteredAgents.map((agent) => {
+                        const username = agent.a_elevated ? `* ${agent.a_username}` : agent.a_username;
+                        const userDisplay = agent.a_impersonated ? `${username} [${agent.a_impersonated}]` : username;
+                        const process = agent.a_arch ? `${agent.a_process} (${agent.a_arch})` : agent.a_process;
+                        const lastSec = Math.max(0, Math.floor(Date.now() / 1000) - agent.a_last_tick);
+                        const sleepDisplay = agent.a_mark || `${agent.a_sleep}s (${agent.a_jitter}%)`;
+                        return (
                         <tr 
                           key={agent.a_id} 
                           onDoubleClick={() => openAgentTab(agent)}
@@ -276,22 +370,31 @@ const ControlPlatform = () => {
                             "border-b border-dark-800/50 hover:bg-accent-primary/5 transition-colors group cursor-pointer h-7",
                             activeTabId === agent.a_id && "bg-accent-primary/10 border-l-2 border-l-accent-primary"
                           )}
+                          style={{ backgroundColor: agent.a_color?.split(';')[0] || undefined, color: agent.a_color?.split(';')[1] || undefined }}
                         >
-                          <td className="px-4 text-gray-400 font-mono truncate">{agent.a_external_ip || '---'}</td>
-                          <td className="px-4 text-accent-primary font-mono font-bold truncate">{agent.a_internal_ip}</td>
-                          <td className="px-4 text-gray-300 italic truncate">{agent.a_username}</td>
-                          <td className="px-4 text-gray-300 truncate">{agent.a_computer || 'Unknown'}</td>
-                          <td className="px-4 text-gray-400 truncate text-[10px]">{agent.a_os_desc}</td>
-                          <td className="px-4 text-gray-500 font-mono truncate">{agent.a_pid || '---'}</td>
-                          <td className="px-4 text-right text-gray-500 font-mono flex items-center justify-end space-x-2 pr-4">
-                            <span>{Math.max(0, Math.floor(Date.now() / 1000) - agent.a_last_tick)}s</span>
-                            <div className={cn(
-                              "w-1.5 h-1.5 rounded-full flex-shrink-0",
-                              (Math.floor(Date.now() / 1000) - agent.a_last_tick) < 60 ? 'bg-accent-secondary shadow-[0_0_6px_rgba(16,185,129,0.4)]' : 'bg-gray-600'
-                            )} />
+                          <td className="px-2 text-accent-primary font-mono font-bold truncate text-[10px]">{agent.a_id?.substring(0,8) || '---'}</td>
+                          <td className="px-2 text-gray-300 truncate text-[10px]">{agent.a_name || '---'}</td>
+                          <td className="px-2 text-gray-400 font-mono truncate text-[10px]">{agent.a_external_ip || '---'}</td>
+                          <td className="px-2 text-gray-500 truncate text-[10px]">{agent.a_listener || '---'}</td>
+                          <td className="px-2 text-gray-400 font-mono truncate text-[10px]">{agent.a_internal_ip || '---'}</td>
+                          <td className="px-2 text-gray-500 truncate text-[10px]">{agent.a_domain || '---'}</td>
+                          <td className="px-2 text-gray-300 truncate text-[10px]">{agent.a_computer || '---'}</td>
+                          <td className="px-2 text-gray-300 italic truncate text-[10px]">{userDisplay || '---'}</td>
+                          <td className="px-2 text-gray-400 truncate text-[10px]">{agent.a_os_desc || '---'}</td>
+                          <td className="px-2 text-gray-500 truncate text-[10px]">{process || '---'}</td>
+                          <td className="px-2 text-gray-500 font-mono text-center text-[10px]">{agent.a_pid || '---'}</td>
+                          <td className="px-2 text-gray-500 font-mono text-center text-[10px]">{agent.a_tid || '---'}</td>
+                          <td className="px-2 text-accent-secondary truncate text-[10px]">{agent.a_tags || '---'}</td>
+                          <td className="px-2 text-gray-500 font-mono truncate text-[10px]">{agent.a_create_time ? new Date(agent.a_create_time * 1000).toLocaleString() : '---'}</td>
+                          <td className="px-2 text-gray-500 font-mono text-center text-[10px]">
+                            <div className="flex items-center justify-center space-x-1">
+                              <span>{lastSec}s</span>
+                              <div className={cn("w-1.5 h-1.5 rounded-full", lastSec < 60 ? 'bg-accent-secondary' : 'bg-gray-600')} />
+                            </div>
                           </td>
+                          <td className="px-2 text-gray-400 font-mono text-center text-[10px]">{sleepDisplay}</td>
                         </tr>
-                      ))
+                      );})
                     )}
                   </tbody>
                 </table>
@@ -302,69 +405,31 @@ const ControlPlatform = () => {
           </div>
         </div>
 
-        {/* Resizer Handle */}
-        {openTabs.length > 0 && (
-          <div 
-            className="h-1 bg-dark-700 hover:bg-accent-primary cursor-row-resize transition-colors z-20"
-            onMouseDown={() => {
-              isResizing.current = true;
-              document.body.style.cursor = 'row-resize';
-            }}
-          />
-        )}
-
-        {/* Bottom: Tabs Area (Console / Multi-session) */}
-        {openTabs.length > 0 && (
-          <div className="flex-1 flex flex-col min-h-0 bg-dark-800 overflow-hidden">
-            {/* Console Tab Headers */}
-            <div className="flex overflow-x-auto no-scrollbar bg-dark-900/90 border-b border-dark-700 h-8">
-              {openTabs.map((tab) => (
-                <div
-                  key={tab.a_id}
-                  onClick={() => setActiveTabId(tab.a_id)}
-                  className={cn(
-                    "group flex items-center space-x-2 px-4 border-r border-dark-700 cursor-pointer transition-all min-w-[120px] max-w-[220px] h-8 relative",
-                    activeTabId === tab.a_id 
-                      ? "bg-dark-800 text-accent-primary border-t-2 border-t-accent-primary shadow-inner" 
-                      : "text-gray-500 hover:bg-dark-800/50 hover:text-gray-400"
-                  )}
-                >
-                  <Terminal className={cn("w-3 h-3 flex-shrink-0", activeTabId === tab.a_id ? "text-accent-primary" : "text-gray-600")} />
-                  <span className="flex-1 truncate text-[10px] font-black font-mono tracking-tight uppercase">
-                    {tab.a_name || tab.a_id.substring(0,8)}
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.a_id);
-                    }}
-                    className="p-0.5 rounded hover:bg-dark-600 transition-colors opacity-0 group-hover:opacity-100"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex-1 overflow-hidden">
-              {openTabs.map(tab => (
-                <div 
-                  key={tab.a_id} 
-                  className={cn("h-full", activeTabId === tab.a_id ? "block" : "hidden")}
-                >
-                  <AgentConsole agent={tab} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* 3. Global Dock (Bottom Fixed Panels) */}
-      <Dock activeDock={activeDock} setActiveDock={setActiveDock} />
+      {/* 3. Global Dock (Bottom Fixed Panels) - Now includes Console tabs */}
+      <Dock 
+        activeDock={activeDock} 
+        setActiveDock={(dock) => {
+          setActiveDock(dock);
+          setActiveTabId(null); // Clear active agent when switching to other dock
+        }}
+        openAgentTabs={openTabs}
+        activeAgentId={activeTabId}
+        onAgentTabChange={setActiveTabId}
+        onAgentTabClose={closeTab}
+      />
 
       {/* Context Menu */}
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
+
+      {/* Dialogs */}
+      <SetAgentDataDialog 
+        isOpen={isDataDialogOpen}
+        onClose={() => setIsDataDialogOpen(false)}
+        agent={selectedAgentForData}
+        onUpdated={fetchAgents}
+      />
     </div>
   );
 };
