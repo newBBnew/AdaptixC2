@@ -30,8 +30,12 @@ export const SocketProvider = ({ children }) => {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       wsUrl = `${wsProtocol}//${window.location.host}${wsUrl}`;
     }
+    
+    // Add token as query parameter (browser WebSocket doesn't support custom headers)
+    const separator = wsUrl.includes('?') ? '&' : '?';
+    wsUrl = `${wsUrl}${separator}token=${encodeURIComponent(token)}`;
 
-    console.log('[WebSocket] Connecting to:', wsUrl);
+    console.log('[WebSocket] Connecting to:', wsUrl.replace(/token=[^&]+/, 'token=***'));
     const socket = new WebSocket(wsUrl);
 
     socket.onopen = async () => {
