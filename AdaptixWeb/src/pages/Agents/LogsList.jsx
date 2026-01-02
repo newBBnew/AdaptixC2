@@ -9,23 +9,61 @@ import {
   Download
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { useSocket } from '../../context/SocketContext';
 
 const LogsList = () => {
-  const [logs, setLogs] = useState([
-    { type: 'EVENT_AGENT_NEW', time: Date.now() / 1000 - 3600, message: 'New agent beacon from 10.88.88.3 (blackman)' },
-    { type: 'EVENT_LISTENER_START', time: Date.now() / 1000 - 3500, message: 'Listener HTTP started on 0.0.0.0:80' },
-    { type: 'EVENT_CLIENT_CONNECT', time: Date.now() / 1000 - 3400, message: 'Operator admin connected from 127.0.0.1' },
-  ]);
+  const { logs } = useAgents();
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(-1);
+  const [searchResults, setSearchResults] = useState([]);
+  const [currentSearchIndex, setCurrentIndex] = useState(-1);
   const scrollRef = useRef(null);
+
+  const displayedLogs = logs;
+
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      const results = [];
+      logs.forEach((log, index) => {
+        if (log.message.toLowerCase().includes(searchQuery.toLowerCase())) {
+          results.push(index);
+        }
+      });
+      setSearchResults(results);
+      setCurrentIndex(results.length > 0 ? 0 : -1);
+    } else {
+      setSearchResults([]);
+      setCurrentIndex(-1);
+    }
+  }, [searchQuery, logs]);
+
+  const handleNextSearch = () => {
+    if (searchResults.length > 0) {
+      setCurrentIndex((prev) => (prev + 1) % searchResults.length);
+    }
+  };
+
+  const handlePrevSearch = () => {
+    if (searchResults.length > 0) {
+      setCurrentIndex((prev) => (prev - 1 + searchResults.length) % searchResults.length);
+    }
+  };
+
+  useEffect(() => {
+    if (currentSearchIndex !== -1 && scrollRef.current) {
+      const logElements = scrollRef.current.querySelectorAll('.log-entry');
+      const targetIndex = searchResults[currentSearchIndex];
+      if (logElements[targetIndex]) {
+        logElements[targetIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [currentSearchIndex, searchResults]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [logs]);
+  }, [displayedLogs]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -35,7 +73,10 @@ const LogsList = () => {
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
         e.preventDefault();
-        setLogs([]);
+        // Note: Clear is visual only since logs come from server
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = 0;
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -44,21 +85,27 @@ const LogsList = () => {
 
   const getLogColor = (type) => {
     switch (type) {
-      case 'EVENT_CLIENT_CONNECT': return 'text-white';
-      case 'EVENT_CLIENT_DISCONNECT': return 'text-gray-500';
-      case 'EVENT_LISTENER_START':
-      case 'EVENT_LISTENER_STOP': return 'text-orange-400';
-      case 'EVENT_AGENT_NEW': return 'text-accent-secondary';
-      case 'EVENT_TUNNEL_START':
-      case 'EVENT_TUNNEL_STOP': return 'text-yellow-200';
-      default: return 'text-gray-300';
+      case 1: // EVENT_CLIENT_CONNECT
+        return 'text-[#E0E0E0]'; // COLOR_ConsoleWhite
+      case 2: // EVENT_CLIENT_DISCONNECT
+        return 'text-[#808080]'; // COLOR_Gray
+      case 3: // EVENT_LISTENER_START
+      case 4: // EVENT_LISTENER_STOP
+        return 'text-[#FFA500]'; // COLOR_BrightOrange
+      case 5: // EVENT_AGENT_NEW
+        return 'text-[#39FF14] font-bold'; // COLOR_NeonGreen
+      case 6: // EVENT_TUNNEL_START
+      case 7: // EVENT_TUNNEL_STOP
+        return 'text-[#FDFD96]'; // COLOR_PastelYellow
+      default:
+        return 'text-[#E0E0E0]';
     }
   };
 
   return (
-    <div className="flex flex-col h-full bg-dark-950 text-[12px] font-mono select-text overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-dark-900 select-none overflow-hidden">
       {/* 1. Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0 select-none">
+      <div className="flex items-center justify-between px-4 py-2 bg-dark-800 border-b border-dark-700 shrink-0 select-none">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-orange-500/10 border border-orange-500/20">
             <ScrollText className="w-3.5 h-3.5 text-orange-500" />
@@ -95,9 +142,21 @@ const LogsList = () => {
       {isSearchVisible && (
         <div className="flex items-center px-4 py-2 bg-dark-800/50 border-b border-dark-700 animate-in slide-in-from-top-2 duration-200 shrink-0 select-none">
           <div className="flex items-center space-x-2 mr-4 text-gray-500">
-            <button className="p-0.5 hover:text-white transition-colors"><ChevronLeft size={14}/></button>
-            <button className="p-0.5 hover:text-white transition-colors"><ChevronRight size={14}/></button>
-            <span className="text-[10px] font-bold min-w-[40px] text-center">0 of 0</span>
+            <button 
+              onClick={handlePrevSearch}
+              className="p-0.5 hover:text-white transition-colors"
+            >
+              <ChevronLeft size={14}/>
+            </button>
+            <button 
+              onClick={handleNextSearch}
+              className="p-0.5 hover:text-white transition-colors"
+            >
+              <ChevronRight size={14}/>
+            </button>
+            <span className="text-[10px] font-bold min-w-[40px] text-center">
+              {searchResults.length > 0 ? `${currentSearchIndex + 1} of ${searchResults.length}` : '0 of 0'}
+            </span>
           </div>
           <div className="relative flex-1 max-w-md">
             <input 
@@ -123,18 +182,27 @@ const LogsList = () => {
         className="flex-1 overflow-auto p-4 custom-scrollbar bg-[#0a0a0a]"
       >
         <div className="space-y-0.5">
-          {logs.map((log, i) => (
-            <div key={i} className="flex items-start space-x-2 group">
-              <span className="text-gray-600 shrink-0">
-                [{new Date(log.time * 1000).toLocaleTimeString([], { hour12: false })}]
-              </span>
-              <span className="text-gray-500 shrink-0">-&gt;</span>
-              <span className={cn("break-all whitespace-pre-wrap", getLogColor(log.type))}>
-                {log.message}
-              </span>
-            </div>
-          ))}
-          {logs.length === 0 && (
+          {displayedLogs.map((log, i) => {
+            const isSelected = searchResults[currentSearchIndex] === i;
+            return (
+              <div 
+                key={i} 
+                className={cn(
+                  "flex items-start space-x-2 group log-entry transition-colors",
+                  isSelected && "bg-accent-primary/20 ring-1 ring-accent-primary/30"
+                )}
+              >
+                <span className="text-gray-600 shrink-0">
+                  [{new Date(log.time * 1000).toLocaleTimeString([], { hour12: false })}]
+                </span>
+                <span className="text-gray-500 shrink-0">-&gt;</span>
+                <span className={cn("break-all whitespace-pre-wrap", getLogColor(log.type))}>
+                  {log.content || log.message}
+                </span>
+              </div>
+            );
+          })}
+          {displayedLogs.length === 0 && (
             <div className="py-20 flex flex-col items-center justify-center opacity-10 select-none">
               <ScrollText size={64} />
               <p className="mt-4 text-sm font-bold tracking-widest uppercase">Console Empty</p>
