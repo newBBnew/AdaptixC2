@@ -13,6 +13,7 @@ import AgentConsole from './AgentConsole';
 import RemoteTerminal from './RemoteTerminal';
 import FileBrowser from './FileBrowser';
 import ProcessBrowser from './ProcessBrowser';
+import AxConsole from './AxConsole';
 import { useAgents } from '../../context/AgentContext';
 import { 
   Radio, 
@@ -31,7 +32,8 @@ import {
   Database,
   Terminal,
   FolderOpen,
-  Activity
+  Activity,
+  Code2
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
@@ -55,6 +57,7 @@ const Dock = ({
 
   const dockItems = [
     { id: 'listeners', label: 'Listeners', icon: Radio },
+    { id: 'axconsole', label: 'AxConsole', icon: Code2 },
     { id: 'logs', label: 'Logs', icon: ScrollText },
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'tasks', label: 'Tasks', icon: ListTodo },
@@ -173,6 +176,7 @@ const Dock = ({
           ) : (
             <>
               {activeDock === 'listeners' && <ListenersList />}
+              {activeDock === 'axconsole' && <AxConsole />}
               {activeDock === 'tasks' && <TasksList />}
               {activeDock === 'logs' && <LogsList />}
               {activeDock === 'chat' && <ChatList />}
