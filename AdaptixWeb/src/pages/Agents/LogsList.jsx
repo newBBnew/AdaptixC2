@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useSocket } from '../../context/SocketContext';
+import { useAgents } from '../../context/AgentContext';
 
 const LogsList = () => {
   const { logs } = useAgents();
