@@ -202,30 +202,6 @@ const AgentConsole = ({ agent: initialAgent }) => {
 
   return (
     <div className="flex flex-col h-full bg-dark-900 select-none overflow-hidden">
-      {/* Sub Tabs Header */}
-      <div className="flex bg-dark-800 border-b border-dark-700 px-1 h-8 items-center shrink-0">
-        {subTabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveSubTab(agent.a_id, tab.id)}
-            className={cn(
-              "flex items-center space-x-2 px-4 py-1 text-[10px] font-black uppercase tracking-widest transition-all h-full border-b-2",
-              activeSubTab === tab.id 
-                ? "text-accent-primary border-accent-primary bg-accent-primary/5" 
-                : "text-gray-500 border-transparent hover:text-gray-300 hover:bg-dark-700/50"
-            )}
-          >
-            <tab.icon size={12} className={activeSubTab === tab.id ? "text-accent-primary" : ""} />
-            <span>{tab.name}</span>
-          </button>
-        ))}
-        <div className="flex-1" />
-        <div className="flex items-center px-3 space-x-3 text-[9px] font-black text-gray-600">
-          <span className="uppercase tracking-tighter">NODE_ID:</span>
-          <span className="text-accent-primary font-mono">{agent.a_id?.substring(0,12)}</span>
-        </div>
-      </div>
-
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden flex flex-col relative bg-dark-950/20">
         {activeSubTab === 'console' && (
