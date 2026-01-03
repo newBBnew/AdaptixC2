@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSocket } from './SocketContext';
 import { agentApi } from '../api/agent';
+import { listenerApi, taskApi, tunnelApi, deliveryApi, dataApi } from '../api/control';
 import { PacketType } from '../constants/packetTypes';
 import axEngine from '../utils/axScript';
 
@@ -16,64 +17,196 @@ export const AgentProvider = ({ children }) => {
   const [credentials, setCredentials] = useState([]);
   const [targets, setTargets] = useState([]);
   const [downloads, setDownloads] = useState([]);
+  const [screenshots, setScreenshots] = useState([]);
   const [fileDeliveries, setFileDeliveries] = useState({}); // { fileId: data }
   const [tunnels, setTunnels] = useState([]);
   const [pivots, setPivots] = useState({}); // { pivotId: data }
   const [chatMessages, setChatMessages] = useState([]);
   const [browserData, setBrowserData] = useState({}); // { agentId: { disks: [], files: [], procs: [] } }
+  
+  const [openTabs, setOpenTabs] = useState(() => {
+    try {
+      const saved = localStorage.getItem('adaptix_openTabs');
+      return saved ? JSON.parse(saved) : [{ id: 'logs', type: 'logs', title: 'Logs' }];
+    } catch (e) {
+      return [{ id: 'logs', type: 'logs', title: 'Logs' }];
+    }
+  });
+  const [activeTabId, setActiveTabId] = useState(() => {
+    return localStorage.getItem('adaptix_activeTabId') || 'logs';
+  });
+
+  // Persist openTabs and activeTabId
+  useEffect(() => {
+    localStorage.setItem('adaptix_openTabs', JSON.stringify(openTabs));
+  }, [openTabs]);
+
+  useEffect(() => {
+    localStorage.setItem('adaptix_activeTabId', activeTabId);
+  }, [activeTabId]);
+  const [isDockExpanded, setIsDockExpanded] = useState(true);
+  const [consoleHistory, setConsoleHistory] = useState({}); // { agentId: [lines] }
+  
+  // Buffer limits to prevent UI freezing on large outputs
+  const CONSOLE_BUFFER_LIMIT = 1000;
+  const LOGS_BUFFER_LIMIT = 500;
+  const CHAT_BUFFER_LIMIT = 200;
+
+  const [axCommands, setAxCommands] = useState([]); // Extension-Kit commands
+  const [axPlugins, setAxPlugins] = useState([]); // Extension-Kit plugins
   const [agentConfigs, setAgentConfigs] = useState({}); // Metadata for agent types
   const [listenerConfigs, setListenerConfigs] = useState({}); // Metadata for listener types
   
-  const [openTabs, setOpenTabs] = useState([]);
-  const [activeTabId, setActiveTabId] = useState(null);
-  const [consoleHistory, setConsoleHistory] = useState({}); // { agentId: [lines] }
-  const [axCommands, setAxCommands] = useState([]); // Extension-Kit commands
-  const [axPlugins, setAxPlugins] = useState([]); // Extension-Kit plugins
   const axInitialized = useRef(false);
+  const consoleQueueRef = useRef({});
+  const logQueueRef = useRef([]);
+  const chatQueueRef = useRef([]);
   const { addListener } = useSocket();
 
-  // Initialize AxScript engine
+  // Batch processing for high-frequency updates
   useEffect(() => {
-    if (axInitialized.current) return;
-    axInitialized.current = true;
-
-    const initAxScript = async () => {
-      try {
-        const success = await axEngine.init();
-        if (success) {
-          axEngine.setOnCommandsUpdated(() => {
-            setAxCommands(axEngine.getCommands());
-            setAxPlugins(axEngine.plugins);
+    const interval = setInterval(() => {
+      // Process Console Queue
+      const queuedConsole = consoleQueueRef.current;
+      if (Object.keys(queuedConsole).length > 0) {
+        consoleQueueRef.current = {}; // Reset queue
+        setConsoleHistory(prev => {
+          const next = { ...prev };
+          Object.entries(queuedConsole).forEach(([aid, newLines]) => {
+            if (newLines.length > 0) {
+              const current = next[aid] || [];
+              next[aid] = [...current, ...newLines].slice(-CONSOLE_BUFFER_LIMIT);
+            }
           });
-          await axEngine.loadMainScript();
-          console.log('[AgentContext] AxScript loaded, commands:', axEngine.getCommands().length);
-        }
-      } catch (err) {
-        console.warn('[AgentContext] AxScript init failed:', err);
+          return next;
+        });
       }
-    };
-    initAxScript();
+
+      // Process Logs Queue
+      const queuedLogs = logQueueRef.current;
+      if (queuedLogs.length > 0) {
+        logQueueRef.current = []; // Reset queue
+        setLogs(prev => {
+          const next = [...prev, ...queuedLogs];
+          return next.slice(-LOGS_BUFFER_LIMIT);
+        });
+      }
+
+      // Process Chat Queue
+      const queuedChat = chatQueueRef.current;
+      if (queuedChat.length > 0) {
+        chatQueueRef.current = []; // Reset queue
+        setChatMessages(prev => {
+          const next = [...prev, ...queuedChat];
+          return next.slice(-CHAT_BUFFER_LIMIT);
+        });
+      }
+    }, 200); // 200ms batch window
+
+    return () => clearInterval(interval);
   }, []);
 
-  // Update axEngine with current agents
   useEffect(() => {
-    const agentMap = {};
-    agents.forEach(a => { agentMap[a.a_id] = a; });
-    axEngine.setAgents(agentMap);
-  }, [agents]);
+    const interval = setInterval(() => {
+      // Process Console Queue
+      const queuedConsole = consoleQueueRef.current;
+      if (Object.keys(queuedConsole).length > 0) {
+        consoleQueueRef.current = {}; // Reset queue
+        setConsoleHistory(prev => {
+          const next = { ...prev };
+          Object.entries(queuedConsole).forEach(([aid, newLines]) => {
+            if (newLines.length > 0) {
+              const current = next[aid] || [];
+              next[aid] = [...current, ...newLines].slice(-CONSOLE_BUFFER_LIMIT);
+            }
+          });
+          return next;
+        });
+      }
 
-  const fetchAgents = async () => {
+      // Process Logs Queue
+      const queuedLogs = logQueueRef.current;
+      if (queuedLogs.length > 0) {
+        logQueueRef.current = []; // Reset queue
+        setLogs(prev => {
+          const next = [...prev, ...queuedLogs];
+          return next.slice(-LOGS_BUFFER_LIMIT);
+        });
+      }
+
+      // Process Chat Queue
+      const queuedChat = chatQueueRef.current;
+      if (queuedChat.length > 0) {
+        chatQueueRef.current = []; // Reset queue
+        setChatMessages(prev => {
+          const next = [...prev, ...queuedChat];
+          return next.slice(-CHAT_BUFFER_LIMIT);
+        });
+      }
+    }, 200); // 200ms batch window
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Initial Data Sync
+  const syncAllData = useCallback(async () => {
+    try {
+      const [
+        agentsRes,
+        listenersRes,
+        downloadsRes,
+        targetsRes,
+        credsRes,
+        screenshotsRes,
+        tunnelsRes,
+        deliveriesRes
+      ] = await Promise.all([
+        agentApi.list(),
+        listenerApi.list(),
+        dataApi.downloads(),
+        dataApi.targets(),
+        dataApi.creds(),
+        dataApi.screenshots(),
+        tunnelApi.list(),
+        deliveryApi.list()
+      ]);
+
+      setAgents(Array.isArray(agentsRes.data) ? agentsRes.data : []);
+      setListeners(Array.isArray(listenersRes.data) ? listenersRes.data : []);
+      setDownloads(Array.isArray(downloadsRes.data) ? downloadsRes.data : []);
+      setTargets(Array.isArray(targetsRes.data) ? targetsRes.data : []);
+      setCredentials(Array.isArray(credsRes.data) ? credsRes.data : []);
+      setScreenshots(Array.isArray(screenshotsRes.data) ? screenshotsRes.data : []);
+      setTunnels(Array.isArray(tunnelsRes.data) ? tunnelsRes.data : []);
+      
+      const deliveriesMap = {};
+      if (Array.isArray(deliveriesRes.data)) {
+        deliveriesRes.data.forEach(d => { deliveriesMap[d.f_file_id] = d; });
+      }
+      setFileDeliveries(deliveriesMap);
+
+      console.log('[AgentContext] Global data sync completed');
+    } catch (err) {
+      console.error('[AgentContext] Global data sync failed:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    syncAllData();
+  }, [syncAllData]);
+
+  const fetchAgents = useCallback(async () => {
     try {
       const response = await agentApi.list();
       setAgents(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
       console.error('Failed to fetch agents:', err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAgents();
-  }, []);
+  }, [fetchAgents]);
 
   useEffect(() => {
     const removeListener = addListener((packet) => {
@@ -153,26 +286,28 @@ export const AgentProvider = ({ children }) => {
 
         // --- Console Output ---
         case PacketType.AGENT_CONSOLE_OUT:
-          setConsoleHistory(prev => {
+          {
             const agentId = packet.a_id;
-            const current = prev[agentId] || [];
-            return {
-              ...prev,
-              [agentId]: [...current, {
-                type: 'output',
-                content: packet.a_text || packet.a_message,
-                msgType: packet.a_msg_type,
-                time: packet.time || Math.floor(Date.now() / 1000)
-              }]
+            const item = {
+              type: 'output',
+              content: packet.a_text || packet.a_message,
+              msgType: packet.a_msg_type,
+              time: packet.time || Math.floor(Date.now() / 1000)
             };
-          });
+            if (!consoleQueueRef.current[agentId]) consoleQueueRef.current[agentId] = [];
+            consoleQueueRef.current[agentId].push(item);
+          }
           break;
 
         // --- Task Management ---
         case PacketType.AGENT_TASK_SYNC:
           setTasks(prev => ({
             ...prev,
-            [packet.a_task_id]: { ...packet, Status: packet.a_completed ? (packet.a_msg_type === 2 || packet.a_msg_type === 4 ? "Error" : "Success") : "Running" }
+            [packet.a_task_id]: { 
+              ...packet, 
+              Status: packet.a_completed ? (packet.a_msg_type === 2 || packet.a_msg_type === 4 ? "Error" : "Success") : "Running",
+              a_output: packet.a_text || packet.a_message // Ensure output is mapped
+            }
           }));
           break;
 
@@ -184,6 +319,7 @@ export const AgentProvider = ({ children }) => {
             if (packet.a_completed) {
               updatedTask.Status = (packet.a_msg_type === 2 || packet.a_msg_type === 4) ? "Error" : "Success";
             }
+            updatedTask.a_output = packet.a_text || packet.a_message; // Update output
             return { ...prev, [taskId]: updatedTask };
           });
           break;
@@ -213,32 +349,30 @@ export const AgentProvider = ({ children }) => {
         case PacketType.AGENT_CONSOLE_TASK_UPD:
           // These are primarily for updating the console history/UI
           // Handled similarly to AGENT_CONSOLE_OUT but with more task-specific info
-          setConsoleHistory(prev => {
+          {
             const agentId = packet.a_id;
             const taskId = packet.a_task_id;
-            const current = prev[agentId] || [];
-            // Simple append for now, can be optimized later
-            return {
-              ...prev,
-              [agentId]: [...current, {
-                type: 'task',
-                taskId,
-                content: packet.a_text || packet.a_message,
-                cmdline: packet.a_cmdline,
-                completed: packet.a_completed,
-                time: packet.a_finish_time || packet.a_start_time || Math.floor(Date.now() / 1000)
-              }]
+            const item = {
+              type: 'task',
+              taskId,
+              content: packet.a_text || packet.a_message,
+              cmdline: packet.a_cmdline,
+              completed: packet.a_completed,
+              msgType: packet.a_msg_type,
+              time: packet.a_finish_time || packet.a_start_time || Math.floor(Date.now() / 1000)
             };
-          });
+            if (!consoleQueueRef.current[agentId]) consoleQueueRef.current[agentId] = [];
+            consoleQueueRef.current[agentId].push(item);
+          }
           break;
 
         // --- Chat ---
         case PacketType.CHAT_MESSAGE:
-          setChatMessages(prev => [...prev, {
+          chatQueueRef.current.push({
             time: packet.c_date || Math.floor(Date.now() / 1000),
             username: packet.c_username,
             message: packet.c_message
-          }]);
+          });
           break;
 
         // --- Download Management ---
@@ -412,11 +546,11 @@ export const AgentProvider = ({ children }) => {
 
         // --- System Events ---
         case PacketType.SP_TYPE_EVENT:
-          setLogs(prev => [...prev, {
+          logQueueRef.current.push({
             type: 'event',
             time: packet.time || Math.floor(Date.now() / 1000),
             content: packet.message || packet.data
-          }]);
+          });
           break;
 
         // --- Task Hooks ---
@@ -434,24 +568,41 @@ export const AgentProvider = ({ children }) => {
 
   const openAgentTab = (agent, subTab = 'console') => {
     const agentId = agent.a_id;
-    const existingTab = openTabs.find(t => t.a_id === agentId);
+    const existingTab = openTabs.find(t => t.id === agentId);
     if (!existingTab) {
-      setOpenTabs([...openTabs, { ...agent, type: 'agent', activeSubTab: subTab }]);
+      setOpenTabs([...openTabs, { 
+        ...agent, 
+        id: agentId, 
+        type: 'agent', 
+        title: `${agent.a_name} (${agentId.substring(0, 8)})`,
+        activeSubTab: subTab 
+      }]);
     } else if (subTab !== existingTab.activeSubTab) {
-      setOpenTabs(openTabs.map(t => t.a_id === agentId ? { ...t, activeSubTab: subTab } : t));
+      setOpenTabs(openTabs.map(t => t.id === agentId ? { ...t, activeSubTab: subTab } : t));
     }
     setActiveTabId(agentId);
+    setIsDockExpanded(true);
+  };
+
+  const openDockTab = (tabId, type, title) => {
+    const existingTab = openTabs.find(t => t.id === tabId);
+    if (!existingTab) {
+      setOpenTabs([...openTabs, { id: tabId, type, title }]);
+    }
+    setActiveTabId(tabId);
+    setIsDockExpanded(true);
   };
 
   const setActiveSubTab = (agentId, subTab) => {
-    setOpenTabs(openTabs.map(t => t.a_id === agentId ? { ...t, activeSubTab: subTab } : t));
+    setOpenTabs(openTabs.map(t => t.id === agentId ? { ...t, activeSubTab: subTab } : t));
   };
 
   const closeTab = (id) => {
-    const newTabs = openTabs.filter(t => t.a_id !== id);
+    if (id === 'logs') return; // Logs tab is permanent
+    const newTabs = openTabs.filter(t => t.id !== id);
     setOpenTabs(newTabs);
     if (activeTabId === id && newTabs.length > 0) {
-      setActiveTabId(newTabs[newTabs.length - 1].a_id);
+      setActiveTabId(newTabs[newTabs.length - 1].id);
     } else if (newTabs.length === 0) {
       setActiveTabId(null);
     }
@@ -462,9 +613,11 @@ export const AgentProvider = ({ children }) => {
       if (line.type === 'clear') {
         return { ...prev, [agentId]: [] };
       }
+      const current = prev[agentId] || [];
+      const newHistory = [...current, line];
       return {
         ...prev,
-        [agentId]: [...(prev[agentId] || []), line]
+        [agentId]: newHistory.slice(-CONSOLE_BUFFER_LIMIT)
       };
     });
   };
@@ -478,6 +631,7 @@ export const AgentProvider = ({ children }) => {
       credentials,
       targets,
       downloads,
+      screenshots,
       fileDeliveries,
       tunnels,
       pivots,
@@ -485,7 +639,10 @@ export const AgentProvider = ({ children }) => {
       activeTabId, 
       setActiveTabId, 
       openAgentTab, 
+      openDockTab,
       closeTab,
+      isDockExpanded,
+      setIsDockExpanded,
       fetchAgents,
       chatMessages,
       browserData,

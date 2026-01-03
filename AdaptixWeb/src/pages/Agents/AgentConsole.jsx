@@ -20,8 +20,14 @@ import {
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
-const AgentConsole = ({ agent }) => {
-  const { setActiveSubTab, consoleHistory, addConsoleLine, agentConfigs } = useAgents();
+const AgentConsole = ({ agent: initialAgent }) => {
+  const { agents, setActiveSubTab, consoleHistory, addConsoleLine, agentConfigs } = useAgents();
+  
+  // Merge live agent data (from Context) with UI state (from openTabs/props)
+  // This ensures 'Info' tab shows real-time data while preserving UI state like activeSubTab
+  const liveAgent = agents.find(a => a.a_id === initialAgent.a_id);
+  const agent = { ...initialAgent, ...(liveAgent || {}) };
+
   const activeSubTab = agent.activeSubTab || 'console';
   const [inputValue, setInputValue] = useState('');
   const [commandHistory, setCommandHistory] = useState([]);
@@ -30,6 +36,7 @@ const AgentConsole = ({ agent }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchIndex, setSearchIndex] = useState(0);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const searchInputRef = useRef(null);
@@ -74,11 +81,20 @@ const AgentConsole = ({ agent }) => {
     { type: 'info', content: 'Type "help" for a list of available commands.' }
   ];
 
+  // Handle scroll events to detect if user is viewing history
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    // If user is not at the bottom (threshold 50px), consider them scrolling
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setIsUserScrolling(!isAtBottom);
+  };
+
+  // Auto-scroll to bottom only if user is not viewing history
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && !isUserScrolling) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [history]);
+  }, [history, isUserScrolling]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -101,7 +117,7 @@ const AgentConsole = ({ agent }) => {
     try {
       await agentApi.executeCommand({
         name: agent.a_name,
-        id: agent.a_id,
+        agent_id: agent.a_id,
         ui: true,
         cmdline: cmd,
         data: "{}",
@@ -185,135 +201,182 @@ const AgentConsole = ({ agent }) => {
   ];
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0a]">
+    <div className="flex flex-col h-full bg-dark-900 select-none overflow-hidden">
       {/* Sub Tabs Header */}
-      <div className="flex bg-dark-800 border-b border-dark-700 px-4 h-8 items-center">
+      <div className="flex bg-dark-800 border-b border-dark-700 px-1 h-8 items-center shrink-0">
         {subTabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveSubTab(agent.a_id, tab.id)}
             className={cn(
-              "flex items-center space-x-2 px-3 py-1 text-[10px] font-black uppercase tracking-widest transition-all h-full border-b-2",
+              "flex items-center space-x-2 px-4 py-1 text-[10px] font-black uppercase tracking-widest transition-all h-full border-b-2",
               activeSubTab === tab.id 
                 ? "text-accent-primary border-accent-primary bg-accent-primary/5" 
                 : "text-gray-500 border-transparent hover:text-gray-300 hover:bg-dark-700/50"
             )}
           >
-            <tab.icon className="w-3 h-3" />
+            <tab.icon size={12} className={activeSubTab === tab.id ? "text-accent-primary" : ""} />
             <span>{tab.name}</span>
           </button>
         ))}
+        <div className="flex-1" />
+        <div className="flex items-center px-3 space-x-3 text-[9px] font-black text-gray-600">
+          <span className="uppercase tracking-tighter">NODE_ID:</span>
+          <span className="text-accent-primary font-mono">{agent.a_id?.substring(0,12)}</span>
+        </div>
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-col relative bg-dark-950/20">
         {activeSubTab === 'console' && (
-          <>
+          <div className="flex-1 flex flex-col overflow-hidden">
             {/* Search Panel (Ctrl+F) */}
             {isSearchVisible && (
-              <div className="flex items-center px-3 py-1.5 bg-dark-800 border-b border-dark-700 space-x-2 animate-in slide-in-from-top-1 duration-150">
-                <Search className="w-3.5 h-3.5 text-gray-500" />
+              <div className="flex items-center px-3 py-1.5 bg-dark-800 border-b border-dark-700 space-x-3 animate-in slide-in-from-top-1 duration-150 z-20">
+                <Search className="w-3.5 h-3.5 text-accent-primary" />
                 <input
                   ref={searchInputRef}
                   type="text"
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setSearchIndex(0); }}
-                  placeholder="Search in console..."
-                  className="flex-1 bg-dark-950/50 border border-dark-600 rounded px-2 py-0.5 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
+                  placeholder="SEARCH_CONSOLE_BUFFER..."
+                  className="flex-1 qt-input text-[10px]"
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') setIsSearchVisible(false);
                     if (e.key === 'Enter') navigateSearch('down');
                   }}
                 />
-                <span className="text-[10px] text-gray-500">
-                  {searchMatches.length > 0 ? `${searchIndex + 1}/${searchMatches.length}` : '0/0'}
-                </span>
-                <button onClick={() => navigateSearch('up')} className="p-1 hover:bg-dark-700 rounded">
-                  <ArrowUp className="w-3 h-3 text-gray-400" />
-                </button>
-                <button onClick={() => navigateSearch('down')} className="p-1 hover:bg-dark-700 rounded">
-                  <ArrowDown className="w-3 h-3 text-gray-400" />
-                </button>
-                <button onClick={() => setIsSearchVisible(false)} className="p-1 hover:bg-dark-700 rounded">
-                  <X className="w-3 h-3 text-gray-400" />
-                </button>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[9px] text-gray-500 font-mono bg-dark-950 px-1.5 rounded border border-dark-700">
+                    {searchMatches.length > 0 ? `${searchIndex + 1}/${searchMatches.length}` : '0/0'}
+                  </span>
+                  <div className="flex items-center bg-dark-900 border border-dark-700 rounded-sm">
+                    <button onClick={() => navigateSearch('up')} className="p-1 hover:bg-dark-700 text-gray-500 hover:text-white transition-colors border-r border-dark-700"><ArrowUp size={12} /></button>
+                    <button onClick={() => navigateSearch('down')} className="p-1 hover:bg-dark-700 text-gray-500 hover:text-white transition-colors"><ArrowDown size={12} /></button>
+                  </div>
+                  <button onClick={() => setIsSearchVisible(false)} className="p-1 hover:bg-dark-700 text-gray-500 hover:text-accent-danger transition-colors"><X size={14} /></button>
+                </div>
               </div>
             )}
 
             <div 
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 font-mono text-[12px] space-y-1 scrollbar-thin select-text"
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-4 font-mono text-[12px] space-y-0.5 scrollbar-thin select-text bg-dark-950/50 leading-relaxed"
             >
               {history.map((item, idx) => {
                 if (item.type === 'clear') return null;
                 const prefixInfo = getMsgPrefix(item.msgType);
+
+                // Handle special Task type rendering
+                if (item.type === 'task') {
+                  return (
+                    <div key={idx} className="group hover:bg-white/5 transition-colors rounded-sm px-1 -mx-1">
+                       <div className="flex items-start">
+                         {item.time && <span className="text-[#505050] text-[9px] mr-2 mt-0.5">[{new Date(item.time * 1000).toLocaleTimeString([], { hour12: false })}]</span>}
+                         <div className="flex-1 min-w-0">
+                           {item.content ? (
+                              <>
+                                {prefixInfo.prefix && <span className={cn("mr-1 font-black", prefixInfo.color)}>{prefixInfo.prefix}</span>}
+                                <span className={cn("break-all whitespace-pre-wrap", getMsgColor(item.msgType))}>
+                                  {item.content}
+                                </span>
+                              </>
+                           ) : (
+                             /* Status update logic for task without content */
+                             item.completed ? (
+                               <span className={cn("font-bold", item.msgType === 2 || item.msgType === 4 ? "text-[#E32227]" : "text-[#39FF14]")}>
+                                 {item.msgType === 2 || item.msgType === 4 ? `[-] Task ${item.taskId} Failed` : `[+] Task ${item.taskId} Completed`}
+                               </span>
+                             ) : (
+                               <span className="text-[#89CFF0] italic">
+                                 {`[*] Task ${item.taskId} Issued: ${item.cmdline || 'Processing...'}`}
+                               </span>
+                             )
+                           )}
+                         </div>
+                       </div>
+                    </div>
+                  );
+                }
+
                 return (
-                  <div key={idx} className="flex items-start group">
+                  <div key={idx} className="group hover:bg-white/5 transition-colors rounded-sm px-1 -mx-1">
                     {item.type === 'input' ? (
-                      <>
-                        {item.timestamp && <span className="text-[#808080] mr-2">[{formatTimestamp(item.timestamp)}]</span>}
-                        {item.user && <span className="text-[#808080] mr-1">{item.user}</span>}
-                        {item.taskId && <span className="text-[#808080] mr-1">[{item.taskId.substring(0,6)}]</span>}
-                        <span className="text-[#808080] underline mr-1">{agent.a_name}</span>
-                        <span className="text-[#808080] mr-2">&gt;</span>
-                        <span className="whitespace-pre-wrap font-bold text-white">{item.content}</span>
-                      </>
+                      <div className="flex items-center opacity-90">
+                        {item.time && <span className="text-[#606060] text-[9px] mr-2">[{new Date(item.time * 1000).toLocaleTimeString([], { hour12: false })}]</span>}
+                        <span className="text-accent-primary font-black mr-2">adaptix&gt;</span>
+                        <span className="whitespace-pre-wrap font-bold text-white tracking-tight">{item.content}</span>
+                      </div>
                     ) : item.type === 'info' ? (
-                      <span className="text-blue-400/80 italic text-[11px]">{item.content}</span>
+                      <div className="flex items-center">
+                        <span className="text-accent-secondary/60 italic text-[11px] font-medium border-l border-accent-secondary/20 pl-2 ml-1 my-1">{item.content}</span>
+                      </div>
                     ) : (
-                      <>
-                        {item.timestamp && <span className="text-[#808080] mr-2">[{formatTimestamp(item.timestamp)}]</span>}
-                        {prefixInfo.prefix && <span className={prefixInfo.color}>{prefixInfo.prefix}</span>}
-                        <span className={cn("whitespace-pre-wrap break-words", getMsgColor(item.msgType))}>
-                          {item.content}
-                        </span>
-                      </>
+                      <div className="flex items-start">
+                        {item.time && <span className="text-[#505050] text-[9px] mr-2 mt-0.5">[{new Date(item.time * 1000).toLocaleTimeString([], { hour12: false })}]</span>}
+                        <div className="flex-1 min-w-0">
+                          {prefixInfo.prefix && <span className={cn("mr-1 font-black", prefixInfo.color)}>{prefixInfo.prefix}</span>}
+                          <span className={cn("break-all whitespace-pre-wrap", getMsgColor(item.msgType))}>
+                            {item.content}
+                          </span>
+                        </div>
+                      </div>
                     )}
                   </div>
                 );
               })}
             </div>
             
-            <form onSubmit={handleSubmit} className="p-2 bg-dark-800/50 border-t border-dark-700 flex items-center space-x-2">
-              <span className="text-accent-primary font-mono font-black text-xs ml-2">adaptix&gt;</span>
+            <form onSubmit={handleSubmit} className="p-2 bg-dark-800 border-t border-dark-700 flex items-center space-x-3 shrink-0">
+              <div className="flex items-center space-x-2 ml-2">
+                <span className="text-accent-primary font-black text-[10px] uppercase tracking-widest">command</span>
+                <ChevronRight size={14} className="text-gray-600" />
+              </div>
               <input
                 ref={inputRef}
                 type="text"
                 autoFocus
-                className="flex-1 bg-transparent outline-none text-gray-200 font-mono text-[12px]"
-                placeholder="Type command..."
+                className="flex-1 bg-dark-950 border border-dark-700 rounded-sm px-3 py-1.5 text-gray-200 font-mono text-[12px] placeholder:text-gray-700 focus:border-accent-primary/50 outline-none transition-all shadow-inner"
+                placeholder="EXECUTE_CMDLINE_ENTRY..."
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
               />
-              <button type="submit" className="text-gray-600 hover:text-accent-primary transition-colors pr-2">
-                <Send className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center space-x-2 text-[9px] font-black text-gray-600 uppercase pr-2">
+                <span className="hidden md:inline">Ctrl+H HISTORY</span>
+                <div className="w-px h-3 bg-dark-700 mx-1 hidden md:block" />
+                <button type="submit" className="text-gray-500 hover:text-accent-primary transition-all p-1 bg-dark-900 rounded-sm border border-dark-700">
+                  <Send size={14} />
+                </button>
+              </div>
             </form>
-          </>
+          </div>
         )}
 
         {activeSubTab === 'files' && (
-          <FileBrowser agent={agent} />
+          <div className="flex-1 overflow-hidden">
+            <FileBrowser agent={agent} />
+          </div>
         )}
         
         {activeSubTab === 'procs' && (
-          <ProcessBrowser agent={agent} />
+          <div className="flex-1 overflow-hidden">
+            <ProcessBrowser agent={agent} />
+          </div>
         )}
 
         {activeSubTab === 'info' && (
-          <div className="p-6 overflow-auto scrollbar-thin">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="p-2 bg-accent-primary/10 rounded-lg">
-                <Info className="w-5 h-5 text-accent-primary" />
-              </div>
-              <h3 className="text-sm font-black text-white uppercase tracking-widest">Beacon Metadata</h3>
+          <div className="flex-1 p-6 overflow-auto custom-scrollbar">
+            <div className="mb-8 border-l-4 border-accent-primary pl-6">
+              <h3 className="text-sm font-black text-white uppercase tracking-[0.2em]">Node Telemetry Metadata</h3>
+              <p className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Full fingerprint of the established session</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {Object.entries(agent).filter(([k]) => k.startsWith('a_')).map(([key, value]) => (
-                <div key={key} className="bg-dark-800/50 p-3 rounded border border-dark-700 hover:border-dark-600 transition-colors">
-                  <p className="text-[9px] uppercase text-gray-500 font-black mb-1 tracking-tighter">{key.replace('a_', '')}</p>
-                  <p className="text-[11px] text-gray-200 font-mono truncate">{String(value || 'N/A')}</p>
+                <div key={key} className="qt-panel p-3 bg-dark-900/50 hover:bg-dark-800/50 transition-all group">
+                  <p className="text-[9px] uppercase text-gray-600 font-black mb-1.5 tracking-widest group-hover:text-gray-400 transition-colors">{key.replace('a_', '')}</p>
+                  <p className="text-[11px] text-gray-300 font-mono truncate select-text">{String(value || 'NULL_SET')}</p>
                 </div>
               ))}
             </div>
