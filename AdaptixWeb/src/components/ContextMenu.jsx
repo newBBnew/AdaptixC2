@@ -16,28 +16,67 @@ const ContextMenu = ({ x, y, options, onClose }) => {
   return (
     <div 
       ref={menuRef}
-      className="fixed z-50 bg-dark-700 border border-dark-600 rounded-lg shadow-2xl py-1 min-w-[160px] animate-in fade-in zoom-in duration-100"
+      className="fixed z-50 glass-panel border border-theme-glass-light rounded-xl shadow-2xl py-1.5 min-w-[200px] animate-in fade-in zoom-in duration-75"
       style={{ top: y, left: x }}
     >
       {options.map((option, idx) => (
         option.divider ? (
-          <div key={idx} className="h-px bg-dark-600 my-1 mx-2" />
+          <div key={idx} className="h-px bg-theme-glass-light my-1.5 mx-2" />
         ) : (
-          <button
-            key={idx}
-            onClick={() => {
-              option.onClick();
-              onClose();
-            }}
-            className="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-accent-primary hover:text-white transition-colors flex items-center space-x-2"
-          >
-            {option.icon && <option.icon className="w-3.5 h-3.5" />}
-            <span>{option.label}</span>
-          </button>
+          <div key={idx} className="relative group/sub">
+            <button
+              onClick={() => {
+                if (!option.children) {
+                  option.onClick();
+                  onClose();
+                }
+              }}
+              disabled={option.disabled}
+              className={cn(
+                "w-full text-left px-4 py-2 text-xs transition-all flex items-center justify-between group",
+                option.disabled ? "opacity-30 cursor-not-allowed" : "hover:bg-theme-hover cursor-default",
+                option.color || "text-theme-primary"
+              )}
+            >
+              <div className="flex items-center space-x-3">
+                {option.icon && <option.icon className={cn("w-4 h-4", !option.disabled && "text-theme-accent")} />}
+                <span className="font-semibold tracking-tight uppercase text-[10px]">{option.label}</span>
+              </div>
+              {option.children && <ChevronRight size={14} className="text-theme-muted group-hover:text-theme-accent" />}
+            </button>
+
+            {/* Nested Submenu */}
+            {option.children && (
+              <div className="hidden group-hover/sub:block absolute left-full top-0 ml-[-4px] glass-panel border border-theme-glass-light rounded-xl shadow-2xl py-1.5 min-w-[200px]">
+                {option.children.map((child, cIdx) => (
+                  child.divider ? (
+                    <div key={cIdx} className="h-px bg-theme-glass-light my-1.5 mx-2" />
+                  ) : (
+                    <button
+                      key={cIdx}
+                      onClick={() => {
+                        child.onClick();
+                        onClose();
+                      }}
+                      className={cn(
+                        "w-full text-left px-4 py-2 text-xs transition-all flex items-center space-x-3 hover:bg-theme-hover cursor-default text-theme-primary"
+                      )}
+                    >
+                      {child.icon && <child.icon className="w-4 h-4 text-theme-accent" />}
+                      <span className="font-semibold tracking-tight uppercase text-[10px]">{child.label}</span>
+                    </button>
+                  )
+                ))}
+              </div>
+            )}
+          </div>
         )
       ))}
     </div>
   );
 };
+
+import { ChevronRight } from 'lucide-react';
+import { cn } from '../utils/cn';
 
 export default ContextMenu;

@@ -2,55 +2,35 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Image as ImageIcon, 
   Search, 
-  Filter, 
   Trash2, 
   Download, 
   Edit3, 
   RefreshCw,
   X,
   Maximize2,
-  ChevronLeft,
-  ChevronRight,
-  AlertCircle
+  FileImage
 } from 'lucide-react';
 import { dataApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 import { motion, AnimatePresence } from 'framer-motion';
+import ContextMenu from '../../components/ContextMenu';
+import { useAgents } from '../../context/AgentContext';
 
 const ScreenshotsList = () => {
-  const [screenshots, setScreenshots] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { screenshots, fetchAgents } = useAgents();
+  const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
-  const [splitterPos, setSplitterPos] = useState(400); // Initial table width
+  const [splitterPos, setSplitterPos] = useState(400); 
+  const [menu, setMenu] = useState(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const isResizing = useRef(false);
-
-  const fetchScreenshots = async () => {
-    try {
-      setLoading(true);
-      const response = await dataApi.screenshots();
-      setScreenshots(Array.isArray(response.data) ? response.data : []);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch screenshots:', err);
-      setError('Connection failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchScreenshots();
-    const interval = setInterval(fetchScreenshots, 30000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isResizing.current) return;
-      const newWidth = e.clientX - 64; // Adjust for sidebar
+      const newWidth = e.clientX - 64; 
       if (newWidth > 200 && newWidth < window.innerWidth - 300) {
         setSplitterPos(newWidth);
       }
@@ -67,6 +47,60 @@ const ScreenshotsList = () => {
     };
   }, []);
 
+  const handleSetNote = async (screen) => {
+    const newNote = window.prompt('Enter new note:', screen.note || '');
+    if (newNote !== null) {
+      try {
+        await dataApi.setScreenshotNote([screen.screen_id], newNote);
+      } catch (err) {
+        console.error('Failed to set note:', err);
+      }
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this screenshot?')) return;
+    try {
+      await dataApi.removeScreenshot([id]);
+      if (selectedId === id) setSelectedId(null);
+    } catch (err) {
+      console.error('Failed to delete screenshot:', err);
+    }
+  };
+
+  const handleDownload = (screen) => {
+    if (!screen.content) return;
+    const binaryString = atob(screen.content);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: 'image/png' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `screenshot_${screen.computer}_${screen.screen_id.substring(0,6)}.png`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleContextMenu = (e, screen) => {
+    e.preventDefault();
+    setSelectedId(screen.screen_id);
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      options: [
+        { label: 'Set note', icon: Edit3, onClick: () => handleSetNote(screen) },
+        { label: 'Download', icon: Download, onClick: () => handleDownload(screen) },
+        { divider: true },
+        { label: 'Delete', icon: Trash2, color: 'text-theme-danger', onClick: () => handleDelete(screen.screen_id) },
+      ]
+    });
+  };
+
   const filteredScreenshots = screenshots.filter(s => 
     Object.values(s).some(val => 
       String(val).toLowerCase().includes(searchQuery.toLowerCase())
@@ -76,86 +110,82 @@ const ScreenshotsList = () => {
   const selectedScreen = screenshots.find(s => s.screen_id === selectedId);
 
   return (
-    <div className="flex flex-col h-full bg-dark-900 text-gray-300 font-sans select-none overflow-hidden">
-      {/* 1. Header with Controls (Mimics ScreenshotsWidget.cpp) */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
+    <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setMenu(null)}>
+      <header className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
-            <ImageIcon className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Screenshots</span>
-          </div>
-          <div className="h-4 w-px bg-dark-600" />
           <button 
             onClick={() => setIsSearchVisible(!isSearchVisible)}
             className={cn(
-              "p-1 rounded hover:bg-dark-700 transition-colors",
-              isSearchVisible ? "bg-accent-primary/20 text-accent-primary" : "text-gray-500"
+              "p-2 rounded-xl transition-all",
+              isSearchVisible ? "bg-theme-accent/20 text-theme-accent border border-theme-accent/30" : "text-theme-muted hover:text-theme-primary hover:bg-theme-hover"
             )}
             title="Toggle Search (Ctrl+F)"
           >
-            <Search className="w-3.5 h-3.5" />
+            <Search className="w-4 h-4 text-theme-accent" />
           </button>
-        </div>
-
-        <div className="flex items-center space-x-1">
+          <div className="h-5 w-px bg-theme-glass-light mx-1" />
           <button 
-            onClick={fetchScreenshots}
-            className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
-            title="Refresh"
+            onClick={() => {
+              setLoading(true);
+              fetchAgents().finally(() => setLoading(false));
+            }}
+            className="p-2 glass-btn text-theme-muted hover:text-theme-accent transition-all"
+            title="Refresh Screenshots"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-accent-primary")} />
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-theme-accent")} />
           </button>
         </div>
-      </div>
+        <div className="flex items-center space-x-2">
+          <span className="glass-btn px-3 py-1 text-xs font-black uppercase tracking-widest text-theme-accent-secondary border-theme-accent-secondary/30">Auto Capture Off</span>
+        </div>
+      </header>
 
-      {/* 2. Main Splitter Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Table Area */}
         <div 
           style={{ width: `${splitterPos}px` }}
-          className="flex flex-col border-r border-dark-700 overflow-hidden shrink-0"
+          className="flex flex-col border-r border-theme-glass-light overflow-hidden shrink-0 glass-panel z-10"
         >
           {isSearchVisible && (
-            <div className="px-3 py-2 bg-dark-800/50 border-b border-dark-700">
+            <div className="px-4 py-2 glass-card-sm border-b border-theme-glass-light">
               <input 
                 type="text" 
                 autoFocus
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="filter: host | user..." 
-                className="w-full bg-dark-950/50 border border-dark-600 rounded px-3 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
+                placeholder="Filter by computer, user, note..." 
+                className="glass-input w-full pl-4 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
               />
             </div>
           )}
-          <div className="flex-1 overflow-auto scrollbar-thin">
-            <table className="w-full text-left border-collapse table-auto">
-              <thead className="sticky top-0 bg-dark-800 z-10">
-                <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-                  <th className="py-2 px-4 border-r border-dark-700/30">Computer</th>
-                  <th className="py-2 px-4 border-r border-dark-700/30">User</th>
-                  <th className="py-2 px-4 border-r border-dark-700/30">Date</th>
-                  <th className="py-2 px-4">Note</th>
+          <div className="flex-1 overflow-auto custom-scrollbar bg-theme-glass-panel">
+            <table className="glass-table min-w-full">
+              <thead>
+                <tr>
+                  <th>Node</th>
+                  <th>Operator</th>
+                  <th className="w-24">Time</th>
                 </tr>
               </thead>
-              <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
+              <tbody className="text-[11px] font-medium">
                 {filteredScreenshots.length === 0 ? (
-                  <tr><td colSpan="4" className="py-12 text-center text-gray-600 italic">No screenshots</td></tr>
+                  <tr><td colSpan="3" className="py-12 text-center text-theme-muted uppercase font-black text-[9px] tracking-widest italic border-none">No captures</td></tr>
                 ) : (
-                  filteredScreenshots.map((s) => (
+                  [...filteredScreenshots].reverse().map((s) => (
                     <tr 
                       key={s.screen_id} 
                       onClick={() => setSelectedId(s.screen_id)}
+                      onContextMenu={(e) => handleContextMenu(e, s)}
+                      onDoubleClick={() => setIsPreviewOpen(true)}
                       className={cn(
-                        "hover:bg-accent-primary/5 transition-colors group h-8 cursor-pointer",
-                        selectedId === s.screen_id && "bg-accent-primary/10 border-l-2 border-l-accent-primary"
+                        "transition-colors group h-8 cursor-default border-b border-theme-glass-light hover:bg-theme-glass",
+                        selectedId === s.screen_id && "bg-theme-accent/10"
                       )}
                     >
-                      <td className="px-4 text-gray-300 truncate">{s.computer}</td>
-                      <td className="px-4 text-gray-400 truncate">{s.username}</td>
-                      <td className="px-4 text-gray-500 font-mono text-[10px]">
-                        {new Date(s.date * 1000).toLocaleTimeString()}
+                      <td className="text-theme-accent font-black font-mono truncate max-w-[120px]">{s.computer}</td>
+                      <td className="text-theme-secondary truncate max-w-[100px]">{s.username}</td>
+                      <td className="text-theme-muted font-mono text-[9px]">
+                        {new Date(s.date * 1000).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}
                       </td>
-                      <td className="px-4 text-gray-500 italic truncate">{s.note || '---'}</td>
                     </tr>
                   ))
                 )}
@@ -164,72 +194,119 @@ const ScreenshotsList = () => {
           </div>
         </div>
 
-        {/* Resizer Handle */}
         <div 
-          className="w-1 bg-dark-700 hover:bg-accent-primary cursor-col-resize transition-colors z-20"
+          className="w-1 bg-theme-glass-light hover:bg-theme-accent/50 cursor-col-resize transition-colors z-20 flex items-center justify-center group"
           onMouseDown={() => {
             isResizing.current = true;
             document.body.style.cursor = 'col-resize';
           }}
-        />
+        >
+          <div className="h-8 w-0.5 bg-theme-glass rounded-full group-hover:bg-theme-accent transition-colors" />
+        </div>
 
-        {/* Right: Image Preview (Mimics ImageFrame) */}
-        <div className="flex-1 bg-[#050505] flex flex-col relative overflow-hidden">
-          <div className="absolute top-2 right-2 z-10 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {/* Action buttons would go here in a hover overlay */}
-          </div>
+        <div className="flex-1 bg-theme-glass-panel flex flex-col relative overflow-hidden group/canvas">
+          {/* Canvas Toolbar overlay */}
+          <AnimatePresence>
+            {selectedScreen && (
+              <motion.div 
+                initial={{ y: -40, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -40, opacity: 0 }}
+                className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center space-x-1 p-1.5 bg-theme-glass-panel/90 backdrop-blur-md border border-theme-glass-light rounded-xl shadow-glow opacity-0 group-hover/canvas:opacity-100 transition-opacity duration-300"
+              >
+                <button onClick={() => handleDownload(selectedScreen)} className="p-1.5 hover:bg-theme-accent/20 text-theme-muted hover:text-theme-accent rounded-lg transition-colors" title="Download PNG"><Download size={16}/></button>
+                <div className="w-px h-4 bg-theme-glass-light mx-1" />
+                <button onClick={() => setIsPreviewOpen(true)} className="p-1.5 hover:bg-theme-accent-secondary/20 text-theme-muted hover:text-theme-accent-secondary rounded-lg transition-colors" title="Full Screen"><Maximize2 size={16}/></button>
+                <div className="w-px h-4 bg-theme-glass-light mx-1" />
+                <button onClick={() => handleSetNote(selectedScreen)} className="p-1.5 hover:bg-theme-primary/10 text-theme-muted hover:text-theme-primary rounded-lg transition-colors" title="Edit Note"><Edit3 size={16}/></button>
+                <div className="w-px h-4 bg-theme-glass-light mx-1" />
+                <button onClick={() => handleDelete(selectedScreen.screen_id)} className="p-1.5 hover:bg-theme-danger/20 text-theme-muted hover:text-theme-danger rounded-lg transition-colors" title="Delete"><Trash2 size={16}/></button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          <div className="flex-1 flex items-center justify-center p-4 overflow-auto custom-scrollbar">
-            <AnimatePresence mode="wait">
-              {selectedScreen ? (
-                <motion.div
-                  key={selectedId}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 1.05 }}
-                  className="relative group"
-                >
-                  <img 
-                    src={selectedScreen.content ? `data:image/png;base64,${selectedScreen.content}` : '/placeholder-screen.png'} 
-                    alt="Screenshot Preview"
-                    className="max-w-full max-h-full shadow-2xl rounded border border-dark-600"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-4">
-                    <button className="p-2 bg-dark-800 rounded-full hover:bg-accent-primary text-white transition-all shadow-lg" title="Download">
-                      <Download size={20} />
-                    </button>
-                    <button className="p-2 bg-dark-800 rounded-full hover:bg-accent-secondary text-white transition-all shadow-lg" title="Full Screen">
-                      <Maximize2 size={20} />
-                    </button>
-                    <button className="p-2 bg-dark-800 rounded-full hover:bg-accent-danger text-white transition-all shadow-lg" title="Delete">
-                      <Trash2 size={20} />
-                    </button>
-                  </div>
-                </motion.div>
-              ) : (
-                <div className="flex flex-col items-center justify-center opacity-10">
-                  <ImageIcon size={80} />
-                  <p className="mt-4 text-sm font-black uppercase tracking-widest">Select a capture to view</p>
-                </div>
-              )}
-            </AnimatePresence>
+          <div className="flex-1 flex items-center justify-center p-8 overflow-auto custom-scrollbar">
+            {selectedScreen ? (
+              <motion.div 
+                key={selectedScreen.screen_id}
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="relative"
+              >
+                <img 
+                  src={selectedScreen.content ? `data:image/png;base64,${selectedScreen.content}` : '/placeholder-screen.png'} 
+                  alt="Capture Output"
+                  className="max-w-full max-h-full shadow-glow rounded-lg border border-theme-glass-light select-text"
+                />
+              </motion.div>
+            ) : (
+              <div className="flex flex-col items-center justify-center opacity-10 space-y-4">
+                <ImageIcon size={120} className="text-theme-muted" />
+                <p className="text-sm font-black uppercase tracking-[0.3em] text-theme-muted">Select Telemetry Capture</p>
+              </div>
+            )}
           </div>
 
           {selectedScreen && (
-            <div className="px-4 py-2 bg-dark-800/80 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-400">
+            <div className="px-3 py-2 bg-theme-glass border-t border-theme-glass-light flex items-center justify-between text-[10px] font-black text-theme-muted uppercase tracking-widest shrink-0">
               <div className="flex items-center space-x-4">
-                <span className="text-accent-primary uppercase tracking-tighter">Capture Detail</span>
-                <span>{selectedScreen.computer} \ {selectedScreen.username}</span>
-                <span className="text-gray-600 font-mono">{selectedScreen.screen_id}</span>
+                <span className="text-theme-accent">Capture Info:</span>
+                <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light">
+                  <span className="text-theme-secondary">{selectedScreen.computer}</span>
+                  <span className="text-theme-muted">/</span>
+                  <span className="text-theme-secondary">{selectedScreen.username}</span>
+                </div>
+                <span className="text-theme-muted font-mono text-[9px] opacity-60">{selectedScreen.screen_id}</span>
               </div>
-              <div className="flex items-center space-x-2">
-                <Edit3 size={12} className="text-gray-500 hover:text-white cursor-pointer" />
-                <span className="italic">{selectedScreen.note || 'No note attached'}</span>
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light">
+                  <Edit3 size={10} className="text-theme-accent" />
+                  <span className="text-theme-primary italic normal-case font-medium">{selectedScreen.note || 'NO_ARTIFACT_NOTE'}</span>
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {isPreviewOpen && selectedScreen && (
+          <div 
+            className="fixed inset-0 z-[200] bg-theme-glass-panel/90 backdrop-blur-md flex flex-col p-4"
+            onClick={() => setIsPreviewOpen(false)}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-theme-glass-light bg-theme-glass-panel/80 rounded-t-2xl">
+              <div className="flex items-center space-x-4">
+                <div className="p-2 bg-theme-glass-panel border border-theme-glass-light rounded-lg">
+                  <FileImage className="text-theme-accent" size={20} />
+                </div>
+                <div className="text-left">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-theme-muted mb-0.5">Telemetry Capture Preview</p>
+                  <p className="text-sm font-mono font-bold text-theme-primary">
+                    {selectedScreen.computer} \ {selectedScreen.username}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsPreviewOpen(false)} 
+                className="p-2 text-theme-muted hover:text-theme-primary hover:bg-theme-glass rounded-xl transition-all"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
+              <motion.img 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                src={`data:image/png;base64,${selectedScreen.content}`}
+                className="max-w-full max-h-full object-contain shadow-2xl rounded-lg cursor-zoom-out"
+              />
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </div>
   );
 };

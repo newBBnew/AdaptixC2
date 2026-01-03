@@ -15,17 +15,17 @@ export const taskApi = {
 
 export const tunnelApi = {
   list: () => api.get('/tunnel/list'),
-  stop: (tunnelId) => api.post('/tunnel/stop', { tunnel_id: tunnelId }),
-  setInfo: (tunnelId, info) => api.post('/tunnel/set_info', { tunnel_id: tunnelId, info }),
+  stop: (tunnelId) => api.post('/tunnel/stop', { p_tunnel_id: tunnelId }),
+  setInfo: (tunnelId, info) => api.post('/tunnel/set/info', { p_tunnel_id: tunnelId, p_info: info }),
 };
 
 export const deliveryApi = {
-  list: () => api.get('/file_delivery/list'),
-  stop: (id) => api.post('/file_delivery/stop', { id }),
-  upload: (formData) => api.post('/file_delivery/upload', formData, {
+  list: () => api.get('/filedelivery/list'),
+  stop: (id) => api.post('/filedelivery/delete', { file_id: id }),
+  upload: (formData) => api.post('/filedelivery/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
-  createLink: (data) => api.post('/file_delivery/link/create', data),
+  createLink: (data) => api.post('/filedelivery/link/create', data),
 };
 
 export const scriptApi = {

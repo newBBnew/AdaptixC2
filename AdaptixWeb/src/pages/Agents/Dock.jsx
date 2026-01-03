@@ -52,7 +52,7 @@ const Dock = () => {
   const agentSubTabs = [
     { id: 'console', label: 'Console', icon: Terminal },
     { id: 'files', label: 'File Browser', icon: FolderOpen },
-    { id: 'processes', label: 'Processes', icon: Activity },
+    { id: 'procs', label: 'Processes', icon: Activity },
     { id: 'info', label: 'Info', icon: Info },
   ];
 
@@ -76,12 +76,12 @@ const Dock = () => {
 
   return (
     <div className={cn(
-      "flex flex-col bg-dark-900 border-t border-dark-700 transition-all duration-300 select-none overflow-hidden shadow-[0_-10px_30px_rgba(0,0,0,0.5)]",
+      "flex flex-col glass-panel border-t border-theme-glass transition-all duration-300 select-none overflow-hidden",
       isDockExpanded ? "h-full" : "h-[40px]"
     )}>
       {/* Dock Header/Tabs */}
-      <div className="relative flex items-center justify-center px-1 bg-dark-800 border-b border-dark-700 h-[40px] shrink-0">
-        <div className="flex items-center overflow-x-auto no-scrollbar h-full max-w-[calc(100%-40px)]">
+      <div className="relative flex items-center justify-center px-1 glass-card-sm border-b border-theme-glass-light h-[44px] shrink-0">
+        <div className="flex items-center overflow-x-auto no-scrollbar h-full max-w-[calc(100%-50px)]">
           {openTabs.map((tab) => {
             const Icon = getIconForType(tab.type);
             const isActive = activeTabId === tab.id && isDockExpanded;
@@ -93,23 +93,17 @@ const Dock = () => {
                   setIsDockExpanded(true);
                 }}
                 className={cn(
-                  "group flex items-center space-x-2.5 px-4 h-full text-[10px] font-black uppercase tracking-widest transition-all border-r border-dark-700/50 cursor-default relative overflow-hidden shrink-0",
+                  "group flex items-center space-x-2.5 px-4 h-full text-[11px] font-semibold uppercase tracking-wider transition-all border-r border-theme-glass-light cursor-pointer relative overflow-hidden shrink-0",
                   isActive
-                    ? (tab.type === 'agent' 
-                        ? "text-accent-secondary bg-accent-secondary/5 border-b-2 border-b-accent-secondary shadow-[inset_0_-4px_10px_rgba(16,185,129,0.05)]" 
-                        : "text-accent-primary bg-accent-primary/5 border-b-2 border-b-accent-primary shadow-[inset_0_-4px_10px_rgba(61,139,106,0.05)]")
-                    : "text-gray-500 hover:text-gray-300 hover:bg-dark-700/30"
+                    ? "text-theme-primary bg-theme-glass border-b-2 border-theme-accent" 
+                    : "text-theme-muted hover:text-theme-primary hover:bg-theme-hover"
                 )}
               >
-                {/* Active Indicator Top */}
                 {isActive && (
-                  <div className={cn(
-                    "absolute top-0 left-0 right-0 h-[1px]",
-                    tab.type === 'agent' ? "bg-accent-secondary/30" : "bg-accent-primary/30"
-                  )} />
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-theme-accent to-theme-accent-secondary" />
                 )}
 
-                <Icon size={14} className={cn("transition-colors", isActive ? (tab.type === 'agent' ? "text-accent-secondary" : "text-accent-primary") : "text-gray-600")} />
+                <Icon size={14} className={cn("transition-colors", isActive ? "text-theme-accent" : "text-theme-muted")} />
                 <span className="truncate max-w-[150px]">{tab.title}</span>
                 
                 {tab.id !== 'logs' && (
@@ -118,7 +112,7 @@ const Dock = () => {
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
-                    className="p-0.5 rounded hover:bg-dark-600/50 transition-colors opacity-0 group-hover:opacity-100 ml-1 hover:text-accent-danger"
+                    className="p-1 rounded-lg hover:bg-theme-hover transition-colors opacity-0 group-hover:opacity-100 ml-1 hover:text-theme-danger"
                   >
                     <X size={12} strokeWidth={3} />
                   </button>
@@ -128,10 +122,10 @@ const Dock = () => {
           })}
         </div>
         
-        <div className="absolute right-0 top-0 bottom-0 flex items-center space-x-1 px-3 border-l border-dark-700 bg-dark-800 z-10">
+        <div className="absolute right-0 top-0 bottom-0 flex items-center space-x-1 px-3 border-l border-theme-glass-light glass-card-sm z-10">
           <button 
             onClick={() => setIsDockExpanded(!isDockExpanded)}
-            className="p-1 hover:bg-dark-700 rounded text-gray-500 hover:text-white transition-all border border-transparent hover:border-dark-600"
+            className="p-1.5 glass-btn text-theme-muted hover:text-theme-accent transition-all"
             title={isDockExpanded ? "COLLAPSE_VIEW" : "EXPAND_VIEW"}
           >
             {isDockExpanded ? <ChevronDown size={16} strokeWidth={2.5} /> : <ChevronUp size={16} strokeWidth={2.5} />}
@@ -141,35 +135,36 @@ const Dock = () => {
 
       {/* Dock Content */}
       {isDockExpanded && (
-        <div className="flex-1 overflow-hidden bg-dark-950/20">
+        <div className="flex-1 min-h-0 overflow-hidden">
           {openTabs.map(tab => (
             <div 
               key={tab.id} 
-              className={cn("h-full flex flex-col", activeTabId === tab.id ? "block" : "hidden")}
+              className={cn("h-full flex flex-col", activeTabId === tab.id ? "flex" : "hidden")}
+              style={{ minHeight: 0 }}
             >
               {tab.type === 'agent' ? (
                 <>
-                  <div className="flex items-center px-2 h-8 bg-dark-800/80 border-b border-dark-700 shrink-0 shadow-sm">
+                  <div className="flex items-center px-2 h-9 glass-card-sm border-b border-theme-glass-light shrink-0">
                     {agentSubTabs.map((sub) => (
                       <button
                         key={sub.id}
                         onClick={() => setActiveSubTab?.(tab.id, sub.id)}
                         className={cn(
-                          "flex items-center space-x-2 px-4 h-full text-[9px] font-black uppercase tracking-widest transition-all relative group",
+                          "flex items-center space-x-2 px-4 h-full text-[10px] font-semibold uppercase tracking-wider transition-all relative group rounded-t-lg",
                           (tab.activeSubTab || 'console') === sub.id
-                            ? "text-accent-primary border-b-2 border-accent-primary"
-                            : "text-gray-600 hover:text-gray-300"
+                            ? "text-theme-accent bg-theme-glass border-b-2 border-theme-accent"
+                            : "text-theme-muted hover:text-theme-primary hover:bg-theme-hover"
                         )}
                       >
-                        <sub.icon size={12} className={cn("transition-colors", (tab.activeSubTab || 'console') === sub.id ? "text-accent-primary" : "group-hover:text-gray-400")} />
+                        <sub.icon size={12} className={cn("transition-colors", (tab.activeSubTab || 'console') === sub.id ? "text-theme-accent" : "group-hover:text-theme-secondary")} />
                         <span>{sub.label}</span>
                       </button>
                     ))}
                   </div>
-                  <div className="flex-1 overflow-hidden">
+                  <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
                     {(tab.activeSubTab || 'console') === 'console' && <AgentConsole agent={tab} />}
                     {tab.activeSubTab === 'files' && <FileBrowser agent={tab} />}
-                    {tab.activeSubTab === 'processes' && <ProcessBrowser agent={tab} />}
+                    {tab.activeSubTab === 'procs' && <ProcessBrowser agent={tab} />}
                     {tab.activeSubTab === 'info' && <AgentConsole agent={{...tab, activeSubTab: 'info'}} />}
                   </div>
                 </>

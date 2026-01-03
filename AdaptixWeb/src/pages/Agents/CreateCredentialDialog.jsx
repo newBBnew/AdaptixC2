@@ -81,106 +81,112 @@ const CreateCredentialDialog = ({ isOpen, onClose, onSaved, editMode = false, in
       title={editMode ? "Edit Credential" : "Add Credential"}
       width="max-w-xl"
     >
-      <div className="flex flex-col bg-dark-900/50">
-        <div className="p-6 space-y-6 overflow-y-auto">
+      <div className="flex flex-col bg-theme-glass-panel">
+        <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh] custom-scrollbar">
           {/* Identity Section */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Username</label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" size={14} />
+              <label className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Username</label>
+              <div className="relative group">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={14} />
                 <input 
                   value={formData.username}
                   onChange={e => setFormData({...formData, username: e.target.value})}
-                  className="w-full bg-dark-950 border border-dark-600 rounded pl-9 pr-3 py-2 text-sm text-white outline-none focus:border-accent-primary"
+                  className="glass-input w-full pl-10 py-2.5 text-theme-primary"
                   placeholder="e.g. Administrator"
                 />
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Realm / Domain</label>
-              <div className="relative">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" size={14} />
+              <label className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Domain / Realm</label>
+              <div className="relative group">
+                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={14} />
                 <input 
                   value={formData.realm}
                   onChange={e => setFormData({...formData, realm: e.target.value})}
-                  className="w-full bg-dark-950 border border-dark-600 rounded pl-9 pr-3 py-2 text-sm text-white outline-none focus:border-accent-primary"
-                  placeholder="e.g. CORP.LOCAL"
+                  className="glass-input w-full pl-10 py-2.5 text-theme-primary"
+                  placeholder="e.g. AD.LOCAL"
                 />
               </div>
             </div>
           </div>
 
-          {/* Secret Section */}
+          {/* Credential Material */}
           <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Password / Hash / Key</label>
-            <textarea 
-              value={formData.password}
-              onChange={e => setFormData({...formData, password: e.target.value})}
-              rows="2"
-              className="w-full bg-dark-950 border border-dark-600 rounded px-3 py-2 text-sm text-gray-300 font-mono focus:border-accent-primary outline-none resize-none"
-              placeholder="Enter cleartext password or hash..."
-            />
+            <label className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Credential Material (Password / Hash)</label>
+            <div className="relative group">
+              <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={14} />
+              <input 
+                value={formData.password}
+                onChange={e => setFormData({...formData, password: e.target.value})}
+                className="glass-input w-full pl-10 py-2.5 font-mono text-theme-primary"
+                placeholder="Enter password or NTLM hash..."
+              />
+            </div>
           </div>
 
-          {/* Type & Tag */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Metadata Section */}
+          <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Credential Type</label>
+              <label className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Material Type</label>
               <select 
                 value={formData.type}
                 onChange={e => setFormData({...formData, type: e.target.value})}
-                className="w-full bg-dark-950 border border-dark-600 rounded px-3 py-2 text-sm text-white outline-none focus:border-accent-primary"
+                className="glass-input w-full px-3 py-2.5 text-theme-primary"
               >
-                {credTypes.map(t => <option key={t} value={t}>{t.toUpperCase()}</option>)}
+                {credTypes.map(t => <option key={t} value={t} className="bg-theme-glass-panel">{t.toUpperCase()}</option>)}
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Tag</label>
-              <div className="relative">
-                <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" size={14} />
+              <label className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Source Tag</label>
+              <div className="relative group">
+                <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={14} />
                 <input 
                   value={formData.tag}
                   onChange={e => setFormData({...formData, tag: e.target.value})}
-                  className="w-full bg-dark-950 border border-dark-600 rounded pl-9 pr-3 py-2 text-sm text-white outline-none focus:border-accent-primary"
+                  className="glass-input w-full pl-10 py-2.5 text-theme-primary"
                   placeholder="e.g. Domain Admin"
                 />
               </div>
             </div>
           </div>
 
-          {/* Metadata */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Origin Host</label>
-              <input 
-                value={formData.host}
-                onChange={e => setFormData({...formData, host: e.target.value})}
-                className="w-full bg-dark-950 border border-dark-600 rounded px-3 py-2 text-sm text-white outline-none focus:border-accent-primary font-mono"
-                placeholder="Source IP/Hostname"
-              />
+              <label className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Origin Node</label>
+              <div className="relative group">
+                <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={14} />
+                <input 
+                  value={formData.host}
+                  onChange={e => setFormData({...formData, host: e.target.value})}
+                  className="glass-input w-full pl-10 py-2.5 text-theme-primary"
+                  placeholder="e.g. DC01"
+                />
+              </div>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Storage Note</label>
-              <input 
+              <label className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Storage Provenance</label>
+              <select 
                 value={formData.storage}
                 onChange={e => setFormData({...formData, storage: e.target.value})}
-                className="w-full bg-dark-950 border border-dark-600 rounded px-3 py-2 text-sm text-white outline-none focus:border-accent-primary"
-                placeholder="SAM, LSASS, etc."
-              />
+                className="glass-input w-full px-3 py-2.5 text-theme-primary"
+              >
+                <option value="" className="bg-theme-glass-panel">UNSPECIFIED</option>
+                {storageTypes.map(t => <option key={t} value={t} className="bg-theme-glass-panel">{t.toUpperCase()}</option>)}
+              </select>
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 bg-dark-800 border-t border-dark-700 flex items-center justify-end space-x-3 px-6">
-          <button onClick={onClose} className="px-4 py-2 rounded text-xs font-bold text-gray-400 hover:bg-dark-700 uppercase tracking-widest transition-colors">Cancel</button>
+        {/* Footer Actions */}
+        <div className="flex items-center justify-end space-x-3 p-6 border-t border-theme-glass-light bg-theme-glass-panel">
+          <button onClick={onClose} className="glass-btn px-6 py-2 text-xs font-bold text-theme-muted hover:text-theme-primary transition-all uppercase tracking-widest">Cancel</button>
           <button 
             onClick={handleSave}
-            className="flex items-center space-x-2 px-6 py-2 bg-accent-primary hover:bg-accent-primary/90 text-white rounded text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-accent-primary/20"
+            className="glass-btn-primary px-8 py-2 text-xs font-black uppercase tracking-widest shadow-glow-sm hover:shadow-glow flex items-center space-x-2 text-white"
           >
-            <Save size={14} />
-            <span>Loot Credential</span>
+            <Save size={14} className="text-white" />
+            <span>Save Loot</span>
           </button>
         </div>
       </div>

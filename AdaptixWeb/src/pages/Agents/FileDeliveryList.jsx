@@ -79,88 +79,87 @@ const FileDeliveryList = () => {
         { label: 'Copy download URL', icon: Copy, onClick: () => handleCopyUrl(file.url) },
         { label: 'Create download link', icon: Link, onClick: () => handleCreateLink(file) },
         { divider: true },
-        { label: 'Delete hosted file', icon: Trash2, color: 'text-accent-danger', onClick: () => handleDeleteFile(file.id) },
+        { label: 'Delete hosted file', icon: Trash2, color: 'text-theme-danger', onClick: () => handleDeleteFile(file.id) },
       ]
     });
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-dark-900 select-none overflow-hidden" onClick={() => setMenu(null)}>
-      {/* 1. Header with Controls (Mimics FileDeliveryWidget.cpp) */}
-      <div className="flex items-center justify-between px-4 py-2 bg-dark-800 border-b border-dark-700 shrink-0">
+    <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setMenu(null)}>
+      {/* 1. Header with Controls */}
+      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-glass-border shrink-0">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
-            <Database className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">File Delivery</span>
-          </div>
-          <div className="h-4 w-px bg-dark-600" />
           <button 
             onClick={() => setIsSearchVisible(!isSearchVisible)}
             className={cn(
-              "p-1 rounded hover:bg-dark-700 transition-colors",
-              isSearchVisible ? "bg-accent-primary/20 text-accent-primary" : "text-gray-500"
+              "p-2 rounded-xl transition-all",
+              isSearchVisible ? "bg-theme-accent/20 text-theme-accent border border-theme-accent/30" : "text-theme-muted hover:text-theme-primary hover:bg-theme-hover"
             )}
             title="Toggle Search (Ctrl+F)"
           >
-            <Search className="w-3.5 h-3.5" />
+            <Search className="w-4 h-4 text-theme-accent" />
+          </button>
+          <div className="h-5 w-px bg-theme-glass-light mx-1" />
+          <button 
+            onClick={() => {
+              setLoading(true);
+              fetchAgents().finally(() => setLoading(false));
+            }}
+            className="p-2 glass-btn text-theme-muted hover:text-theme-accent transition-all"
+            title="Refresh File Delivery"
+          >
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-theme-accent")} />
           </button>
         </div>
 
-        <div className="flex items-center space-x-1">
-          <button 
-            className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
-            title="Refresh"
-          >
-            <RefreshCw className={cn("w-3.5 h-3.5", false && "animate-spin text-accent-primary")} />
-          </button>
-          <div className="h-4 w-px bg-dark-600 mx-1" />
+        <div className="flex items-center">
           <button 
             onClick={() => setIsUploadOpen(true)}
-            className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group"
+            className="glass-btn-primary px-4 py-2 text-theme-primary flex items-center space-x-2 shadow-glow-sm"
           >
-            <FileUp className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-bold uppercase">Upload</span>
+            <FileUp className="w-4 h-4" />
+            <span className="font-semibold text-sm">Host New File</span>
           </button>
         </div>
       </div>
 
       {/* 2. Search Panel */}
       {isSearchVisible && (
-        <div className="flex items-center px-4 py-2 bg-dark-800/50 border-b border-dark-700 animate-in slide-in-from-top-2 duration-200 shrink-0">
+        <div className="flex items-center px-4 py-2 glass-card-sm border-b border-theme-glass-light shrink-0 animate-in slide-in-from-top-1 duration-200">
           <div className="relative flex-1 max-w-md">
-            <Filter className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600" />
+            <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
             <input 
               type="text" 
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter files..." 
-              className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
+              placeholder="Search filename, url, size..." 
+              className="glass-input w-full pl-10 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
             />
           </div>
         </div>
       )}
 
       {/* 3. Table Area */}
-      <div className="flex-1 overflow-auto scrollbar-thin">
-        <table className="w-full text-left border-collapse table-auto min-w-[800px]">
-          <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
-            <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-              <th className="py-2 px-4 border-r border-dark-700/30">Filename</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Size</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Downloads</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">URL</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Date Added</th>
-              <th className="py-2 px-4 text-right">Actions</th>
+      <div className="flex-1 overflow-auto custom-scrollbar glass-panel">
+        <table className="glass-table min-w-[900px]">
+          <thead>
+            <tr>
+              <th className="w-64">Hosted File</th>
+              <th className="w-32">Size</th>
+              <th className="w-24">Hits</th>
+              <th className="w-64">Download URL</th>
+              <th className="w-48">Created</th>
+              <th className="text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
+          <tbody className="text-[12px] font-medium">
             {filteredFiles.length === 0 ? (
               <tr>
-                <td colSpan="6" className="py-20 text-center text-gray-600 italic">
-                  <div className="flex flex-col items-center space-y-3 opacity-20">
-                    <Database size={40} />
-                    <p className="text-xs font-medium tracking-widest uppercase">No hosted files</p>
+                <td colSpan="6" className="py-24 text-center border-none">
+                  <div className="flex flex-col items-center space-y-4 opacity-20">
+                    <Database size={48} className="text-theme-muted" />
+                    <p className="text-[10px] font-black tracking-[0.2em] uppercase text-theme-muted">No telemetry artifacts hosted</p>
                   </div>
                 </td>
               </tr>
@@ -168,42 +167,42 @@ const FileDeliveryList = () => {
               filteredFiles.map((f) => (
                 <tr 
                   key={f.id} 
-                  className="hover:bg-accent-primary/5 transition-colors group h-8 cursor-default"
                   onContextMenu={(e) => handleContextMenu(e, f)}
+                  className="transition-colors group h-10 cursor-default border-b border-theme-glass-light hover:bg-theme-glass"
                 >
-                  <td className="px-4 text-accent-primary font-bold font-mono truncate">{f.filename}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{f.size || '---'}</td>
-                  <td className="px-4 text-gray-300 font-mono text-center w-24">
-                    <span className="px-1.5 py-0.5 rounded bg-dark-700 text-[9px] font-black text-accent-secondary">
+                  <td className="text-theme-accent font-black font-mono tracking-tight">{f.filename}</td>
+                  <td className="text-theme-secondary font-mono italic">{f.size || '0 B'}</td>
+                  <td>
+                    <span className="px-1.5 py-0.5 rounded-sm bg-theme-glass-panel text-[9px] font-black text-theme-accent-secondary border border-theme-glass-light">
                       {f.downloads || 0}
                     </span>
                   </td>
-                  <td className="px-4 text-gray-400 font-mono truncate max-w-xs select-text hover:text-white transition-colors cursor-pointer" onClick={() => handleCopyUrl(f.url)}>
-                    {f.url || '---'}
+                  <td className="text-theme-primary font-mono select-text hover:text-theme-accent transition-colors cursor-pointer text-[10px]" onClick={() => handleCopyUrl(f.url)}>
+                    {f.url || 'PENDING_MAPPING'}
                   </td>
-                  <td className="px-4 text-gray-500 font-mono truncate">
-                    {f.date ? new Date(f.date * 1000).toLocaleString() : '---'}
+                  <td className="text-theme-muted font-mono text-[10px]">
+                    {f.date ? new Date(f.date * 1000).toLocaleString([], { hour12: false }) : 'N/A'}
                   </td>
-                  <td className="px-4 text-right">
+                  <td className="text-right">
                     <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
                         onClick={() => handleCopyUrl(f.url)}
-                        className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" 
-                        title="Copy URL"
+                        className="p-1.5 rounded-lg hover:bg-theme-glass text-theme-muted hover:text-theme-primary transition-colors" 
+                        title="Copy Mapping URL"
                       >
                         <Copy size={14} />
                       </button>
                       <button 
                         onClick={() => handleCreateLink(f)}
-                        className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-secondary transition-colors" 
-                        title="Create Link"
+                        className="p-1.5 rounded-lg hover:bg-theme-glass text-theme-muted hover:text-theme-accent-secondary transition-colors" 
+                        title="Generate Link"
                       >
                         <Link size={14} />
                       </button>
                       <button 
                         onClick={() => handleDeleteFile(f.id)}
-                        className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" 
-                        title="Delete File"
+                        className="p-1.5 rounded-lg hover:bg-theme-glass text-theme-danger/70 hover:text-theme-danger transition-all" 
+                        title="Purge Artifact"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -217,13 +216,16 @@ const FileDeliveryList = () => {
       </div>
       
       {/* 4. Footer Summary */}
-      <div className="px-4 py-1.5 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tighter shrink-0">
-        <div className="flex items-center space-x-4">
-          <span>Hosted Files: <span className="text-accent-primary">{filesArray.length}</span></span>
+      <div className="px-3 py-1.5 glass-card-sm border-t border-theme-glass-light flex items-center justify-between text-[9px] font-black text-theme-muted uppercase tracking-[0.15em] shrink-0">
+        <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light shadow-glow-sm">
+            <span className="opacity-60">HOSTED_ARTIFACTS:</span>
+            <span className="text-theme-accent font-mono font-bold">{filesArray.length}</span>
+          </div>
         </div>
-        <div className="flex items-center space-x-1">
-          <div className="w-1.5 h-1.5 rounded-full bg-accent-secondary animate-pulse" />
-          <span className="text-accent-secondary/80">File Delivery Sync Active</span>
+        <div className="flex items-center space-x-3 pr-1">
+          <span className="text-theme-muted opacity-80 uppercase tracking-[0.2em]">Delivery_Service_Online</span>
+          <div className="w-2 h-2 rounded-full bg-theme-success shadow-glow-sm animate-pulse" />
         </div>
       </div>
 

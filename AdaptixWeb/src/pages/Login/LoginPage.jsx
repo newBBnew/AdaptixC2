@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ShieldAlert, Lock, User, Globe, Server, Save, Trash2, Plus, Terminal, Activity, Link2, X } from 'lucide-react';
+import { ShieldAlert, Lock, User, Globe, Server, Save, Trash2, Plus, Terminal, Activity, Link2, X, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import { cn } from '../../utils/cn';
 import { useConfig } from '../../context/ConfigContext';
@@ -21,17 +21,13 @@ const LoginPage = ({ onLogin }) => {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // Computed endpoint for display
   const [derivedEndpoint, setDerivedEndpoint] = useState(config.apiEndpoint);
 
-  // Use useCallback to prevent infinite loop in useEffect
   const memoizedUpdateConfig = useCallback((url) => {
     return updateConfigFromUrl(url);
   }, [updateConfigFromUrl]);
 
   useEffect(() => {
-    // Update derived endpoint whenever formData.url changes
     const newConfig = memoizedUpdateConfig(formData.url);
     if (newConfig) {
       setDerivedEndpoint(newConfig.apiEndpoint);
@@ -55,7 +51,6 @@ const LoginPage = ({ onLogin }) => {
 
   const handleSaveProfile = () => {
     if (!formData.url || !formData.username) return;
-    
     const profileToSave = {
       name: formData.name,
       url: formData.url,
@@ -63,7 +58,6 @@ const LoginPage = ({ onLogin }) => {
       password: formData.password,
       id: selectedProfileId || Date.now().toString(),
     };
-
     if (selectedProfileId) {
       setProfiles(prev => prev.map(p => p.id === selectedProfileId ? profileToSave : p));
     } else {
@@ -84,27 +78,15 @@ const LoginPage = ({ onLogin }) => {
     if (e) e.preventDefault();
     setLoading(true);
     setError('');
-    
     try {
-      // Force config update from current URL to ensure we have the latest path immediately
-      // This returns the new config object directly, bypassing state update delay
       const currentConfig = updateConfigFromUrl(formData.url);
       const apiEndpoint = currentConfig ? currentConfig.apiEndpoint : config.apiEndpoint;
-      
-      console.log('[Login] Target URL:', formData.url);
-      console.log('[Login] Derived API Endpoint:', apiEndpoint);
-      
-      // Use relative path to trigger Vite proxy and avoid CORS issues
-      // Dynamically use the configured apiEndpoint (which includes /api prefix for local)
       const loginUrl = `${apiEndpoint}/login`;
-      console.log('[Login] Final Request URL:', loginUrl);
-
       const response = await axios.post(loginUrl, {
         username: formData.username,
         password: formData.password,
         version: 'v1.0'
       });
-      
       if (response.data && response.data.access_token) {
         localStorage.setItem('adaptix_url', formData.url);
         localStorage.setItem('adaptix_user', formData.username);
@@ -115,7 +97,6 @@ const LoginPage = ({ onLogin }) => {
         setError('Invalid response from server');
       }
     } catch (err) {
-      console.error('Login error:', err);
       if (err.response) {
         setError(err.response.data?.message || `Auth failed: ${err.response.status}`);
       } else if (err.request) {
@@ -129,216 +110,195 @@ const LoginPage = ({ onLogin }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-dark-950 flex items-center justify-center overflow-hidden font-sans text-[#BEBEBE] select-none">
-      {/* Background Decor */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-10">
-        <div className="absolute top-0 left-0 w-full h-full bg-[linear-gradient(rgba(61,139,106,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(61,139,106,0.05)_1px,transparent_1px)] bg-[size:30px_30px]"></div>
+    <div className="min-h-screen w-full flex items-center justify-center p-4 overflow-hidden relative">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-theme-accent/10 blur-[120px] animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-theme-accent-secondary/10 blur-[120px] animate-pulse delay-700" />
       </div>
 
-      <div className="relative w-full max-w-4xl grid grid-cols-1 md:grid-cols-5 gap-0 bg-dark-900 border border-dark-700 shadow-[0_0_60px_rgba(0,0,0,0.8)] rounded-sm overflow-hidden z-10 mx-4">
-        
-        {/* Left Panel: Profiles */}
-        <div className="md:col-span-2 bg-dark-800 border-r border-dark-700 p-6 flex flex-col">
-          <div className="flex items-center space-x-3 mb-10">
-            <div className="p-2 bg-accent-primary/10 rounded-sm border border-accent-primary/20">
-              <ShieldAlert className="w-8 h-8 text-accent-primary" />
+      <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-8 relative z-10 text-left">
+        <div className="lg:col-span-5 flex flex-col justify-center space-y-8 p-4">
+          <div className="space-y-4">
+            <div className="inline-flex items-center space-x-3 px-4 py-2 glass-card-sm border-theme-glass-light rounded-2xl shadow-glow-sm">
+              <ShieldAlert className="w-6 h-6 text-theme-accent" />
+              <span className="text-xs font-black uppercase tracking-[0.3em] text-theme-primary">Intelligence Framework</span>
             </div>
-            <div>
-              <h1 className="text-lg font-black text-white tracking-widest uppercase">Adaptix C2</h1>
-              <div className="flex items-center space-x-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-accent-secondary animate-pulse"></div>
-                <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">v1.0.0-STABLE</span>
-              </div>
-            </div>
+            <h1 className="text-7xl font-black tracking-tighter text-theme-primary">
+              ADAPTIX <span className="gradient-text">C2</span>
+            </h1>
+            <p className="text-lg text-theme-muted font-bold max-w-md leading-relaxed">
+              Advanced command and control orchestration system. 
+              Secure, distributed, and stealthy infrastructure management.
+            </p>
           </div>
 
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex items-center justify-between mb-3 px-1">
-              <h3 className="text-[9px] font-black text-gray-500 uppercase tracking-widest flex items-center">
-                <Server className="w-3 h-3 mr-2" />
-                Connectivity Profiles
-              </h3>
-              <button 
-                onClick={() => {
-                  setSelectedProfileId(null);
-                  setFormData({ name: 'New Profile', url: config.teamserverUrl, username: '', password: '' });
-                }}
-                className="p-1 hover:bg-dark-700 rounded transition-colors text-gray-500 hover:text-accent-primary"
-                title="Create New Profile"
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-            
-            <div className="flex-1 space-y-1 overflow-y-auto scrollbar-thin pr-1 min-h-0">
-              {profiles.length === 0 ? (
-                <div className="text-[10px] text-gray-600 italic py-8 text-center border border-dashed border-dark-700 rounded-sm bg-dark-950/30">
-                  No saved configurations
-                </div>
-              ) : (
-                profiles.map(profile => (
-                  <div 
-                    key={profile.id}
-                    onClick={() => handleProfileSelect(profile)}
-                    className={cn(
-                      "group flex items-center justify-between p-2.5 rounded-sm border transition-all cursor-default",
-                      selectedProfileId === profile.id 
-                        ? "bg-accent-selection/30 border-accent-primary text-white shadow-inner" 
-                        : "bg-dark-950/50 border-dark-700 text-gray-500 hover:border-dark-600 hover:bg-dark-700/30"
-                    )}
-                  >
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-[11px] font-bold truncate uppercase tracking-tight">{profile.name}</span>
-                      <span className="text-[9px] font-mono text-gray-600 truncate">{profile.url}</span>
-                    </div>
-                    <button 
-                      onClick={(e) => handleDeleteProfile(profile.id, e)}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-gray-600 hover:text-accent-danger transition-all"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-dark-700">
-              <div className="flex items-center space-x-1 text-[9px] font-black uppercase text-gray-600 tracking-widest">
-                <Activity size={10} className="text-accent-secondary opacity-50" />
-                <span>Infrastructure verified</span>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { icon: Activity, label: 'Real-time', desc: 'Sync telemetry' },
+              { icon: Terminal, label: 'Orchestration', desc: 'Advanced canvas' }
+            ].map((item, i) => (
+              <div key={i} className="glass-panel p-4 rounded-2xl border-theme-glass-light hover:border-theme-accent transition-all group">
+                <item.icon className="w-5 h-5 text-theme-accent mb-3 group-hover:scale-110 transition-transform" />
+                <p className="text-xs font-black uppercase tracking-widest text-theme-primary">{item.label}</p>
+                <p className="text-[10px] text-theme-muted font-bold mt-1 uppercase">{item.desc}</p>
               </div>
-            </div>
+            ))}
           </div>
         </div>
 
-        {/* Right Panel: Login Form */}
-        <div className="md:col-span-3 p-10 flex flex-col justify-center bg-dark-900">
-          <div className="mb-8 border-l-4 border-accent-primary pl-6">
-            <h2 className="text-xl font-black text-white uppercase tracking-wider">Access Terminal</h2>
-            <p className="text-[11px] text-gray-500 mt-1 uppercase font-bold tracking-tight">Enter credentials to establish teamserver link</p>
-          </div>
-
-          <form className="space-y-4" onSubmit={handleLogin}>
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-1 space-y-1.5">
-                  <label className="text-[9px] font-black uppercase text-gray-500 tracking-widest ml-1">Alias</label>
-                  <input
-                    type="text"
-                    className="qt-input w-full py-2.5"
-                    placeholder="Profile name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
+        <div className="lg:col-span-7">
+          <div className="glass-card p-1 rounded-[2.5rem] shadow-2xl border-theme-glass-light">
+            <div className="bg-theme-glass-panel rounded-[2.2rem] p-8 md:p-12">
+              <div className="flex items-center justify-between mb-10 text-left">
+                <div>
+                  <h2 className="text-2xl font-black text-theme-primary tracking-tight uppercase">Teamserver Access</h2>
+                  <p className="text-sm text-theme-muted font-bold uppercase mt-1">Personnel Authentication Required</p>
                 </div>
-                <div className="col-span-2 space-y-1.5">
-                  <label className="text-[9px] font-black uppercase text-gray-500 tracking-widest ml-1">Remote Host</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Globe className="h-3.5 w-3.5 text-gray-600" />
+                <div className="glass-btn p-3 rounded-2xl border-theme-glass-light">
+                  <Lock className="w-6 h-6 text-theme-accent" />
+                </div>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2 md:col-span-2 text-left">
+                    <label className="flex items-center space-x-2 text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">
+                      <Globe size={12} className="text-theme-accent" />
+                      <span>C2 Endpoint URL</span>
+                    </label>
+                    <div className="relative group">
+                      <input 
+                        type="text"
+                        value={formData.url}
+                        onChange={(e) => handleUrlChange(e.target.value)}
+                        className="w-full glass-input pl-12 pr-4 py-4 text-theme-primary font-bold rounded-2xl focus:ring-2 focus:ring-theme-accent/30 transition-all border-theme-glass-light"
+                        placeholder="https://teamserver.local:8443"
+                        required
+                      />
+                      <Server className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={18} />
                     </div>
-                    <input
-                      type="text"
-                      required
-                      className="qt-input w-full pl-9 py-2.5"
-                      placeholder="https://127.0.0.1:443"
-                      value={formData.url}
-                      onChange={(e) => handleUrlChange(e.target.value)}
-                    />
+                    {derivedEndpoint && (derivedEndpoint.includes('localhost') || derivedEndpoint.includes('127.0.0.1')) && (
+                      <p className="text-[9px] text-theme-accent-secondary font-black uppercase tracking-wider ml-1 animate-pulse">
+                        Auto-detected: {derivedEndpoint}
+                      </p>
+                    )}
                   </div>
-                  <div className="text-[9px] font-mono text-gray-500 pl-1 mt-1">
-                     Target API: <span className="text-accent-secondary">{derivedEndpoint}/login</span>
+
+                  <div className="space-y-2 text-left">
+                    <label className="flex items-center space-x-2 text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">
+                      <User size={12} className="text-theme-accent" />
+                      <span>Operator Alias</span>
+                    </label>
+                    <div className="relative group">
+                      <input 
+                        type="text"
+                        value={formData.username}
+                        onChange={(e) => setFormData({...formData, username: e.target.value})}
+                        className="w-full glass-input pl-12 pr-4 py-4 text-theme-primary font-bold rounded-2xl border-theme-glass-light focus:ring-2 focus:ring-theme-accent/30 transition-all"
+                        placeholder="ADMIN_OPERATOR"
+                        required
+                      />
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={18} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-left">
+                    <label className="flex items-center space-x-2 text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">
+                      <Lock size={12} className="text-theme-accent" />
+                      <span>Access Token</span>
+                    </label>
+                    <div className="relative group">
+                      <input 
+                        type="password"
+                        value={formData.password}
+                        onChange={(e) => setFormData({...formData, password: e.target.value})}
+                        className="w-full glass-input pl-12 pr-4 py-4 text-theme-primary font-bold rounded-2xl border-theme-glass-light focus:ring-2 focus:ring-theme-accent/30 transition-all"
+                        placeholder="••••••••"
+                        required
+                      />
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={18} />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="bg-dark-950 border border-dark-700 rounded-sm p-3 space-y-2 shadow-inner">
-                <div className="flex items-center justify-between text-[8px] font-mono text-gray-600 uppercase tracking-[0.2em] border-b border-dark-700/50 pb-1.5 mb-1.5">
-                  <div className="flex items-center">
-                    <Link2 size={10} className="mr-1.5 text-accent-primary" />
-                    Internal Mapping
+                {error && (
+                  <div className="p-4 bg-theme-danger/10 border border-theme-danger/20 rounded-2xl flex items-center space-x-3">
+                    <ShieldAlert className="text-theme-danger shrink-0" size={18} />
+                    <p className="text-xs font-bold text-theme-danger uppercase tracking-wider">{error}</p>
                   </div>
-                  <span className="text-accent-secondary opacity-50">AUTOMATED</span>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="min-w-0">
-                    <span className="block text-[8px] text-gray-700 mb-0.5 uppercase font-black">Rest Interface</span>
-                    <span className="block text-[9px] font-mono text-gray-400 truncate">
-                      {config.apiEndpoint}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="block text-[8px] text-gray-700 mb-0.5 uppercase font-black">Socket stream</span>
-                    <span className="block text-[9px] font-mono text-gray-400 truncate">
-                      {config.wsEndpoint}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase text-gray-500 tracking-widest ml-1">Operator ID</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <User className="h-3.5 w-3.5 text-gray-600" />
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    className="qt-input w-full pl-9 py-2.5 font-mono"
-                    placeholder="Username"
-                    value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase text-gray-500 tracking-widest ml-1">Secret Key</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-3.5 w-3.5 text-gray-600" />
-                  </div>
-                  <input
-                    type="password"
-                    required
-                    autoComplete="current-password"
-                    className="qt-input w-full pl-9 py-2.5 font-mono"
-                    placeholder="••••••••"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {error && (
-              <div className="text-accent-danger text-[10px] bg-accent-danger/5 p-2.5 rounded-sm border border-accent-danger/20 flex items-start space-x-2 animate-in slide-in-from-top-1 duration-200">
-                <ShieldAlert size={12} className="shrink-0 mt-0.5" />
-                <span className="uppercase font-bold tracking-tight">{error}</span>
-              </div>
-            )}
-
-            <div className="pt-4">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full qt-btn bg-[#2a2a2a] border-accent-primary/50 text-white py-3 font-black uppercase tracking-[0.2em] shadow-lg shadow-accent-primary/10 hover:bg-accent-selection active:scale-[0.99] transition-all disabled:opacity-50"
-              >
-                {loading ? (
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto" />
-                ) : (
-                  'Establish Connection'
                 )}
-              </button>
+
+                <div className="flex items-center space-x-4 pt-4">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 glass-btn-primary py-4 rounded-2xl font-black uppercase tracking-[0.2em] text-sm shadow-glow-sm hover:shadow-glow hover:scale-[1.02] transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center space-x-2"
+                  >
+                    {loading ? (
+                      <RefreshCw className="w-5 h-5 animate-spin text-white" />
+                    ) : (
+                      <>
+                        <span>Initialize Session</span>
+                        <Link2 size={18} />
+                      </>
+                    )}
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={handleSaveProfile}
+                    className="p-4 glass-btn rounded-2xl border-theme-glass-light text-theme-accent hover:bg-theme-hover transition-all"
+                    title="Save Profile"
+                  >
+                    <Save size={20} />
+                  </button>
+                </div>
+              </form>
+
+              {profiles.length > 0 && (
+                <div className="mt-10 pt-10 border-t border-theme-glass-light text-left">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Cached Node Profiles</h3>
+                    <Plus className="w-3 h-3 text-theme-accent cursor-pointer hover:rotate-90 transition-transform" />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {profiles.map(p => (
+                      <div 
+                        key={p.id}
+                        onClick={() => handleProfileSelect(p)}
+                        className={cn(
+                          "glass-card-sm p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all hover:scale-[1.02]",
+                          selectedProfileId === p.id ? "bg-theme-glass border-theme-accent" : "border-theme-glass-light hover:bg-theme-hover"
+                        )}
+                      >
+                        <div className="flex items-center space-x-3 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-theme-glass flex items-center justify-center shrink-0 border border-theme-glass-light">
+                            <Server size={14} className={selectedProfileId === p.id ? "text-theme-accent" : "text-theme-muted"} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-black text-theme-primary uppercase truncate">{p.name || 'UNNAMED'}</p>
+                            <p className="text-[9px] text-theme-muted font-bold truncate tracking-tighter">{p.url}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={(e) => handleDeleteProfile(p.id, e)}
+                          className="p-1.5 hover:bg-theme-danger/10 text-theme-muted hover:text-theme-danger rounded-lg transition-colors"
+                        >
+                          <X size={12} strokeWidth={3} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          </form>
+          </div>
         </div>
       </div>
       
-      <div className="absolute bottom-8 left-0 w-full text-center pointer-events-none">
-        <p className="text-[10px] text-gray-700 font-mono tracking-widest uppercase">
-          &copy; 2026 Adaptix Intelligence Security Framework | Authorized Access Only
+      <div className="absolute bottom-6 left-0 w-full text-center pointer-events-none">
+        <p className="text-[11px] text-theme-muted font-mono tracking-wider">
+          &copy; 2026 Adaptix Intelligence Framework
         </p>
       </div>
     </div>

@@ -67,7 +67,7 @@ const ProcessBrowser = ({ agent }) => {
         { label: 'Copy PID', icon: Copy, onClick: () => navigator.clipboard.writeText(process.b_pid.toString()) },
         { label: 'Copy Name', icon: Copy, onClick: () => navigator.clipboard.writeText(process.b_process_name) },
         { divider: true },
-        { label: 'Kill process', icon: Trash2, color: 'text-accent-danger', disabled: isCurrentAgent, onClick: () => {
+        { label: 'Kill process', icon: Trash2, color: 'text-theme-danger', disabled: isCurrentAgent, onClick: () => {
           if (window.confirm(`Kill process ${process.b_process_name} (${process.b_pid})?`)) {
             agentApi.killProcess(agent.a_id, process.b_pid);
           }
@@ -101,25 +101,25 @@ const ProcessBrowser = ({ agent }) => {
     return (
       <React.Fragment key={node.b_pid}>
         <tr className={cn(
-          "hover:bg-accent-primary/5 group h-8 cursor-default transition-colors border-b border-dark-800/30",
-          isCurrentAgent && "bg-accent-danger/5"
+          "hover:bg-theme-glass group h-10 cursor-default transition-colors border-b border-theme-glass-light",
+          isCurrentAgent && "bg-theme-accent/5"
         )}>
           <td className="px-4 font-mono text-[11px]">
             <div className="flex items-center" style={{ paddingLeft: `${depth * 16}px` }}>
               {node.children.length > 0 ? (
-                <ChevronDown size={12} className="mr-1 text-gray-600" />
+                <ChevronDown size={12} className="mr-2 text-theme-muted" />
               ) : (
-                <div className="w-4" />
+                <div className="w-5" />
               )}
-              <span className={cn(isCurrentAgent ? "text-accent-danger font-bold" : "text-gray-300")}>
+              <span className={cn(isCurrentAgent ? "text-theme-accent font-black uppercase tracking-tight" : "text-theme-primary font-bold")}>
                 {node.b_process_name}
               </span>
             </div>
           </td>
-          <td className="px-4 text-center font-mono text-gray-500 text-[10px]">{node.b_pid}</td>
-          <td className="px-4 text-center font-mono text-gray-500 text-[10px]">{node.b_ppid}</td>
-          <td className="px-4 text-center font-mono text-gray-600 text-[10px]">{node.b_arch || '---'}</td>
-          <td className="px-4 truncate text-gray-500 text-[10px]">{node.b_context || '---'}</td>
+          <td className="px-4 text-center font-mono text-theme-muted text-[10px]">{node.b_pid}</td>
+          <td className="px-4 text-center font-mono text-theme-muted text-[10px]">{node.b_ppid}</td>
+          <td className="px-4 text-center font-mono text-theme-accent-secondary text-[10px]">{node.b_arch || '---'}</td>
+          <td className="px-4 truncate text-theme-secondary text-[10px] uppercase font-bold tracking-tight">{node.b_context || '---'}</td>
         </tr>
         {node.children.map(child => renderTreeItem(child, depth + 1))}
       </React.Fragment>
@@ -127,37 +127,37 @@ const ProcessBrowser = ({ agent }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0a] text-gray-300 font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-full select-none overflow-hidden">
       {/* 1. Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-dark-800 border-b border-dark-700 shrink-0">
-        <div className="flex items-center space-x-4 flex-1">
+      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
+        <div className="flex items-center space-x-3 flex-1 max-w-2xl">
           <button 
             onClick={handleRefresh}
-            className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
-            title="Reload process list"
+            className="p-2 glass-btn text-theme-muted hover:text-theme-accent transition-all"
+            title="Refresh Processes"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-accent-primary")} />
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-theme-accent")} />
           </button>
           
-          <div className="relative flex-1 max-w-sm">
-            <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600" />
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
             <input 
               type="text" 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by PID, Name or Context..." 
-              className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
+              placeholder="Filter processes..." 
+              className="glass-input w-full pl-10 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
             />
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 ml-4">
-          <div className="flex bg-dark-900 rounded-lg p-0.5 border border-dark-700">
+        <div className="flex items-center space-x-3 ml-4">
+          <div className="flex items-center glass-btn rounded-xl p-1 bg-theme-glass border border-theme-glass-light">
             <button 
               onClick={() => setViewMode('table')}
               className={cn(
-                "px-3 py-1 rounded-md text-[10px] font-bold uppercase transition-all",
-                viewMode === 'table' ? "bg-dark-700 text-accent-primary shadow-sm" : "text-gray-500 hover:text-gray-300"
+                "px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
+                viewMode === 'table' ? "bg-theme-accent text-theme-primary shadow-glow-sm" : "text-theme-muted hover:text-theme-secondary"
               )}
             >
               List
@@ -165,8 +165,8 @@ const ProcessBrowser = ({ agent }) => {
             <button 
               onClick={() => setViewMode('tree')}
               className={cn(
-                "px-3 py-1 rounded-md text-[10px] font-bold uppercase transition-all",
-                viewMode === 'tree' ? "bg-dark-700 text-accent-primary shadow-sm" : "text-gray-500 hover:text-gray-300"
+                "px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
+                viewMode === 'tree' ? "bg-theme-accent text-theme-primary shadow-glow-sm" : "text-theme-muted hover:text-theme-secondary"
               )}
             >
               Tree
@@ -176,25 +176,25 @@ const ProcessBrowser = ({ agent }) => {
       </div>
 
       {/* 2. Process Table/Tree Area */}
-      <div className="flex-1 overflow-auto scrollbar-thin">
-        <table className="w-full text-left border-collapse table-fixed">
-          <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
-            <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-              <th className="py-2 px-4 w-16 border-r border-dark-700/30 text-center">PID</th>
-              <th className="py-2 px-4 w-16 border-r border-dark-700/30 text-center">PPID</th>
+      <div className="flex-1 overflow-auto custom-scrollbar glass-panel">
+        <table className="glass-table min-w-[800px]">
+          <thead>
+            <tr>
+              <th className="w-24 text-center">PID</th>
+              <th className="w-24 text-center">PPID</th>
               {agent.a_os === 1 ? (
                 <>
-                  <th className="py-2 px-4 w-16 border-r border-dark-700/30 text-center">Arch</th>
-                  <th className="py-2 px-4 w-16 border-r border-dark-700/30 text-center">Session</th>
+                  <th className="w-24 text-center">Arch</th>
+                  <th className="w-24 text-center">Session</th>
                 </>
               ) : (
-                <th className="py-2 px-4 w-20 border-r border-dark-700/30 text-center">TTY</th>
+                <th className="w-24 text-center">TTY_IO</th>
               )}
-              <th className="py-2 px-4 w-48 border-r border-dark-700/30">Context</th>
-              <th className="py-2 px-4">Process</th>
+              <th className="w-64">Operational Context</th>
+              <th>Process Executable</th>
             </tr>
           </thead>
-          <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
+          <tbody className="text-[11px] font-medium">
             {viewMode === 'tree' ? (
               processTree.map(root => renderTreeItem(root))
             ) : (
@@ -205,24 +205,36 @@ const ProcessBrowser = ({ agent }) => {
                     key={p.b_pid}
                     onContextMenu={(e) => handleContextMenu(e, p)}
                     className={cn(
-                      "hover:bg-accent-primary/5 group h-8 cursor-default transition-colors",
-                      isCurrentAgent && "bg-accent-danger/5"
+                      "transition-colors group h-10 cursor-default border-b border-theme-glass-light hover:bg-theme-glass",
+                      isCurrentAgent ? "bg-theme-accent/5" : ""
                     )}
                   >
-                    <td className="px-4 text-center font-mono text-gray-500 text-[10px]">{p.b_pid}</td>
-                    <td className="px-4 text-center font-mono text-gray-500 text-[10px]">{p.b_ppid}</td>
+                    <td className={cn("text-center font-mono text-[10px]", isCurrentAgent ? "text-theme-accent font-black" : "text-theme-muted")}>
+                      {p.b_pid}
+                    </td>
+                    <td className="text-center font-mono text-theme-muted text-[10px] opacity-60">{p.b_ppid}</td>
                     {agent.a_os === 1 ? (
                       <>
-                        <td className="px-4 text-center font-mono text-gray-600 text-[10px]">{p.b_arch || '---'}</td>
-                        <td className="px-4 text-center font-mono text-gray-600 text-[10px]">{p.b_session || '---'}</td>
+                        <td className="text-center">
+                          <span className="px-2 py-0.5 rounded-lg bg-theme-glass-panel text-[9px] font-black uppercase text-theme-accent-secondary border border-theme-glass-light shadow-sm">
+                            {p.b_arch || 'X64'}
+                          </span>
+                        </td>
+                        <td className="text-center font-mono text-theme-muted text-[10px]">{p.b_session ?? '0'}</td>
                       </>
                     ) : (
-                      <td className="px-4 text-center font-mono text-gray-600 text-[10px]">{p.b_tty || '---'}</td>
+                      <td className="text-center font-mono text-theme-muted text-[10px]">{p.b_tty || 'N/A'}</td>
                     )}
-                    <td className="px-4 truncate text-gray-500 text-[10px]">{p.b_context || '---'}</td>
-                    <td className="px-4 flex items-center space-x-2 truncate">
-                      <Cpu size={14} className={cn("shrink-0", isCurrentAgent ? "text-accent-danger" : "text-gray-600")} />
-                      <span className={cn(isCurrentAgent ? "text-accent-danger font-bold" : "text-gray-300", "truncate font-mono")}>
+                    <td className="truncate max-w-xs">
+                      <span className={cn("text-[10px] font-black uppercase tracking-widest", isCurrentAgent ? "text-theme-accent" : "text-theme-secondary opacity-80")}>
+                        {p.b_context || 'UNKNOWN_IDENTITY'}
+                      </span>
+                    </td>
+                    <td className="flex items-center space-x-3">
+                      <div className="shrink-0 p-1.5 bg-theme-glass-panel border border-theme-glass-light rounded-lg">
+                        <Cpu size={14} className={cn(isCurrentAgent ? "text-theme-accent animate-pulse" : "text-theme-muted opacity-60")} />
+                      </div>
+                      <span className={cn(isCurrentAgent ? "font-black text-theme-primary tracking-tight" : "text-theme-secondary font-bold", "font-mono truncate tracking-tighter")}>
                         {p.b_process_name}
                       </span>
                     </td>
@@ -232,10 +244,10 @@ const ProcessBrowser = ({ agent }) => {
             )}
             {filteredProcesses.length === 0 && (
               <tr>
-                <td colSpan={agent.a_os === 1 ? 6 : 5} className="py-20 text-center opacity-20">
-                  <div className="flex flex-col items-center">
-                    <Activity size={48} className="text-gray-600" />
-                    <p className="mt-2 uppercase tracking-widest text-[10px]">No processes found</p>
+                <td colSpan={agent.a_os === 1 ? 6 : 5} className="py-24 text-center border-none">
+                  <div className="flex flex-col items-center space-y-4 opacity-20">
+                    <Activity size={48} className="text-theme-muted" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-theme-muted">No telemetry nodes identified</p>
                   </div>
                 </td>
               </tr>
@@ -245,15 +257,20 @@ const ProcessBrowser = ({ agent }) => {
       </div>
 
       {/* 3. Footer Status */}
-      <div className="px-4 py-1 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[9px] font-black uppercase text-gray-500 tracking-tighter">
-        <div className="flex items-center space-x-4">
-          <span>Total Processes: <span className="text-accent-primary font-mono">{processes.length}</span></span>
-          <div className="w-px h-2.5 bg-dark-600" />
-          <span>Self: <span className="text-accent-danger font-mono">{agent.a_pid}</span></span>
+      <div className="px-3 py-1.5 bg-theme-glass border-t border-theme-glass-light flex items-center justify-between text-[9px] font-black uppercase text-theme-muted tracking-[0.15em] shrink-0">
+        <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 border border-theme-glass-light rounded-lg shadow-glow-sm">
+            <span className="text-theme-muted opacity-60">PROCESS_COUNT:</span>
+            <span className="text-theme-accent font-mono">{processes.length}</span>
+          </div>
+          <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 border border-theme-glass-light rounded-lg shadow-glow-sm">
+            <span className="text-theme-muted opacity-60">SELF_PID:</span>
+            <span className="text-theme-accent-secondary font-mono font-black">{agent.a_pid}</span>
+          </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <Shield size={10} className="text-accent-secondary" />
-          <span className="text-accent-secondary/80 tracking-widest">Real-time Telemetry</span>
+        <div className="flex items-center space-x-3">
+          <span className="text-theme-muted">LIVE_TELEMETRY_STREAM</span>
+          <div className="w-2 h-2 rounded-full bg-theme-success shadow-glow-sm animate-pulse" />
         </div>
       </div>
 

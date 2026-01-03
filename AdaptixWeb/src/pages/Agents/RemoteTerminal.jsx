@@ -12,8 +12,10 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { useTheme } from '../../context/ThemeContext';
 
 const RemoteTerminal = ({ agent }) => {
+  const { theme } = useTheme();
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -63,22 +65,22 @@ const RemoteTerminal = ({ agent }) => {
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: 12,
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
       theme: {
-        background: '#0d0d0d',
-        foreground: '#e0e0e0',
-        cursor: '#00ff00',
+        background: '#050505',
+        foreground: theme.colors.primary,
+        cursor: theme.colors.primary,
         cursorAccent: '#000000',
-        selectionBackground: 'rgba(255, 255, 255, 0.2)',
+        selectionBackground: `${theme.colors.primary}4D`,
         black: '#000000',
-        red: '#e34234',
-        green: '#00ff00',
-        yellow: '#ffcc00',
-        blue: '#0099ff',
-        magenta: '#cc00ff',
+        red: theme.colors.danger,
+        green: theme.colors.success,
+        yellow: '#FDFD96',
+        blue: theme.colors.secondary,
+        magenta: '#A01641',
         cyan: '#00cccc',
-        white: '#ffffff',
+        white: '#BEBEBE',
         brightBlack: '#666666',
         brightRed: '#ff6b6b',
         brightGreen: '#33ff33',
@@ -124,7 +126,34 @@ const RemoteTerminal = ({ agent }) => {
     };
   }, []);
 
-  // Resize terminal when container size changes
+  // Update terminal theme when global theme changes
+  useEffect(() => {
+    if (xtermRef.current) {
+      xtermRef.current.options.theme = {
+        background: '#050505',
+        foreground: theme.colors.primary,
+        cursor: theme.colors.primary,
+        cursorAccent: '#000000',
+        selectionBackground: `${theme.colors.primary}4D`,
+        black: '#000000',
+        red: theme.colors.danger,
+        green: theme.colors.success,
+        yellow: '#FDFD96',
+        blue: theme.colors.secondary,
+        magenta: '#A01641',
+        cyan: '#00cccc',
+        white: '#BEBEBE',
+        brightBlack: '#666666',
+        brightRed: '#ff6b6b',
+        brightGreen: '#33ff33',
+        brightYellow: '#ffff66',
+        brightBlue: '#66b3ff',
+        brightMagenta: '#ff66ff',
+        brightCyan: '#66ffff',
+        brightWhite: '#ffffff'
+      };
+    }
+  }, [theme]);
   useEffect(() => {
     const resizeObserver = new ResizeObserver(() => {
       if (fitAddonRef.current) {
@@ -172,11 +201,26 @@ const RemoteTerminal = ({ agent }) => {
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;
-    const endpoint = '/api'; // Vite proxy will handle this
+    const endpoint = '/api'; // Vite proxy or Nginx will handle this
     
     // Build terminal data: agentId|terminalId|program(base64)|sizeH|sizeW|OemCP
     const terminalId = generateTerminalId();
-    const programB64 = btoa(termProgram);
+    
+    // Qt-compatible program encoding: Base64
+    let programB64 = '';
+    try {
+      // Use TextEncoder to handle potential Unicode characters in custom paths
+      const encoder = new TextEncoder();
+      const encoded = encoder.encode(termProgram);
+      let binary = '';
+      for (let i = 0; i < encoded.length; i++) {
+        binary += String.fromCharCode(encoded[i]);
+      }
+      programB64 = btoa(binary);
+    } catch (e) {
+      programB64 = btoa(termProgram);
+    }
+
     const cols = xtermRef.current?.cols || 80;
     const rows = xtermRef.current?.rows || 24;
     const oemCP = agent.a_oemcp || 0;
@@ -249,40 +293,37 @@ const RemoteTerminal = ({ agent }) => {
   const selectedProgramLabel = programs.find(p => p.path === program)?.label || 'Custom';
 
   return (
-    <div className="flex flex-col h-full w-full bg-dark-900">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-dark-800 border-b border-dark-700 shrink-0">
+    <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setShowProgramMenu(false)}>
+      {/* 1. Toolbar */}
+      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
-            <TerminalIcon className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Terminal</span>
-          </div>
-
           {/* Program selector */}
           <div className="relative">
             <button
-              onClick={() => setShowProgramMenu(!showProgramMenu)}
+              onClick={(e) => { e.stopPropagation(); setShowProgramMenu(!showProgramMenu); }}
               disabled={status === 'running'}
               className={cn(
-                "flex items-center space-x-2 px-3 py-1.5 rounded text-sm",
-                status === 'running' 
-                  ? "bg-dark-700 text-gray-500 cursor-not-allowed"
-                  : "bg-dark-700 text-gray-300 hover:bg-dark-600"
+                "glass-btn flex items-center space-x-2 px-4 py-2",
+                status === 'running' && "opacity-50 cursor-not-allowed"
               )}
             >
-              <span>{selectedProgramLabel}</span>
-              <ChevronDown className="w-3 h-3" />
+              <span className="font-semibold text-sm text-theme-accent">{selectedProgramLabel}</span>
+              <ChevronDown className="w-4 h-4 text-theme-muted" />
             </button>
             
             {showProgramMenu && (
-              <div className="absolute top-full left-0 mt-1 bg-dark-800 border border-dark-600 rounded shadow-lg z-10 min-w-[150px]">
+              <div className="absolute top-full left-0 mt-1 glass-panel border border-theme-glass-light rounded-xl shadow-glow z-50 min-w-[180px] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                <div className="px-4 py-2 bg-theme-glass border-b border-theme-glass-light">
+                  <span className="text-[10px] font-black uppercase text-theme-muted tracking-widest">Select Shell</span>
+                </div>
                 {programs.map((prog) => (
                   <button
                     key={prog.label}
                     onClick={() => handleProgramSelect(prog)}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-300 hover:bg-dark-700"
+                    className="w-full px-4 py-3 text-left text-sm font-bold text-theme-secondary hover:bg-theme-glass hover:text-theme-primary transition-all border-b border-theme-glass-light last:border-0 group flex items-center justify-between"
                   >
-                    {prog.label}
+                    <span>{prog.label}</span>
+                    <TerminalIcon size={12} className="text-theme-muted opacity-0 group-hover:opacity-100 transition-opacity" />
                   </button>
                 ))}
               </div>
@@ -291,61 +332,89 @@ const RemoteTerminal = ({ agent }) => {
 
           {/* Custom program input */}
           {program === '' && (
-            <input
-              type="text"
-              value={customProgram}
-              onChange={(e) => setCustomProgram(e.target.value)}
-              placeholder="Enter program path..."
-              disabled={status === 'running'}
-              className="px-3 py-1.5 bg-dark-950 border border-dark-600 rounded text-sm text-white w-64 outline-none focus:border-accent-primary"
-            />
+            <div className="flex items-center glass-input rounded-xl px-4 py-2">
+              <Settings size={14} className="text-theme-muted mr-2" />
+              <input
+                type="text"
+                value={customProgram}
+                onChange={(e) => setCustomProgram(e.target.value)}
+                placeholder="Enter shell path..."
+                disabled={status === 'running'}
+                className="bg-transparent outline-none text-sm font-mono text-theme-primary w-64 placeholder:text-theme-muted"
+              />
+            </div>
           )}
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3 pr-1">
           {/* Status indicator */}
           <div className={cn(
-            "flex items-center space-x-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase",
-            status === 'running' && "bg-green-500/20 text-green-400",
-            status === 'connecting' && "bg-yellow-500/20 text-yellow-400",
-            status === 'stopped' && "bg-gray-500/20 text-gray-400"
+            "flex items-center space-x-2 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-[0.2em] border border-theme-glass-light bg-theme-glass-panel",
+            status === 'running' ? "text-theme-success" : status === 'connecting' ? "text-theme-accent" : "text-theme-muted"
           )}>
             <div className={cn(
-              "w-1.5 h-1.5 rounded-full",
-              status === 'running' && "bg-green-400 animate-pulse",
-              status === 'connecting' && "bg-yellow-400 animate-pulse",
-              status === 'stopped' && "bg-gray-400"
+              "w-1.5 h-1.5 rounded-full shadow-glow-sm",
+              status === 'running' ? "bg-theme-success" : 
+              status === 'connecting' ? "bg-theme-accent animate-pulse" : "bg-theme-muted opacity-40"
             )} />
-            <span>{status}</span>
+            <span>CHANNEL_{status.toUpperCase()}</span>
           </div>
 
           {/* Start/Stop buttons */}
           {status === 'stopped' ? (
             <button
               onClick={startTerminal}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded text-sm transition-colors"
+              className="glass-btn-primary px-6 py-2 flex items-center space-x-2 shadow-glow-sm hover:shadow-glow text-white"
             >
-              <Play className="w-3.5 h-3.5" />
-              <span>Start</span>
+              <Play className="w-3 h-3 text-white" />
+              <span className="font-black uppercase tracking-widest text-[10px]">Establish</span>
             </button>
           ) : (
             <button
               onClick={stopTerminal}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-sm transition-colors"
+              className="glass-btn px-6 py-2 border-theme-danger/30 text-theme-danger hover:bg-theme-danger/10 flex items-center space-x-2"
             >
-              <Square className="w-3.5 h-3.5" />
-              <span>Stop</span>
+              <Square className="w-3 h-3" fill="currentColor" />
+              <span className="font-black uppercase tracking-widest text-[10px]">Terminate</span>
             </button>
           )}
         </div>
       </div>
 
       {/* Terminal container */}
-      <div 
-        ref={terminalRef} 
-        className="flex-1 p-2 overflow-hidden"
-        onClick={() => setShowProgramMenu(false)}
-      />
+      <div className="flex-1 p-1 bg-black overflow-hidden relative group/term">
+        <div 
+          ref={terminalRef} 
+          className="w-full h-full"
+        />
+        {status === 'stopped' && (
+          <div className="absolute inset-0 bg-theme-glass-panel/60 backdrop-blur-[2px] flex flex-col items-center justify-center space-y-4 opacity-80 pointer-events-none transition-all">
+            <TerminalIcon size={64} className="text-theme-muted/40" strokeWidth={1} />
+            <div className="text-center">
+              <p className="text-[10px] font-black text-theme-muted uppercase tracking-[0.4em]">Interactive Pseudo-TTY</p>
+              <p className="text-[8px] text-theme-accent font-bold mt-1 uppercase tracking-widest">Awaiting initialization command</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer info */}
+      <div className="px-3 py-1.5 bg-theme-glass border-t border-theme-glass-light flex items-center justify-between text-[9px] font-black text-theme-muted uppercase tracking-[0.15em] shrink-0">
+        <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light">
+            <span className="text-theme-muted opacity-60">TARGET_NODE:</span>
+            <span className="text-theme-accent font-mono italic normal-case">{agent.a_computer}</span>
+          </div>
+          <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light">
+            <span className="text-theme-muted opacity-60">TTY_EMULATION:</span>
+            <span className="text-theme-secondary font-mono tracking-tighter">XTERM_VT100</span>
+          </div>
+        </div>
+        <div className="flex items-center space-x-3">
+          <span className="text-theme-muted">ENCRYPTED_STREAM_LINK</span>
+          <div className="w-2 h-2 rounded-full bg-theme-success shadow-glow-sm animate-pulse" />
+        </div>
+      </div>
     </div>
   );
 };

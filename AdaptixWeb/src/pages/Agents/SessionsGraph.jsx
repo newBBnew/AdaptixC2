@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useAgents } from '../../context/AgentContext';
+import ContextMenu from '../../components/ContextMenu';
 import { 
   Monitor, 
   User, 
@@ -7,13 +8,40 @@ import {
   ArrowRight,
   Shield,
   Zap,
-  Activity
+  Activity,
+  Terminal,
+  Files,
+  Power
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
+import { agentApi } from '../../api/agent';
 
 const SessionsGraph = () => {
-  const { agents } = useAgents();
+  const { agents, openAgentTab } = useAgents();
+  const [menu, setMenu] = useState(null);
+
+  const handleNodeContextMenu = (e, node) => {
+    if (node.type === 'root') return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      options: [
+        { label: `Interact (${node.label})`, icon: Terminal, onClick: () => openAgentTab(node.agent, 'console') },
+        { label: 'File Browser', icon: Files, onClick: () => openAgentTab(node.agent, 'files') },
+        { label: 'Process List', icon: Activity, onClick: () => openAgentTab(node.agent, 'procs') },
+        { divider: true },
+        { label: 'Exit Agent', icon: Power, color: 'text-theme-danger', onClick: () => {
+          if (window.confirm('Terminate this agent?')) {
+            agentApi.remove([node.id]);
+          }
+        }},
+      ]
+    });
+  };
 
   // Simple tree layout calculation
   const graphData = useMemo(() => {
@@ -29,7 +57,7 @@ const SessionsGraph = () => {
       x: 400,
       y: 50,
       icon: Server,
-      color: 'text-accent-primary'
+      color: 'text-theme-accent'
     });
 
     // 2. Map Agents to levels
@@ -50,7 +78,9 @@ const SessionsGraph = () => {
     // BFS to assign levels
     let queue = [{ id: rootId, level: 0 }];
     while (queue.length > 0) {
-      const { id, level } = queue.shift();
+      const item = queue.shift();
+      const id = item.id;
+      const level = item.level;
       const children = childrenMap.get(id) || [];
       
       if (children.length > 0) {
@@ -84,7 +114,7 @@ const SessionsGraph = () => {
           x: startX + idx * spacing,
           y: 50 + level * 150,
           icon: Monitor,
-          color: (Math.floor(Date.now() / 1000) - agent.a_last_tick) < 60 ? 'text-accent-secondary' : 'text-gray-500',
+          color: (Math.floor(Date.now() / 1000) - agent.a_last_tick) < 60 ? 'text-theme-accent-secondary' : 'text-theme-muted',
           agent
         });
       });
@@ -99,46 +129,78 @@ const SessionsGraph = () => {
   };
 
   return (
-    <div className="w-full h-full bg-[#0a0a0a] overflow-auto custom-scrollbar relative select-none">
-      <div className="absolute top-4 left-4 z-10 flex flex-col space-y-2">
-        <div className="flex items-center space-x-2 px-3 py-1 bg-dark-800/80 border border-dark-700 rounded text-[10px] font-black uppercase tracking-widest text-gray-400">
-          <Activity className="w-3 h-3 text-accent-primary" />
-          <span>Network Topology</span>
+    <div className="w-full h-full bg-theme-glass-panel overflow-hidden relative select-none" onClick={() => setMenu(null)}>
+      {/* 1. Header Overlay */}
+      <div className="absolute top-4 left-4 z-10 flex flex-col space-y-3">
+        <div className="flex items-center space-x-4 px-4 py-2 bg-theme-glass/80 backdrop-blur-md border border-theme-glass-light rounded-xl shadow-glow">
+          <Activity size={16} className="text-theme-accent animate-pulse" />
+          <div className="flex flex-col text-left">
+            <span className="text-[10px] font-black text-theme-primary uppercase tracking-[0.2em]">Infrastructure Topology</span>
+            <span className="text-[8px] font-bold text-theme-muted uppercase tracking-widest mt-0.5">Real-time session mapping active</span>
+          </div>
+        </div>
+        
+        {/* Legend */}
+        <div className="flex flex-col space-y-2 p-3 bg-theme-glass-panel/50 border border-theme-glass-light rounded-xl shadow-sm">
+          <div className="flex items-center space-x-2 text-[8px] font-black text-theme-muted uppercase tracking-wider">
+            <div className="w-2 h-2 rounded-full bg-theme-accent shadow-glow-sm" />
+            <span>Teamserver Control</span>
+          </div>
+          <div className="flex items-center space-x-2 text-[8px] font-black text-theme-muted uppercase tracking-wider">
+            <div className="w-2 h-2 rounded-full bg-theme-accent-secondary shadow-glow-sm" />
+            <span>Active Operational Node</span>
+          </div>
+          <div className="flex items-center space-x-2 text-[8px] font-black text-theme-muted uppercase tracking-wider">
+            <div className="w-2 h-2 rounded-full bg-theme-muted opacity-40 shadow-sm" />
+            <span>Stale / Inactive Link</span>
+          </div>
         </div>
       </div>
 
-      <svg className="w-full h-full min-w-[800px] min-h-[600px]">
+      <div className="absolute top-4 right-4 z-10">
+        <div className="flex items-center space-x-3 px-3 py-1.5 bg-theme-glass/80 border border-theme-glass-light rounded-xl shadow-sm">
+          <span className="text-[10px] font-black text-theme-muted uppercase tracking-widest">Auto_Layout:</span>
+          <span className="text-[10px] font-mono text-theme-accent uppercase font-bold">Static_BFS</span>
+        </div>
+      </div>
+
+      <svg className="w-full h-full cursor-grab active:cursor-grabbing">
+        {/* Background Grid Pattern */}
         <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="0.5"/>
+          </pattern>
           <marker
             id="arrowhead"
             markerWidth="10"
             markerHeight="7"
-            refX="9"
+            refX="25"
             refY="3.5"
             orient="auto"
           >
-            <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+            <polygon points="0 0, 8 3.5, 0 7" fill="currentColor" className="text-theme-muted opacity-30" />
           </marker>
         </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
 
-        {/* Links */}
+        {/* Links with data-flow particles */}
         {graphData.links.map((link, i) => {
           const start = getNodePos(link.source);
           const end = getNodePos(link.target);
           return (
-            <g key={i}>
+            <g key={`link-${i}`}>
               <line
                 x1={start.x}
                 y1={start.y}
                 x2={end.x}
                 y2={end.y}
-                stroke="#333"
+                stroke="var(--glass-border-light)"
                 strokeWidth="1.5"
                 markerEnd="url(#arrowhead)"
               />
               <motion.circle
-                r="3"
-                fill="#10b981"
+                r="1.5"
+                fill="var(--theme-success)"
                 initial={{ offsetDistance: "0%" }}
                 animate={{ 
                   cx: [start.x, end.x],
@@ -146,10 +208,10 @@ const SessionsGraph = () => {
                   opacity: [0, 1, 0]
                 }}
                 transition={{ 
-                  duration: 2, 
+                  duration: 2.5, 
                   repeat: Infinity, 
                   ease: "linear",
-                  delay: i * 0.5 
+                  delay: i * 0.5
                 }}
               />
             </g>
@@ -158,30 +220,48 @@ const SessionsGraph = () => {
 
         {/* Nodes */}
         {graphData.nodes.map((node) => (
-          <g key={node.id} transform={`translate(${node.x - 40}, ${node.y - 40})`}>
+          <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
             <motion.foreignObject
+              x="-40"
+              y="-40"
               width="80"
               height="100"
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               whileHover={{ scale: 1.05 }}
+              onContextMenu={(e) => handleNodeContextMenu(e, node)}
+              onDoubleClick={() => node.type === 'agent' && openAgentTab(node.agent, 'console')}
             >
-              <div className="flex flex-col items-center group cursor-pointer">
+              <div className="flex flex-col items-center group cursor-default">
                 <div className={cn(
-                  "w-12 h-12 rounded-xl flex items-center justify-center transition-all border shadow-lg",
+                  "w-14 h-14 rounded-xl flex items-center justify-center transition-all border-2 relative shadow-glow-sm overflow-hidden",
                   node.type === 'root' 
-                    ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary" 
-                    : "bg-dark-800 border-dark-700 text-gray-400 group-hover:border-accent-primary/50 group-hover:text-accent-primary",
-                  node.color && !node.type === 'root' && node.color
+                    ? "bg-theme-glass-panel border-theme-accent/60 text-theme-accent shadow-glow" 
+                    : "bg-theme-glass-panel border-theme-glass-light text-theme-muted group-hover:border-theme-accent/50 group-hover:text-theme-primary",
+                  node.color === 'text-theme-accent-secondary' && "border-theme-accent-secondary/60 text-theme-accent-secondary shadow-glow-sm"
                 )}>
-                  <node.icon size={24} className={node.type === 'agent' && node.color === 'text-accent-secondary' ? 'animate-pulse' : ''} />
+                  {/* Subtle Scanline Effect */}
+                  <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_2px,3px_100%] pointer-events-none opacity-10" />
+                  
+                  <node.icon size={28} className={cn(
+                    "relative z-10",
+                    node.color === 'text-theme-accent-secondary' ? 'animate-pulse' : ''
+                  )} />
+                  
+                  {/* Node Status Glow */}
+                  {node.color === 'text-theme-accent-secondary' && (
+                    <div className="absolute inset-0 bg-theme-accent-secondary/5 animate-pulse" />
+                  )}
                 </div>
-                <div className="mt-2 text-center">
-                  <p className="text-[10px] font-black uppercase tracking-tighter text-white truncate max-w-[70px]">
-                    {node.label}
-                  </p>
+                
+                <div className="mt-3 text-center w-full">
+                  <div className="bg-theme-glass/80 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-theme-glass-light inline-block max-w-full shadow-sm">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-theme-primary truncate leading-none">
+                      {node.label}
+                    </p>
+                  </div>
                   {node.sublabel && (
-                    <p className="text-[8px] text-gray-500 font-bold truncate max-w-[70px]">
+                    <p className="text-[8px] text-theme-muted font-bold uppercase tracking-widest mt-1 truncate opacity-60">
                       {node.sublabel}
                     </p>
                   )}
@@ -191,6 +271,24 @@ const SessionsGraph = () => {
           </g>
         ))}
       </svg>
+
+      {/* Footer Info Overlay */}
+      <div className="absolute bottom-4 left-4 z-10">
+        <div className="flex items-center space-x-6 px-4 py-2 bg-theme-glass/80 backdrop-blur-md border border-theme-glass-light rounded-xl text-[10px] font-black text-theme-muted uppercase tracking-[0.15em] shadow-glow-sm">
+          <div className="flex items-center space-x-2">
+            <span className="opacity-60">NODES_ONLINE:</span>
+            <span className="text-theme-accent-secondary font-mono">{agents.filter(a => (Math.floor(Date.now() / 1000) - a.a_last_tick) < 300).length}</span>
+          </div>
+          <div className="w-px h-4 bg-theme-glass-light" />
+          <div className="flex items-center space-x-2">
+            <span className="opacity-60">TOTAL_LINKS:</span>
+            <span className="text-theme-primary font-mono">{graphData.links.length}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Context Menu */}
+      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </div>
   );
 };

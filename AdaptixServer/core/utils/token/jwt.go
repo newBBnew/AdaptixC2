@@ -87,14 +87,14 @@ func ValidateAccessToken() gin.HandlerFunc {
 		}
 
 		if tokenString == "" {
-			_ = ctx.Error(errors.New("authorization token required"))
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "authorization token required", "ok": false})
 			return
 		}
 
 		if strings.HasPrefix(tokenString, "Bearer ") {
 			tokenString = tokenString[7:]
 		} else {
-			_ = ctx.Error(errors.New("authorization token required"))
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "invalid token format", "ok": false})
 			return
 		}
 
@@ -103,7 +103,7 @@ func ValidateAccessToken() gin.HandlerFunc {
 			return []byte(accessKey), nil
 		})
 		if err != nil || !jwtToken.Valid {
-			_ = ctx.Error(errors.New("invalid token"))
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "invalid or expired token", "ok": false})
 			return
 		}
 

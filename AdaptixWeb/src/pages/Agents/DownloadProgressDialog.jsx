@@ -128,90 +128,86 @@ const DownloadProgressDialog = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-dark-800 border border-dark-600 rounded-lg shadow-xl w-full max-w-md">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700">
-          <div className="flex items-center space-x-2">
-            <Download className="w-4 h-4 text-accent-primary" />
-            <h3 className="text-sm font-bold text-white">
-              {status === 'completed' ? 'Download Complete' : 'Downloading...'}
-            </h3>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="File Transfer Protocol"
+      width="max-w-md"
+    >
+      <div className="flex flex-col bg-theme-glass-panel p-6 space-y-6">
+        <div className="flex items-center space-x-4 p-4 bg-theme-glass border border-theme-glass-light rounded-2xl shadow-glow-sm">
+          <div className="p-3 rounded-xl bg-theme-glass-panel border border-theme-glass-light">
+            <Download className="text-theme-accent animate-bounce" size={24} />
           </div>
+          <div className="flex-1 min-w-0 text-left">
+            <p className="text-[10px] font-black uppercase text-theme-muted tracking-widest mb-1">Transferring Artifact</p>
+            <p className="text-sm font-mono font-bold text-theme-primary truncate">{filename || 'Retrieving resource...'}</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex justify-between items-end px-1">
+            <div className="text-left">
+              <p className="text-[10px] font-black uppercase text-theme-muted tracking-widest mb-0.5">Current Status</p>
+              <p className="text-xs text-theme-accent font-bold uppercase tracking-wider">
+                {status === 'preparing' && 'Negotiating with Teamserver...'}
+                {status === 'downloading' && 'Syncing encrypted blocks...'}
+                {status === 'completed' && 'Data transfer successfully verified'}
+                {status === 'error' && 'Retrieval channel failure'}
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="text-2xl font-mono font-black text-theme-primary tracking-tighter">{progress}%</span>
+            </div>
+          </div>
+
+          <div className="h-2 w-full bg-theme-glass rounded-full overflow-hidden border border-theme-glass-light">
+            <div 
+              className={cn(
+                "h-full transition-all duration-300 shadow-glow-sm",
+                status === 'error' ? "bg-theme-danger" : "bg-gradient-to-r from-theme-accent to-theme-accent-secondary"
+              )}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-3 bg-theme-glass-panel rounded-xl border border-theme-glass-light">
+              <p className="text-[9px] font-black uppercase text-theme-muted tracking-widest mb-1">Payload Size</p>
+              <p className="text-xs font-mono font-bold text-theme-primary">
+                {formatSize(received)} / {total ? formatSize(total) : '?'}
+              </p>
+            </div>
+            <div className="p-3 bg-theme-glass-panel rounded-xl border border-theme-glass-light">
+              <p className="text-[9px] font-black uppercase text-theme-muted tracking-widest mb-1">Channel Throughput</p>
+              <p className="text-xs font-mono font-bold text-theme-accent">
+                {speed.toFixed(1)} KB/s
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {status === 'error' && (
+          <div className="p-4 bg-theme-danger/10 border border-theme-danger/20 rounded-xl">
+            <p className="text-[10px] font-bold text-theme-danger uppercase text-center">{errorMessage}</p>
+          </div>
+        )}
+
+        <div className="flex justify-end pt-2">
           <button 
-            onClick={handleCancel}
-            className="p-1 hover:bg-dark-700 rounded transition-colors"
-          >
-            <X className="w-4 h-4 text-gray-400" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 space-y-4">
-          {/* Status */}
-          <div className="flex items-center space-x-2">
-            {status === 'downloading' && (
-              <Loader2 className="w-4 h-4 text-accent-primary animate-spin" />
-            )}
-            <span className="text-sm text-gray-300">
-              {status === 'preparing' && 'Preparing download...'}
-              {status === 'downloading' && `Downloading ${filename || 'file'}...`}
-              {status === 'completed' && 'Download completed successfully'}
-              {status === 'error' && `Error: ${errorMessage}`}
-            </span>
-          </div>
-
-          {/* Progress bar */}
-          <div className="space-y-2">
-            <div className="w-full h-2 bg-dark-950 rounded-full overflow-hidden">
-              <div 
-                className={cn(
-                  "h-full transition-all duration-300",
-                  status === 'error' ? "bg-red-500" : "bg-accent-primary"
-                )}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>{formatSize(received)} / {total > 0 ? formatSize(total) : '?'}</span>
-              <span>{progress}%</span>
-            </div>
-          </div>
-
-          {/* Speed */}
-          {status === 'downloading' && (
-            <div className="text-xs text-gray-500">
-              Speed: {speed.toFixed(2)} KB/s
-            </div>
-          )}
-
-          {/* File path */}
-          {filename && (
-            <div className="space-y-1">
-              <label className="text-xs text-gray-500">File:</label>
-              <div className="px-3 py-2 bg-dark-950 rounded text-sm text-gray-300 font-mono truncate">
-                {filename}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Buttons */}
-        <div className="flex justify-end px-4 py-3 border-t border-dark-700">
-          <button
-            onClick={handleCancel}
+            onClick={status === 'downloading' ? () => abortRef.current?.abort() : onClose}
             className={cn(
-              "px-4 py-2 rounded text-sm transition-colors",
-              status === 'completed' 
-                ? "bg-accent-primary hover:bg-accent-primary/80 text-white"
-                : "bg-dark-700 hover:bg-dark-600 text-gray-300"
+              "px-8 py-2.5 rounded-xl font-black uppercase tracking-widest text-xs transition-all active:scale-95",
+              status === 'downloading' 
+                ? "glass-btn text-theme-danger border-theme-danger/30 hover:bg-theme-danger/10"
+                : "glass-btn-primary text-white shadow-glow-sm hover:shadow-glow"
             )}
           >
-            {status === 'completed' ? 'Close' : 'Cancel'}
+            {status === 'downloading' ? 'Abort Transfer' : 'Dismiss Portal'}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

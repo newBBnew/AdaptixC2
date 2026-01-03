@@ -5,6 +5,7 @@ import (
 	"AdaptixServer/core/utils/logs"
 	"AdaptixServer/core/utils/token"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -77,11 +78,13 @@ func (tc *TsConnector) tcConnect(ctx *gin.Context) {
 	versionValue, _ := ctx.Get("version")
 	version, _ := versionValue.(string)
 
-	exists = tc.teamserver.TsClientExists(username)
-	if exists {
-		ctx.JSON(http.StatusNetworkAuthenticationRequired, gin.H{"message": "Server error: invalid username type in context", "ok": false})
-		return
+	// Web client support for version in query
+	if version == "" {
+		version = ctx.Query("version")
 	}
+
+	// Always disconnect existing client with same username to allow reconnect
+	tc.teamserver.TsClientDisconnect(username)
 
 	var wsUpgrader websocket.Upgrader
 	wsUpgrader.CheckOrigin = func(r *http.Request) bool {
@@ -89,7 +92,7 @@ func (tc *TsConnector) tcConnect(ctx *gin.Context) {
 	}
 	wsConn, err := wsUpgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
-		logs.Error("", "WebSocket upgrade error: "+err.Error())
+		logs.Error("", fmt.Sprintf("WebSocket upgrade error: %s", err.Error()))
 		return
 	}
 
@@ -155,7 +158,7 @@ func (tc *TsConnector) tcChannel(ctx *gin.Context) {
 	}
 	wsConn, err := wsUpgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
-		logs.Error("", "WebSocket upgrade error: "+err.Error())
+		logs.Error("", fmt.Sprintf("WebSocket upgrade error: %s", err.Error()))
 		return
 	}
 

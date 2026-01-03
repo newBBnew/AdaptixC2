@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
-const Toolbar = ({ onButtonClick, activeDock }) => {
+const Toolbar = ({ onButtonClick, activeTabId }) => {
   const sections = [
     [
       { id: 'listeners', label: 'Listeners', icon: Radio, tooltip: 'Listeners & Sites' },
@@ -45,72 +45,81 @@ const Toolbar = ({ onButtonClick, activeDock }) => {
       { id: 'keys', label: 'Keystrokes', icon: Keyboard, tooltip: 'Keystrokes', hidden: true },
     ],
     [
-      { id: 'reconnect', label: 'Reconnect', icon: Link2, tooltip: 'Reconnect to C2', color: 'text-neon-green' },
+      { id: 'reconnect', label: 'Reconnect', icon: Link2, tooltip: 'Reconnect to C2', color: 'text-theme-success' },
     ]
   ];
 
   return (
-    <div className="flex flex-col bg-dark-800 border-b border-dark-700 select-none">
-      {/* 1. Main Menu Bar (Mimics QMenuBar) */}
-      <div className="flex items-center px-2 py-0.5 bg-dark-900/50 border-b border-dark-700 text-[11px] text-gray-400">
-        <div className="flex items-center space-x-4 px-2">
-          <div className="hover:text-white cursor-default px-1 py-0.5 rounded hover:bg-dark-700 transition-colors flex items-center space-x-1">
-            <span>Projects</span>
-          </div>
-          <div className="hover:text-white cursor-default px-1 py-0.5 rounded hover:bg-dark-700 transition-colors flex items-center space-x-1">
-            <span>AxScript</span>
-          </div>
-          <div className="hover:text-white cursor-default px-1 py-0.5 rounded hover:bg-dark-700 transition-colors flex items-center space-x-1">
-            <span>Settings</span>
-          </div>
-          <div className="hover:text-white cursor-default px-1 py-0.5 rounded hover:bg-dark-700 transition-colors flex items-center space-x-1 text-accent-primary/80 font-bold">
-            <span>Help</span>
+    <div className="flex flex-col glass-panel border-b border-theme-glass select-none">
+      {/* 1. Main Menu Bar */}
+      <div className="flex items-center px-1 py-1 glass-card-sm border-b border-theme-glass-light text-[11px] font-semibold uppercase tracking-wider text-theme-muted">
+        <div className="flex items-center space-x-1 px-2">
+          {['Projects', 'AxScript', 'Settings', 'View'].map(menu => (
+            <div key={menu} className="hover:bg-theme-hover hover:text-theme-primary cursor-pointer px-3 py-1.5 rounded-lg transition-all duration-150">
+              {menu}
+            </div>
+          ))}
+          <div className="w-px h-4 bg-theme-glass mx-2" />
+          <div className="text-theme-accent hover:opacity-80 cursor-pointer px-3 py-1.5 rounded-lg transition-all font-bold">
+            HELP
           </div>
         </div>
       </div>
 
-      {/* 2. ToolBar (Mimics AdaptixWidget.cpp layout) */}
-      <div className="flex items-center justify-between px-2 py-1.5 h-10">
-        <div className="flex items-center">
+      {/* 2. ToolBar */}
+      <div className="flex items-center justify-between px-3 h-12 glass-card-sm">
+        <div className="flex items-center h-full">
           {sections.map((section, idx) => (
             <React.Fragment key={idx}>
-              <div className="flex items-center space-x-0.5">
-                {section.filter(btn => !btn.hidden).map((btn) => (
-                  <button
-                    key={btn.id}
-                    title={btn.tooltip}
-                    onClick={() => onButtonClick?.(btn.id)}
-                    className={cn(
-                      "p-1.5 rounded hover:bg-dark-700 transition-all group relative",
-                      btn.color || (activeDock === btn.id ? "text-accent-primary bg-accent-primary/10" : "text-gray-400 hover:text-white")
-                    )}
-                  >
-                    <btn.icon className={cn(
-                      "w-4.5 h-4.5 group-active:scale-90 transition-transform",
-                      !btn.color && (activeDock === btn.id ? "text-accent-primary" : "text-accent-primary/90")
-                    )} />
-                  </button>
-                ))}
+              <div className="flex items-center space-x-1 px-1">
+                {section.filter(btn => !btn.hidden).map((btn) => {
+                  const isActive = activeTabId === btn.id;
+                  return (
+                    <button
+                      key={btn.id}
+                      title={btn.tooltip}
+                      onClick={() => onButtonClick?.(btn.id)}
+                      className={cn(
+                        "p-2 rounded-lg transition-all group relative flex items-center justify-center",
+                        isActive 
+                          ? "bg-theme-glass text-theme-accent shadow-sm" 
+                          : "text-theme-muted hover:bg-theme-hover hover:text-theme-primary"
+                      )}
+                    >
+                      <btn.icon size={18} strokeWidth={isActive ? 2.5 : 2} className={cn(
+                        "transition-all duration-200",
+                        isActive ? "text-theme-accent" : "group-hover:text-theme-accent"
+                      )} />
+                      
+                      {isActive && (
+                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-theme-accent rounded-full shadow-glow-sm" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
               {idx < sections.length - 1 && (
-                <div className="w-px h-5 bg-dark-600 mx-1.5" />
+                <div className="w-px h-5 bg-theme-glass mx-2" />
               )}
             </React.Fragment>
           ))}
         </div>
 
-        <div className="flex items-center space-x-3 pr-2">
-          <div className="relative group">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-accent-primary transition-colors" />
+        <div className="flex items-center space-x-4 pr-2">
+          <div className="relative group flex items-center glass-input rounded-xl overflow-hidden transition-all">
+            <Search size={14} className="ml-3 text-theme-muted group-focus-within:text-theme-accent transition-colors" />
             <input 
               type="text" 
-              placeholder="Search session..." 
-              className="bg-dark-950/50 border border-dark-600 rounded py-1 pl-8 pr-3 text-[11px] text-gray-300 outline-none focus:ring-1 focus:ring-accent-primary/50 w-40 transition-all placeholder:text-gray-600"
+              placeholder="Search..." 
+              className="bg-transparent border-none py-2 pl-2 pr-4 text-sm text-theme-primary outline-none w-48 transition-all placeholder:text-theme-muted"
             />
           </div>
-          <button className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all">
-            <SettingsIcon className="w-4 h-4" />
-          </button>
+          
+          <div className="flex items-center space-x-2">
+            <button className="p-2 glass-btn text-theme-muted hover:text-theme-accent transition-all" title="Settings">
+              <SettingsIcon size={16} strokeWidth={2} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

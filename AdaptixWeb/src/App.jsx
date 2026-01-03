@@ -7,6 +7,8 @@ import Tactical from './pages/Tactical/Tactical';
 import Settings from './pages/Settings/Settings';
 import LoginPage from './pages/Login/LoginPage';
 import { AgentProvider } from './context/AgentContext';
+import { SocketProvider } from './context/SocketContext';
+import { ThemeProvider } from './context/ThemeContext';
 import './App.css'
 
 function App() {
@@ -25,23 +27,31 @@ function App() {
   };
 
   if (!isAuthenticated) {
-    return <LoginPage onLogin={handleLoginSuccess} />;
+    return (
+      <ThemeProvider>
+        <LoginPage onLogin={handleLoginSuccess} />
+      </ThemeProvider>
+    );
   }
 
   return (
-    <AgentProvider>
-      <Router>
-        <Layout onLogout={handleLogout}>
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/control" element={<ControlPlatform />} />
-            <Route path="/tactical" element={<Tactical />} />
-            <Route path="/settings" element={<Settings />} />
-          </Routes>
-        </Layout>
-      </Router>
-    </AgentProvider>
+    <ThemeProvider>
+      <SocketProvider>
+        <AgentProvider>
+          <Router>
+            <Layout onLogout={handleLogout}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/control" element={<ControlPlatform />} />
+                <Route path="/tactical" element={<Tactical />} />
+                <Route path="/settings" element={<Settings />} />
+              </Routes>
+            </Layout>
+          </Router>
+        </AgentProvider>
+      </SocketProvider>
+    </ThemeProvider>
   );
 }
 

@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Monitor, Layout, Bell, Save } from 'lucide-react';
+import { Settings as SettingsIcon, Monitor, Layout, Bell, Save, Palette, Check } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { useTheme } from '../../context/ThemeContext';
 
 const Settings = () => {
-  const [activeTab, setActiveTab] = useState('main');
+  const [activeTab, setActiveTab] = useState('theme');
+  const { currentTheme, themeList, switchTheme } = useTheme();
   
   // Settings state (aligned with Qt DialogSettings)
   const [settings, setSettings] = useState({
     // Main settings
-    theme: 'Dark',
     fontFamily: 'DejaVu Sans Mono',
     fontSize: 12,
     graphVersion: 'Version 1',
@@ -38,11 +39,11 @@ const Settings = () => {
     tabBlinkItems: { chat: true, logs: true, tasks: false }
   });
 
-  const themes = ['Dark', 'Light', 'Dracula', 'Fallout', 'Dark_Old', 'Light_Arc'];
   const fonts = ['DejaVu Sans Mono', 'Droid Sans Mono', 'VT323', 'Hack', 'Anonymous Pro', 'Space Mono'];
   const graphVersions = ['Version 1', 'Version 2', 'Version 3'];
 
   const tabs = [
+    { id: 'theme', label: 'Theme', icon: Palette },
     { id: 'main', label: 'Main settings', icon: SettingsIcon },
     { id: 'sessions', label: 'Sessions table', icon: Monitor },
     { id: 'tasks', label: 'Tasks table', icon: Layout },
@@ -65,187 +66,336 @@ const Settings = () => {
   };
 
   return (
-    <div className="flex h-full w-full bg-dark-900 text-gray-300 overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden select-none">
       {/* Sidebar */}
-      <div className="w-48 bg-dark-800 border-r border-dark-700 flex flex-col">
-        <div className="p-4 border-b border-dark-700">
-          <h1 className="text-sm font-bold text-white uppercase tracking-wider">Settings</h1>
+      <div className="w-44 glass-panel border-r border-theme-glass flex flex-col shrink-0">
+        <div className="p-3 border-b border-theme-glass-light glass-card-sm">
+          <h1 className="text-[11px] font-black text-theme-secondary uppercase tracking-[0.2em]">Application Config</h1>
         </div>
-        <div className="flex-1 p-2 space-y-1">
+        <div className="flex-1 p-1 space-y-0.5 overflow-y-auto custom-scrollbar">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "w-full flex items-center space-x-2 px-3 py-2 rounded text-left text-[11px] font-medium transition-colors",
+                "w-full flex items-center space-x-3 px-3 py-2 transition-all duration-150 border-l-2 rounded-r-lg",
                 activeTab === tab.id 
-                  ? "bg-accent-primary/20 text-accent-primary" 
-                  : "text-gray-400 hover:bg-dark-700 hover:text-white"
+                  ? "glass-card-sm text-theme-primary border-l-theme-accent" 
+                  : "text-theme-muted border-transparent hover:bg-theme-hover hover:text-theme-primary"
               )}
             >
-              <tab.icon size={14} />
-              <span>{tab.label}</span>
+              <tab.icon size={14} className={activeTab === tab.id ? "text-theme-accent" : "text-theme-muted"} />
+              <span className="text-[11px] font-bold uppercase tracking-tight">{tab.label}</span>
             </button>
           ))}
         </div>
-        <div className="p-3 border-t border-dark-700">
+        <div className="p-2 border-t border-theme-glass-light glass-card-sm">
           <button 
             onClick={handleSave}
-            className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded bg-accent-primary text-white text-[11px] font-bold uppercase hover:bg-accent-primary/80 transition-colors"
+            className="glass-btn w-full flex items-center justify-center space-x-2 py-2"
           >
-            <Save size={14} />
-            <span>Apply</span>
+            <Save size={12} className="text-theme-accent" />
+            <span className="font-bold uppercase tracking-widest text-[10px] text-theme-primary">Apply Changes</span>
           </button>
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-6 overflow-auto">
-        <h2 className="text-lg font-bold text-white mb-1">{tabs.find(t => t.id === activeTab)?.label}</h2>
-        <div className="h-px bg-dark-700 mb-6" />
+      <div className="flex-1 flex flex-col overflow-hidden glass-panel">
+        <div className="glass-card-sm px-6 py-3 shrink-0 flex items-center justify-between border-b border-theme-glass-light">
+          <div className="flex items-center space-x-3">
+            {React.createElement(tabs.find(t => t.id === activeTab)?.icon, { size: 16, className: "text-theme-accent" })}
+            <h2 className="text-xs font-black uppercase tracking-widest text-theme-primary">{tabs.find(t => t.id === activeTab)?.label}</h2>
+          </div>
+          <span className="glass-btn px-2 py-1 text-xs text-theme-accent-secondary">LOCAL</span>
+        </div>
 
-        {activeTab === 'main' && (
-          <div className="space-y-6 max-w-2xl">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Main theme</label>
-                <select 
-                  value={settings.theme}
-                  onChange={(e) => setSettings(s => ({...s, theme: e.target.value}))}
-                  className="w-full bg-dark-800 border border-dark-600 rounded px-3 py-2 text-sm outline-none focus:border-accent-primary"
-                >
-                  {themes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Font family</label>
-                <select 
-                  value={settings.fontFamily}
-                  onChange={(e) => setSettings(s => ({...s, fontFamily: e.target.value}))}
-                  className="w-full bg-dark-800 border border-dark-600 rounded px-3 py-2 text-sm outline-none focus:border-accent-primary"
-                >
-                  {fonts.map(f => <option key={f} value={f}>Adaptix - {f}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Font size</label>
-                <input 
-                  type="number" min={7} max={30}
-                  value={settings.fontSize}
-                  onChange={(e) => setSettings(s => ({...s, fontSize: parseInt(e.target.value)}))}
-                  className="w-full bg-dark-800 border border-dark-600 rounded px-3 py-2 text-sm outline-none focus:border-accent-primary"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Session Graph version</label>
-                <select 
-                  value={settings.graphVersion}
-                  onChange={(e) => setSettings(s => ({...s, graphVersion: e.target.value}))}
-                  className="w-full bg-dark-800 border border-dark-600 rounded px-3 py-2 text-sm outline-none focus:border-accent-primary"
-                >
-                  {graphVersions.map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="bg-dark-800 border border-dark-700 rounded-lg p-4">
-              <h3 className="text-sm font-bold text-white mb-3">Agent Console</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Buffer size (lines)</label>
-                  <input 
-                    type="number" min={10000} max={1000000}
-                    value={settings.consoleBufferLines}
-                    onChange={(e) => setSettings(s => ({...s, consoleBufferLines: parseInt(e.target.value)}))}
-                    className="w-full bg-dark-900 border border-dark-600 rounded px-3 py-2 text-sm outline-none focus:border-accent-primary"
-                  />
+        <div className="flex-1 p-6 overflow-auto custom-scrollbar">
+          {activeTab === 'theme' && (
+            <div className="space-y-6 max-w-4xl animate-in fade-in duration-300">
+              <div className="glass-panel rounded-xl p-6">
+                <div className="flex items-center space-x-3 mb-6">
+                  <Palette size={20} className="text-theme-accent" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-theme-primary">选择主题</h3>
+                    <p className="text-sm text-theme-muted">选择您喜欢的界面风格</p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                  {themeList.map((theme) => (
+                    <button
+                      key={theme.id}
+                      onClick={() => switchTheme(theme.id)}
+                      className={cn(
+                        "relative p-4 rounded-xl border-2 transition-all duration-300 text-left group",
+                        currentTheme === theme.id 
+                          ? "border-theme-accent bg-theme-glass shadow-lg" 
+                          : "border-theme-glass hover:border-theme-accent hover:bg-theme-hover"
+                      )}
+                    >
+                      {/* Theme preview */}
+                      <div className={cn(
+                        "h-20 rounded-lg mb-3 overflow-hidden",
+                        theme.colors.background
+                      )}>
+                        <div className="h-full p-2 flex flex-col space-y-1">
+                          <div className={cn("h-3 rounded", theme.colors.glassCard)} />
+                          <div className="flex-1 flex space-x-1">
+                            <div className={cn("w-1/3 rounded", theme.colors.glassPanel)} />
+                            <div className={cn("flex-1 rounded", theme.colors.glassPanel)} />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-semibold text-theme-primary">{theme.name}</h4>
+                          <p className="text-xs text-theme-muted">{theme.description}</p>
+                        </div>
+                        {currentTheme === theme.id && (
+                          <div className="w-6 h-6 rounded-full bg-theme-accent flex items-center justify-center">
+                            <Check size={14} className="text-white" />
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div className="mt-3 space-y-2">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input type="checkbox" checked={settings.consolePrintTime} onChange={(e) => setSettings(s => ({...s, consolePrintTime: e.target.checked}))} className="rounded" />
-                  <span className="text-sm">Print date and time</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input type="checkbox" checked={settings.consoleNoWrap} onChange={(e) => setSettings(s => ({...s, consoleNoWrap: e.target.checked}))} className="rounded" />
-                  <span className="text-sm">No Wrap mode</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input type="checkbox" checked={settings.consoleAutoScroll} onChange={(e) => setSettings(s => ({...s, consoleAutoScroll: e.target.checked}))} className="rounded" />
-                  <span className="text-sm">Auto Scroll mode</span>
-                </label>
+              
+              <div className="glass-panel rounded-xl p-6">
+                <div className="flex items-center space-x-3 mb-4">
+                  <Monitor size={20} className="text-theme-accent" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-theme-primary">当前主题</h3>
+                    <p className="text-sm text-theme-muted">您正在使用的主题配置</p>
+                  </div>
+                </div>
+                
+                <div className="glass-card-sm rounded-lg p-4">
+                  <div className="flex items-center space-x-4">
+                    <div className={cn(
+                      "w-16 h-16 rounded-lg",
+                      themeList.find(t => t.id === currentTheme)?.colors.background
+                    )} />
+                    <div>
+                      <h4 className="font-bold text-theme-primary text-lg">
+                        {themeList.find(t => t.id === currentTheme)?.name}
+                      </h4>
+                      <p className="text-sm text-theme-muted">
+                        {themeList.find(t => t.id === currentTheme)?.description}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === 'sessions' && (
-          <div className="space-y-6 max-w-2xl">
-            <div className="bg-dark-800 border border-dark-700 rounded-lg p-4">
-              <h3 className="text-sm font-bold text-white mb-3">Columns</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {sessionsColumnLabels.map((label, i) => {
-                  const key = label.replace(/\s/g, '').replace(/^./, c => c.toLowerCase());
-                  return (
-                    <label key={i} className="flex items-center space-x-2 cursor-pointer text-sm">
-                      <input type="checkbox" checked={true} className="rounded" />
-                      <span>{label}</span>
-                    </label>
-                  );
-                })}
+          {activeTab === 'main' && (
+            <div className="space-y-6 max-w-2xl animate-in fade-in duration-300">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-1.5">
+                  <label className="block text-[9px] font-black uppercase text-theme-muted tracking-widest ml-1">Interface Font</label>
+                  <select 
+                    value={settings.fontFamily}
+                    onChange={(e) => setSettings(s => ({...s, fontFamily: e.target.value}))}
+                    className="glass-input w-full py-2 px-3"
+                  >
+                    {fonts.map(f => <option key={f} value={f}>Adaptix - {f}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[9px] font-black uppercase text-theme-muted tracking-widest ml-1">Font Size (px)</label>
+                  <input 
+                    type="number" min={7} max={30}
+                    value={settings.fontSize}
+                    onChange={(e) => setSettings(s => ({...s, fontSize: parseInt(e.target.value)}))}
+                    className="glass-input w-full font-mono text-center py-2"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[9px] font-black uppercase text-theme-muted tracking-widest ml-1">Graph Engine</label>
+                  <select 
+                    value={settings.graphVersion}
+                    onChange={(e) => setSettings(s => ({...s, graphVersion: e.target.value}))}
+                    className="glass-input w-full py-2 px-3"
+                  >
+                    {graphVersions.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="glass-panel rounded-xl overflow-hidden">
+                <div className="glass-card-sm px-4 py-2 border-b border-theme-glass-light">
+                  <div className="flex items-center space-x-2">
+                    <Monitor size={14} className="text-theme-accent" />
+                    <span className="text-sm font-semibold text-theme-primary">Agent Console Defaults</span>
+                  </div>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div className="w-1/2 space-y-1.5">
+                    <label className="block text-[9px] font-black uppercase text-theme-muted tracking-widest ml-1">History Buffer Limit</label>
+                    <input 
+                      type="number" min={10000} max={1000000}
+                      value={settings.consoleBufferLines}
+                      onChange={(e) => setSettings(s => ({...s, consoleBufferLines: parseInt(e.target.value)}))}
+                      className="glass-input w-full font-mono py-2 px-3"
+                    />
+                  </div>
+                  <div className="space-y-2 pt-2 border-t border-theme-glass-light">
+                    {[
+                      { key: 'consolePrintTime', label: 'Include timestamps in stream' },
+                      { key: 'consoleNoWrap', label: 'Disable automatic line wrapping' },
+                      { key: 'consoleAutoScroll', label: 'Force scroll to bottom on new data' },
+                    ].map(item => (
+                      <label key={item.key} className="flex items-center space-x-3 cursor-pointer group">
+                        <input 
+                          type="checkbox" 
+                          checked={settings[item.key]} 
+                          onChange={(e) => setSettings(s => ({...s, [item.key]: e.target.checked}))} 
+                          className="sr-only" 
+                        />
+                        <div className={cn(
+                          "w-4 h-4 border rounded flex items-center justify-center transition-colors",
+                          settings[item.key] ? "bg-theme-accent border-theme-accent" : "border-theme-glass bg-theme-glass-panel group-hover:border-theme-glass"
+                        )}>
+                          {settings[item.key] && <div className="w-2 h-2 bg-white rounded-full" />}
+                        </div>
+                        <span className="text-sm font-medium text-theme-secondary group-hover:text-theme-primary">{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input type="checkbox" checked={settings.sessionsHealthCheck} onChange={(e) => setSettings(s => ({...s, sessionsHealthCheck: e.target.checked}))} className="rounded" />
-                <span className="text-sm">Check Health</span>
+          )}
+
+          {activeTab === 'sessions' && (
+            <div className="space-y-6 max-w-2xl animate-in fade-in duration-300 text-left">
+              <div className="glass-panel overflow-hidden rounded-2xl border border-theme-glass-light">
+                <div className="bg-theme-glass px-4 py-2 border-b border-theme-glass-light">
+                  <div className="flex items-center space-x-2">
+                    <Layout size={14} className="text-theme-accent" />
+                    <span className="text-[10px] font-black uppercase text-theme-primary tracking-widest">Display Configuration</span>
+                  </div>
+                </div>
+                <div className="p-6 space-y-4 bg-theme-glass-panel">
+                  <label className="flex items-center space-x-3 cursor-pointer group">
+                    <input type="checkbox" checked={settings.sessionsShowGraph} onChange={(e) => setSettings(s => ({...s, sessionsShowGraph: e.target.checked}))} className="sr-only" />
+                    <div className={cn("w-5 h-5 border border-theme-glass-light rounded-lg flex items-center justify-center transition-all", settings.sessionsShowGraph ? "bg-theme-accent border-theme-accent shadow-glow-sm" : "bg-theme-glass group-hover:border-theme-accent/50")}>
+                      {settings.sessionsShowGraph && <Check size={14} className="text-white" />}
+                    </div>
+                    <span className="text-xs font-black uppercase text-theme-secondary tracking-widest">Show infrastructure topology graph</span>
+                  </label>
+                </div>
+              </div>
+              
+              <div className="glass-panel p-6 bg-theme-glass-panel rounded-2xl border border-theme-glass-light flex items-center space-x-8">
+                <label className="flex items-center space-x-3 cursor-pointer group">
+                  <input type="checkbox" checked={settings.sessionsHealthCheck} onChange={(e) => setSettings(s => ({...s, sessionsHealthCheck: e.target.checked}))} className="sr-only" />
+                  <div className={cn("w-5 h-5 border border-theme-glass-light rounded-lg flex items-center justify-center transition-all", settings.sessionsHealthCheck ? "bg-theme-accent border-theme-accent shadow-glow-sm" : "bg-theme-glass group-hover:border-theme-accent/50")}>
+                    {settings.sessionsHealthCheck && <Check size={14} className="text-white" />}
+                  </div>
+                  <span className="text-xs font-black uppercase text-theme-secondary tracking-widest">Enable node health monitor</span>
+                </label>
+
+                <div className="flex items-center space-x-4 text-[11px] font-black text-theme-muted uppercase tracking-widest">
+                  <span>Inactivity Threshold:</span>
+                  <div className="flex items-center space-x-2">
+                    <input type="number" step="0.1" min={1} max={5} value={settings.sessionsCoaf} onChange={(e) => setSettings(s => ({...s, sessionsCoaf: parseFloat(e.target.value)}))} className="glass-input w-16 text-center py-1 font-mono text-theme-accent" />
+                    <span>* T +</span>
+                    <input type="number" min={1} max={10000} value={settings.sessionsOffset} onChange={(e) => setSettings(s => ({...s, sessionsOffset: parseInt(e.target.value)}))} className="glass-input w-20 text-center py-1 font-mono text-theme-accent" />
+                    <span className="ml-1 opacity-60">SEC</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'tasks' && (
+            <div className="space-y-6 max-w-2xl animate-in fade-in duration-300 text-left">
+              <div className="glass-panel overflow-hidden rounded-2xl border border-theme-glass-light">
+                <div className="bg-theme-glass px-4 py-2 border-b border-theme-glass-light">
+                  <div className="flex items-center space-x-2">
+                    <Layout size={14} className="text-theme-accent" />
+                    <span className="text-[10px] font-black uppercase text-theme-primary tracking-widest">Task Buffer Config</span>
+                  </div>
+                </div>
+                <div className="p-6 space-y-4 bg-theme-glass-panel">
+                  <label className="flex items-center space-x-3 cursor-pointer group">
+                    <input type="checkbox" checked={settings.tasksShowAll} onChange={(e) => setSettings(s => ({...s, tasksShowAll: e.target.checked}))} className="sr-only" />
+                    <div className={cn("w-5 h-5 border border-theme-glass-light rounded-lg flex items-center justify-center transition-all", settings.tasksShowAll ? "bg-theme-accent border-theme-accent shadow-glow-sm" : "bg-theme-glass group-hover:border-theme-accent/50")}>
+                      {settings.tasksShowAll && <Check size={14} className="text-white" />}
+                    </div>
+                    <span className="text-xs font-black uppercase text-theme-secondary tracking-widest">Retain global command history</span>
+                  </label>
+                </div>
+              </div>
+
+              <label className="flex items-center space-x-3 cursor-pointer group p-4 glass-card-sm border-theme-glass-light rounded-2xl hover:border-theme-accent/30 transition-all">
+                <input type="checkbox" checked={settings.tasksBlink} onChange={(e) => setSettings(s => ({...s, tasksBlink: e.target.checked}))} className="sr-only" />
+                <div className={cn("w-5 h-5 border border-theme-glass-light rounded-lg flex items-center justify-center transition-all", settings.tasksBlink ? "bg-theme-accent-secondary border-theme-accent-secondary shadow-glow-sm" : "bg-theme-glass group-hover:border-theme-accent-secondary/50")}>
+                  {settings.tasksBlink && <Check size={14} className="text-white" />}
+                </div>
+                <span className="text-xs font-black uppercase text-theme-primary tracking-widest">Activate tab notification blink</span>
               </label>
-              <div className="flex items-center space-x-2 text-sm">
-                <span>Sleeptime *</span>
-                <input type="number" step="0.1" min={1} max={5} value={settings.sessionsCoaf} onChange={(e) => setSettings(s => ({...s, sessionsCoaf: parseFloat(e.target.value)}))} className="w-16 bg-dark-800 border border-dark-600 rounded px-2 py-1 text-sm" />
-                <span>+</span>
-                <input type="number" min={1} max={10000} value={settings.sessionsOffset} onChange={(e) => setSettings(s => ({...s, sessionsOffset: parseInt(e.target.value)}))} className="w-20 bg-dark-800 border border-dark-600 rounded px-2 py-1 text-sm" />
-                <span>sec</span>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {activeTab === 'tasks' && (
-          <div className="space-y-6 max-w-2xl">
-            <div className="bg-dark-800 border border-dark-700 rounded-lg p-4">
-              <h3 className="text-sm font-bold text-white mb-3">Columns</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {tasksColumnLabels.map((label, i) => (
-                  <label key={i} className="flex items-center space-x-2 cursor-pointer text-sm">
-                    <input type="checkbox" checked={true} className="rounded" />
-                    <span>{label}</span>
-                  </label>
-                ))}
+              <div className="glass-panel overflow-hidden rounded-2xl border border-theme-glass-light opacity-90">
+                <div className="bg-theme-glass px-4 py-2 border-b border-theme-glass-light">
+                  <div className="flex items-center space-x-2">
+                    <Bell size={14} className="text-theme-accent-secondary" />
+                    <span className="text-[10px] font-black uppercase text-theme-primary tracking-widest">Notification Channels</span>
+                  </div>
+                </div>
+                <div className="p-4 bg-theme-glass-panel grid grid-cols-2 gap-y-2 gap-x-8">
+                  {['Chat', 'Logs', 'Sessions', 'Tasks', 'Downloads', 'Credentials', 'Targets', 'Screenshots'].map(tab => (
+                    <label key={tab} className="flex items-center space-x-3 cursor-pointer group">
+                      <input type="checkbox" checked={true} disabled={!settings.tasksBlink} readOnly className="sr-only" />
+                      <div className={cn("w-5 h-5 border border-theme-glass-light rounded-lg flex items-center justify-center transition-all", settings.tasksBlink ? "bg-theme-accent-secondary/50 border-theme-accent-secondary/50" : "bg-theme-glass border-theme-glass-panel group-hover:border-theme-accent-secondary/50")}>
+                        {settings.tasksBlink && <Check size={14} className="text-white" />}
+                      </div>
+                      <span className={cn("text-[11px] font-bold uppercase tracking-tight", settings.tasksBlink ? "text-theme-secondary group-hover:text-theme-primary" : "text-theme-muted")}>{tab}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === 'tabblink' && (
-          <div className="space-y-6 max-w-2xl">
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input type="checkbox" checked={settings.tabBlinkEnabled} onChange={(e) => setSettings(s => ({...s, tabBlinkEnabled: e.target.checked}))} className="rounded" />
-              <span className="text-sm font-bold">Enable tab blink</span>
-            </label>
-            <div className="bg-dark-800 border border-dark-700 rounded-lg p-4">
-              <h3 className="text-sm font-bold text-white mb-3">Blinking tabs</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {['Chat', 'Logs', 'Sessions', 'Tasks', 'Downloads', 'Credentials', 'Targets', 'Screenshots'].map(tab => (
-                  <label key={tab} className="flex items-center space-x-2 cursor-pointer text-sm">
-                    <input type="checkbox" checked={true} disabled={!settings.tabBlinkEnabled} className="rounded" />
-                    <span>{tab}</span>
-                  </label>
-                ))}
+          {activeTab === 'tabblink' && (
+            <div className="space-y-6 max-w-2xl animate-in fade-in duration-300 text-left">
+              <label className="flex items-center space-x-3 cursor-pointer group p-4 glass-card-sm border-theme-glass-light rounded-2xl hover:border-theme-accent/30 transition-all">
+                <input type="checkbox" checked={settings.tabBlinkEnabled} onChange={(e) => setSettings(s => ({...s, tabBlinkEnabled: e.target.checked}))} className="sr-only" />
+                <div className={cn("w-5 h-5 border border-theme-glass-light rounded-lg flex items-center justify-center transition-all", settings.tabBlinkEnabled ? "bg-theme-accent border-theme-accent shadow-glow-sm" : "bg-theme-glass group-hover:border-theme-accent/50")}>
+                  {settings.tabBlinkEnabled && <Check size={14} className="text-white" />}
+                </div>
+                <span className="text-xs font-black uppercase text-theme-primary tracking-widest">Activate tab notification blink</span>
+              </label>
+
+              <div className="glass-panel overflow-hidden rounded-2xl border border-theme-glass-light opacity-90">
+                <div className="bg-theme-glass px-4 py-2 border-b border-theme-glass-light">
+                  <div className="flex items-center space-x-2">
+                    <Bell size={14} className="text-theme-accent-secondary" />
+                    <span className="text-[10px] font-black uppercase text-theme-primary tracking-widest">Monitored Tab Sources</span>
+                  </div>
+                </div>
+                <div className="p-4 bg-theme-glass-panel grid grid-cols-2 gap-y-2 gap-x-8">
+                  {['Chat', 'Logs', 'Sessions', 'Tasks', 'Downloads', 'Credentials', 'Targets', 'Screenshots'].map(tab => (
+                    <label key={tab} className="flex items-center space-x-3 cursor-pointer group">
+                      <input type="checkbox" checked={true} disabled={!settings.tabBlinkEnabled} readOnly className="sr-only" />
+                      <div className={cn("w-5 h-5 border border-theme-glass-light rounded-lg flex items-center justify-center transition-all", settings.tabBlinkEnabled ? "bg-theme-accent-secondary/50 border-theme-accent-secondary/50" : "bg-theme-glass border-theme-glass-panel group-hover:border-theme-accent-secondary/50")}>
+                        {settings.tabBlinkEnabled && <Check size={14} className="text-white" />}
+                      </div>
+                      <span className={cn("text-[11px] font-bold uppercase tracking-tight", settings.tabBlinkEnabled ? "text-theme-secondary group-hover:text-theme-primary" : "text-theme-muted")}>{tab}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

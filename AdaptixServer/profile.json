@@ -21,7 +21,8 @@
       "extenders/gopher_agent/config.json"
     ],
     "access_token_live_hours": 12,
-    "refresh_token_live_hours": 168
+    "refresh_token_live_hours": 168,
+    "extension_path": "../Extension-Kit"
   },
   "ServerResponse": {
     "status": 404,

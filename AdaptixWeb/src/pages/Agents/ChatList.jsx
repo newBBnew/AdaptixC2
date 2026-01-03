@@ -6,26 +6,32 @@ import {
   ChevronRight, 
   X, 
   Send,
-  Trash2
+  Trash2,
+  User,
+  Shield,
+  Activity
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { useSocket } from '../../context/SocketContext';
+import { useAgents } from '../../context/AgentContext';
+import api from '../../api/agent';
 
 const ChatList = () => {
-  const [messages, setMessages] = useState([
-    { time: Date.now() / 1000 - 600, username: 'admin', message: 'Hello team, welcome to Adaptix C2.' },
-    { time: Date.now() / 1000 - 540, username: 'operator1', message: 'Ready for action. Beacons are looking good.' },
-  ]);
+  const { chatMessages } = useAgents();
+  const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const scrollRef = useRef(null);
-  const currentUser = 'admin'; // Should come from context later
+  const currentUser = localStorage.getItem('adaptix_user') || 'admin';
+
+  const displayedMessages = messages.length > 0 ? messages : chatMessages;
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [displayedMessages]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -42,77 +48,66 @@ const ChatList = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleSendMessage = (e) => {
+  const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
 
-    // Simulate sending
-    const newMessage = {
-      time: Date.now() / 1000,
-      username: currentUser,
-      message: inputValue.trim(),
-    };
-    setMessages([...messages, newMessage]);
+    const text = inputValue.trim();
     setInputValue('');
-    
-    // In reality, this would call HttpReqChatSendMessageAsync
+
+    try {
+      await api.post('/chat/send', { message: text });
+    } catch (err) {
+      console.error('Failed to send message:', err);
+    }
   };
 
+  const filteredMessages = displayedMessages.filter(msg => 
+    msg.message?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    msg.username?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
-    <div className="flex flex-col h-full bg-dark-950 text-[12px] font-mono select-text overflow-hidden">
+    <div className="flex flex-col h-full w-full select-none overflow-hidden">
       {/* 1. Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0 select-none">
+      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-secondary/10 border border-accent-secondary/20">
-            <MessageSquare className="w-3.5 h-3.5 text-accent-secondary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-secondary">Team Chat</span>
-          </div>
-          <div className="h-4 w-px bg-dark-600" />
           <button 
             onClick={() => setIsSearchVisible(!isSearchVisible)}
             className={cn(
-              "p-1 rounded hover:bg-dark-700 transition-colors",
-              isSearchVisible ? "bg-accent-primary/20 text-accent-primary" : "text-gray-500"
+              "p-2 rounded-xl transition-all",
+              isSearchVisible ? "bg-theme-accent/20 text-theme-accent border border-theme-accent/30" : "text-theme-muted hover:text-theme-primary hover:bg-theme-hover"
             )}
             title="Toggle Search (Ctrl+F)"
           >
-            <Search className="w-3.5 h-3.5" />
+            <Search className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 pr-1">
           <button 
             onClick={() => setMessages([])}
-            className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-accent-danger transition-all"
+            className="p-2 glass-btn text-theme-muted hover:text-theme-danger transition-all"
             title="Clear Chat (Ctrl+L)"
           >
-            <Trash2 size={14} />
+            <Trash2 size={16} />
           </button>
         </div>
       </div>
 
       {/* 2. Search Bar */}
       {isSearchVisible && (
-        <div className="flex items-center px-4 py-2 bg-dark-800/50 border-b border-dark-700 animate-in slide-in-from-top-2 duration-200 shrink-0 select-none">
-          <div className="flex items-center space-x-2 mr-4 text-gray-500">
-            <button className="p-0.5 hover:text-white transition-colors"><ChevronLeft size={14}/></button>
-            <button className="p-0.5 hover:text-white transition-colors"><ChevronRight size={14}/></button>
-            <span className="text-[10px] font-bold min-w-[40px] text-center">0 of 0</span>
-          </div>
+        <div className="flex items-center px-4 py-2 glass-card-sm border-b border-theme-glass-light shrink-0 animate-in slide-in-from-top-1 duration-200">
           <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
             <input 
               type="text" 
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Find in chat..." 
-              className="w-full bg-dark-950/50 border border-dark-600 rounded px-3 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50 placeholder:text-gray-700"
+              placeholder="Search messages..." 
+              className="glass-input w-full pl-10 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
             />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400">
-                <X size={12} />
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -120,58 +115,74 @@ const ChatList = () => {
       {/* 3. Chat Content */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-auto p-4 custom-scrollbar bg-[#0a0a0a]"
+        className="flex-1 overflow-auto p-4 custom-scrollbar glass-panel font-mono text-[12px] leading-relaxed text-theme-primary"
       >
-        <div className="space-y-1">
-          {messages.map((msg, i) => (
-            <div key={i} className="flex items-start space-x-2 group">
-              <span className="text-gray-600 shrink-0">
-                {new Date(msg.time * 1000).toLocaleTimeString([], { hour12: false })}
+        <div className="space-y-2">
+          {filteredMessages.map((msg, i) => (
+            <div key={i} className="flex items-start space-x-3 group py-1.5 hover:bg-theme-hover transition-all px-2 -mx-2 rounded-lg">
+              <span className="text-theme-muted shrink-0 select-none font-medium text-[11px] mt-0.5 font-bold">
+                [{new Date(msg.time * 1000).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}]
               </span>
-              <span className="text-gray-400 font-bold shrink-0">
-                [<span className={cn(msg.username === currentUser ? "text-accent-secondary" : "text-green-500")}>
-                  {msg.username}
-                </span>] ::
-              </span>
-              <span className="text-white break-all whitespace-pre-wrap">
-                {msg.message}
-              </span>
+              <div className="flex-1 min-w-0">
+                <span className={cn(
+                  "font-bold mr-2",
+                  msg.username === currentUser ? "text-theme-accent-secondary" : "text-theme-accent"
+                )}>
+                  @{msg.username || 'Unknown'}
+                </span>
+                <span className="text-theme-muted mr-2 opacity-50 select-none">:</span>
+                <span className="text-theme-primary break-all whitespace-pre-wrap">
+                  {msg.message}
+                </span>
+              </div>
             </div>
           ))}
-          {messages.length === 0 && (
-            <div className="py-20 flex flex-col items-center justify-center opacity-10 select-none">
-              <MessageSquare size={64} />
-              <p className="mt-4 text-sm font-bold tracking-widest uppercase">No messages</p>
+          {filteredMessages.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center opacity-40 select-none py-24 space-y-4">
+              <MessageSquare size={64} className="text-theme-muted" strokeWidth={1} />
+              <div className="text-center">
+                <p className="text-sm font-medium tracking-wider text-theme-primary uppercase">No Messages</p>
+                <p className="text-xs text-theme-muted mt-1 font-bold uppercase">Start a conversation with your team</p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
       {/* 4. Input Area */}
-      <form 
-        onSubmit={handleSendMessage}
-        className="px-3 py-2 bg-dark-800 border-t border-dark-700 flex items-center space-x-3 shrink-0"
-      >
-        <div className="text-[11px] font-black uppercase text-accent-secondary px-2 py-1 rounded bg-accent-secondary/10 border border-accent-secondary/20">
-          {currentUser}
-        </div>
-        <div className="flex-1 relative">
-          <input 
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Type a message..."
-            className="w-full bg-dark-950 border border-dark-600 rounded-md py-1.5 px-3 text-[12px] text-white outline-none focus:border-accent-primary/50 transition-all"
-          />
-        </div>
-        <button 
-          type="submit"
-          disabled={!inputValue.trim()}
-          className="p-1.5 rounded-md bg-accent-primary/20 text-accent-primary hover:bg-accent-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+      <div className="flex flex-col glass-card-sm border-t border-theme-glass-light">
+        <form 
+          onSubmit={handleSendMessage}
+          className="flex items-center px-3 py-2 space-x-3"
         >
-          <Send size={16} />
-        </button>
-      </form>
+          <div className="flex items-center space-x-2 ml-2 shrink-0 glass-btn px-3 py-1.5 rounded-lg border-theme-glass-light">
+            <User size={14} className="text-theme-accent-secondary" />
+            <span className="text-xs font-semibold text-theme-accent-secondary">{currentUser}</span>
+          </div>
+          <div className="flex-1 relative">
+            <input 
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder="Type a message..."
+              className="glass-input w-full py-2 pl-4 pr-12 text-sm text-theme-primary placeholder:text-theme-muted"
+            />
+            <button 
+              type="submit"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 glass-btn text-theme-muted hover:text-theme-accent transition-all rounded-lg"
+            >
+              <Send size={16} />
+            </button>
+          </div>
+        </form>
+        <div className="px-4 py-1 flex items-center justify-between text-[9px] font-black text-theme-muted uppercase tracking-widest bg-theme-glass-panel">
+          <div className="flex items-center space-x-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-theme-success shadow-glow-sm animate-pulse" />
+            <span>Encrypted Relay Channel</span>
+          </div>
+          <span className="opacity-50">v1.0.4-CHAT</span>
+        </div>
+      </div>
     </div>
   );
 };

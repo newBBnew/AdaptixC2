@@ -8,7 +8,8 @@ import {
   ShieldAlert,
   LogOut,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  User
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -24,76 +25,92 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
 
   return (
     <aside className={cn(
-      "bg-dark-800 border-r border-dark-700 flex flex-col transition-all duration-300 relative",
-      isCollapsed ? "w-16" : "w-64"
+      "glass-panel flex flex-col transition-all duration-300 relative select-none border-r border-theme-glass",
+      isCollapsed ? "w-14" : "w-52"
     )}>
       {/* Toggle Button */}
       <button 
         onClick={onToggle}
-        className="absolute -right-3 top-20 bg-dark-700 border border-dark-600 rounded-full p-1 text-gray-400 hover:text-white z-50 hover:bg-dark-600 transition-colors"
+        className="absolute -right-3 top-16 glass-btn p-1 text-theme-muted hover:text-theme-accent z-50 transition-all shadow-glow-sm"
       >
-        {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        {isCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
       </button>
 
+      {/* Logo Header */}
       <div className={cn(
-        "p-6 flex items-center space-x-3 border-b border-dark-700 overflow-hidden whitespace-nowrap",
-        isCollapsed && "p-4 justify-center"
+        "p-4 flex items-center space-x-3 border-b border-theme-glass-light overflow-hidden whitespace-nowrap",
+        isCollapsed && "p-3 justify-center"
       )}>
-        <ShieldAlert className="w-8 h-8 text-accent-primary shrink-0" />
-        {!isCollapsed && <span className="text-xl font-bold tracking-tight text-white">Adaptix C2</span>}
+        <div className="p-2 rounded-xl bg-theme-glass border border-theme-glass-light shrink-0 shadow-glow-sm">
+          <ShieldAlert className="w-5 h-5 text-theme-accent" />
+        </div>
+        {!isCollapsed && (
+          <div className="flex flex-col min-w-0 text-left">
+            <span className="text-sm font-black uppercase tracking-[0.2em] text-theme-primary">Adaptix</span>
+            <span className="text-[9px] font-bold text-theme-muted uppercase tracking-wider -mt-0.5">Intelligence Framework</span>
+          </div>
+        )}
       </div>
       
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+      {/* Navigation */}
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto custom-scrollbar">
         {navItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
             title={isCollapsed ? item.name : undefined}
             className={({ isActive }) => cn(
-              "flex items-center px-4 py-3 rounded-lg transition-all duration-200 group overflow-hidden whitespace-nowrap",
-              isCollapsed ? "justify-center px-0" : "space-x-3",
+              "flex items-center transition-all duration-200 group overflow-hidden whitespace-nowrap rounded-xl",
+              isCollapsed ? "justify-center px-0 h-11" : "px-4 py-2.5 space-x-3",
               isActive 
-                ? "bg-accent-primary/10 text-accent-primary border-l-4 border-accent-primary pl-3" 
-                : "text-gray-400 hover:bg-dark-700 hover:text-gray-200"
+                ? "bg-theme-glass text-theme-primary border border-theme-glass-light shadow-glow-sm" 
+                : "text-theme-muted border border-transparent hover:bg-theme-hover hover:text-theme-primary hover:border-theme-glass-light"
             )}
           >
             <item.icon className={cn(
-              "w-5 h-5 transition-colors shrink-0",
-              "group-hover:text-accent-primary"
+              "w-4 h-4 transition-all shrink-0",
+              "group-hover:text-theme-accent group-hover:drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]"
             )} />
-            {!isCollapsed && <span className="font-medium">{item.name}</span>}
+            {!isCollapsed && <span className="text-[11px] font-bold uppercase tracking-widest">{item.name === '控守平台' ? 'PLATFORM' : item.name}</span>}
           </NavLink>
         ))}
       </nav>
 
-      <div className={cn("p-4 border-t border-dark-700 space-y-3", isCollapsed && "p-2")}>
+      {/* Footer */}
+      <div className={cn("p-3 border-t border-theme-glass-light space-y-3", isCollapsed && "p-2")}>
         {!isCollapsed ? (
-          <div className="bg-dark-700/50 rounded-lg p-3 flex items-center space-x-3 overflow-hidden whitespace-nowrap">
-            <div className="w-8 h-8 rounded-full bg-accent-secondary/20 flex items-center justify-center shrink-0">
-              <div className="w-2 h-2 rounded-full bg-accent-secondary animate-pulse" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-gray-300 truncate">Teamserver Online</p>
-              <p className="text-[10px] text-gray-500 truncate">{localStorage.getItem('adaptix_url') || '127.0.0.1:443'}</p>
+          <div className="space-y-3">
+            <div className="glass-card-sm p-3 rounded-xl border border-theme-glass-light">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-theme-glass flex items-center justify-center border border-theme-glass-light">
+                  <User size={14} className="text-theme-accent" />
+                </div>
+                <div className="flex flex-col min-w-0 text-left">
+                  <span className="text-[10px] font-black uppercase text-theme-primary truncate">ADMIN_OP</span>
+                  <div className="flex items-center space-x-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-theme-success animate-pulse shadow-glow-sm" />
+                    <span className="text-[8px] font-bold text-theme-muted uppercase tracking-tighter">Connected</span>
+                  </div>
+                </div>
+              </div>
+              <button 
+                onClick={onLogout}
+                className="w-full flex items-center justify-center space-x-2 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest text-theme-danger hover:bg-theme-danger/10 transition-all border border-transparent hover:border-theme-danger/20"
+              >
+                <LogOut size={12} />
+                <span>Terminate</span>
+              </button>
             </div>
           </div>
         ) : (
-          <div className="flex justify-center">
-            <div className="w-2 h-2 rounded-full bg-accent-secondary animate-pulse" title="Online" />
-          </div>
+          <button 
+            onClick={onLogout}
+            className="w-full h-10 flex items-center justify-center rounded-xl text-theme-danger hover:bg-theme-danger/10 transition-all border border-transparent hover:border-theme-danger/20"
+            title="Terminate Session"
+          >
+            <LogOut size={16} />
+          </button>
         )}
-        
-        <button 
-          onClick={onLogout}
-          title={isCollapsed ? "Disconnect" : undefined}
-          className={cn(
-            "w-full flex items-center rounded-lg text-gray-500 hover:bg-accent-danger/10 hover:text-accent-danger transition-all duration-200 overflow-hidden whitespace-nowrap",
-            isCollapsed ? "justify-center py-3" : "px-4 py-2 space-x-3"
-          )}
-        >
-          <LogOut className="w-4 h-4 shrink-0" />
-          {!isCollapsed && <span className="text-xs font-bold uppercase tracking-wider">Disconnect</span>}
-        </button>
       </div>
     </aside>
   );

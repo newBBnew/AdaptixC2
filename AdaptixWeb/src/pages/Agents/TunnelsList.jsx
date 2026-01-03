@@ -8,37 +8,23 @@ import {
   RefreshCw,
   X,
   Globe,
-  ArrowRight
+  ArrowRight,
+  Plus
 } from 'lucide-react';
 import { tunnelApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 
+import CreateTunnelDialog from './CreateTunnelDialog';
+import { useAgents } from '../../context/AgentContext';
+import ContextMenu from '../../components/ContextMenu';
+
 const TunnelsList = () => {
-  const [tunnels, setTunnels] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { tunnels, fetchAgents } = useAgents();
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
-
-  const fetchTunnels = async () => {
-    try {
-      setLoading(true);
-      const response = await tunnelApi.list();
-      setTunnels(Array.isArray(response.data) ? response.data : []);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch tunnels:', err);
-      setError('Connection failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchTunnels();
-    const interval = setInterval(fetchTunnels, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [menu, setMenu] = useState(null);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -51,6 +37,30 @@ const TunnelsList = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const handleSetInfo = async (id, currentInfo) => {
+    const newInfo = window.prompt('Enter new info:', currentInfo || '');
+    if (newInfo !== null) {
+      try {
+        await tunnelApi.setInfo(id, newInfo);
+        fetchAgents();
+      } catch (err) {
+        console.error('Failed to set info:', err);
+      }
+    }
+  };
+
+  const handleContextMenu = (e, tunnel) => {
+    e.preventDefault();
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      options: [
+        { label: 'Set Info...', icon: Edit3, onClick: () => handleSetInfo(tunnel.tunnel_id, tunnel.info) },
+        { label: 'Stop Tunnel', icon: StopCircle, onClick: () => handleStopTunnel(tunnel.tunnel_id) },
+      ]
+    });
+  };
+
   const filteredTunnels = tunnels.filter(t => 
     Object.values(t).some(val => 
       String(val).toLowerCase().includes(searchQuery.toLowerCase())
@@ -61,83 +71,87 @@ const TunnelsList = () => {
     if (!window.confirm('Are you sure you want to stop this tunnel?')) return;
     try {
       await tunnelApi.stop(tunnelId);
-      fetchTunnels();
     } catch (err) {
       console.error('Failed to stop tunnel:', err);
     }
   };
 
   return (
-    <div className="flex flex-col h-full bg-dark-900 text-gray-300 font-sans select-none overflow-hidden">
-      {/* 1. Header with Controls (Mimics TunnelsWidget.cpp) */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
+    <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setMenu(null)}>
+      {/* 1. Header with Controls */}
+      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
-            <Shield className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Tunnel Manager</span>
-          </div>
-          <div className="h-4 w-px bg-dark-600" />
           <button 
             onClick={() => setIsSearchVisible(!isSearchVisible)}
             className={cn(
-              "p-1 rounded hover:bg-dark-700 transition-colors",
-              isSearchVisible ? "bg-accent-primary/20 text-accent-primary" : "text-gray-500"
+              "p-2 rounded-lg transition-colors",
+              isSearchVisible ? "bg-theme-accent/20 text-theme-accent border border-theme-accent/30" : "text-theme-muted hover:text-theme-primary hover:bg-theme-hover"
             )}
             title="Toggle Search (Ctrl+F)"
           >
-            <Search className="w-3.5 h-3.5" />
+            <Search className="w-4 h-4" />
+          </button>
+          <div className="h-5 w-px bg-theme-glass-light mx-1" />
+          <button 
+            onClick={() => {
+              setLoading(true);
+              fetchAgents().finally(() => setLoading(false));
+            }}
+            className="p-2 glass-btn text-theme-muted hover:text-theme-accent transition-all"
+            title="Refresh Tunnels"
+          >
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-theme-accent")} />
           </button>
         </div>
 
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center">
           <button 
-            onClick={fetchTunnels}
-            className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
-            title="Refresh"
+            onClick={() => setIsCreateOpen(true)}
+            className="glass-btn-primary px-4 py-2 text-theme-primary flex items-center space-x-2 shadow-glow-sm"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-accent-primary")} />
+            <Plus className="w-4 h-4" />
+            <span className="font-semibold text-sm">Create Tunnel</span>
           </button>
         </div>
       </div>
 
       {/* 2. Search Panel */}
       {isSearchVisible && (
-        <div className="flex items-center px-4 py-2 bg-dark-800/50 border-b border-dark-700 animate-in slide-in-from-top-2 duration-200 shrink-0">
+        <div className="flex items-center px-4 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
           <div className="relative flex-1 max-w-md">
-            <Filter className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600" />
+            <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
             <input 
               type="text" 
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="filter: socks | forward..." 
-              className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50 placeholder:text-gray-700"
+              placeholder="Search agent, port, info..." 
+              className="glass-input w-full pl-10 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
             />
           </div>
         </div>
       )}
 
       {/* 3. Table Area */}
-      <div className="flex-1 overflow-auto scrollbar-thin">
-        <table className="w-full text-left border-collapse table-auto min-w-[800px]">
-          <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
-            <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-              <th className="py-2 px-4 border-r border-dark-700/30">Agent ID</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Interface</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Port</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Forward Host</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Forward Port</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Info</th>
-              <th className="py-2 px-4 text-right">Actions</th>
+      <div className="flex-1 overflow-auto custom-scrollbar glass-panel">
+        <table className="glass-table min-w-[900px]">
+          <thead>
+            <tr>
+              <th className="w-32">Source Node</th>
+              <th className="w-24">Type</th>
+              <th className="w-40">Local Interface</th>
+              <th className="w-24">Bind Port</th>
+              <th className="w-40">Remote Target</th>
+              <th>Operational Notes</th>
             </tr>
           </thead>
-          <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
+          <tbody className="text-[12px] font-medium">
             {filteredTunnels.length === 0 ? (
               <tr>
-                <td colSpan="7" className="py-20 text-center text-gray-600 italic">
-                  <div className="flex flex-col items-center space-y-3 opacity-20">
-                    <Shield size={40} />
-                    <p className="text-xs font-medium tracking-widest uppercase">No active tunnels</p>
+                <td colSpan="6" className="py-24 text-center border-none">
+                  <div className="flex flex-col items-center space-y-4 opacity-40">
+                    <Globe size={48} className="text-theme-muted" />
+                    <p className="text-sm font-medium tracking-wider text-theme-muted">No active tunnels</p>
                   </div>
                 </td>
               </tr>
@@ -145,47 +159,61 @@ const TunnelsList = () => {
               filteredTunnels.map((t) => (
                 <tr 
                   key={t.tunnel_id} 
-                  className="hover:bg-accent-primary/5 transition-colors group h-8 cursor-default"
+                  onContextMenu={(e) => handleContextMenu(e, t)}
+                  className={cn(
+                    "transition-colors group h-8 cursor-default",
+                    t.agent_id === activeTabId ? "bg-theme-hover" : ""
+                  )}
                 >
-                  <td className="px-4 text-gray-400 font-mono truncate">{t.agent_id?.substring(0,8) || '---'}</td>
-                  <td className="px-4 truncate">
-                    <div className="flex items-center space-x-2">
-                      <Globe className="w-3 h-3 text-gray-500" />
-                      <span className="font-bold text-gray-300">{t.interface || '0.0.0.0'}</span>
-                    </div>
+                  <td className="text-theme-accent font-black font-mono uppercase tracking-tighter">{t.agent_id?.substring(0,8) || 'GLOBAL'}</td>
+                  <td>
+                    <span className="px-1.5 py-0.5 rounded-sm bg-theme-glass-panel text-[9px] font-black uppercase text-theme-muted border border-theme-glass-light">
+                      {t.type || 'SOCKS5'}
+                    </span>
                   </td>
-                  <td className="px-4 text-accent-primary font-bold font-mono truncate">{t.port}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{t.fhost || '---'}</td>
-                  <td className="px-4 text-gray-300 font-mono truncate">{t.fport || '---'}</td>
-                  <td className="px-4 text-gray-400 italic truncate max-w-xs">{t.info || 'No description'}</td>
-                  <td className="px-4 text-right">
-                    <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => handleStopTunnel(t.tunnel_id)}
-                        className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" 
-                        title="Stop Tunnel"
-                      >
-                        <StopCircle size={14} />
-                      </button>
-                    </div>
+                  <td className="text-theme-secondary font-mono">{t.interface || '0.0.0.0'}</td>
+                  <td className="text-theme-accent-secondary font-black font-mono tracking-widest">{t.port}</td>
+                  <td className="text-theme-primary font-mono">
+                    {t.fhost ? (
+                      <div className="flex items-center space-x-1.5">
+                        <span>{t.fhost}</span>
+                        <ChevronRight size={10} className="text-theme-muted" />
+                        <span>{t.fport}</span>
+                      </div>
+                    ) : '---'}
                   </td>
+                  <td className="text-theme-muted italic">{t.info || 'No operational data'}</td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
       
       {/* 4. Footer Summary */}
-      <div className="px-4 py-1.5 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tighter shrink-0">
-        <div className="flex items-center space-x-4">
-          <span>Active Tunnels: <span className="text-accent-primary">{tunnels.length}</span></span>
+      <div className="px-3 py-1.5 glass-card-sm border-t border-theme-glass-light flex items-center justify-between text-[9px] font-black text-theme-muted uppercase tracking-[0.1em] shrink-0">
+        <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1.5 rounded-lg border border-theme-glass-light shadow-sm">
+            <span className="text-theme-muted opacity-60">ACTIVE_TUNNELS:</span>
+            <span className="text-theme-accent font-mono font-bold">{tunnels.length}</span>
+          </div>
         </div>
-        <div className="flex items-center space-x-1">
-          <div className="w-1.5 h-1.5 rounded-full bg-accent-secondary animate-pulse" />
-          <span className="text-accent-secondary/80">Real-time Tunnel Sync</span>
+        <div className="flex items-center space-x-3 pr-1">
+          <Shield size={12} className="text-theme-accent opacity-60" />
+          <span className="text-theme-muted opacity-80">PIVOT_INFRASTRUCTURE_LINK</span>
+          <div className="w-2 h-2 rounded-full bg-theme-success shadow-glow-sm animate-pulse" />
         </div>
       </div>
+
+      <CreateTunnelDialog 
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onCreated={() => {}}
+      />
+
+      {/* Context Menu */}
+      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </div>
   );
 };

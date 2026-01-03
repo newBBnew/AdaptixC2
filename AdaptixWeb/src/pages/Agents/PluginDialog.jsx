@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Play, FileUp, Info } from 'lucide-react';
+import { X, Play, FileUp, Info, Settings, Code2 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
 const PluginDialog = ({ 
@@ -89,10 +89,10 @@ const PluginDialog = ({
             value={value || ''}
             onChange={(e) => handleChange(arg.name, e.target.value)}
             placeholder={arg.mark || 'Select file...'}
-            className="flex-1 px-3 py-2 bg-dark-950 border border-dark-600 rounded text-sm text-white outline-none focus:border-accent-primary"
+            className="flex-1 glass-input font-mono py-2 px-4 text-theme-primary"
           />
-          <label className="px-3 py-2 bg-dark-700 hover:bg-dark-600 rounded cursor-pointer text-sm text-gray-300 transition-colors">
-            <FileUp className="w-4 h-4" />
+          <label className="p-2.5 bg-theme-glass border border-theme-glass-light hover:border-theme-accent rounded-xl cursor-pointer text-theme-muted hover:text-theme-accent transition-all shadow-sm">
+            <FileUp size={16} />
             <input
               type="file"
               className="hidden"
@@ -112,21 +112,27 @@ const PluginDialog = ({
           type="number"
           value={value || 0}
           onChange={(e) => handleChange(arg.name, parseInt(e.target.value) || 0)}
-          className="w-full px-3 py-2 bg-dark-950 border border-dark-600 rounded text-sm text-white outline-none focus:border-accent-primary"
+          className="glass-input w-full font-mono text-center py-2 px-4 text-theme-primary"
         />
       );
     }
 
     if (arg.type === 'bool') {
       return (
-        <label className="flex items-center space-x-2 cursor-pointer">
+        <label className="flex items-center space-x-3 cursor-pointer group">
           <input
             type="checkbox"
             checked={!!value}
             onChange={(e) => handleChange(arg.name, e.target.checked)}
-            className="w-4 h-4 rounded border-dark-600 bg-dark-950 text-accent-primary focus:ring-accent-primary"
+            className="sr-only"
           />
-          <span className="text-sm text-gray-400">Enable</span>
+          <div className={cn(
+            "w-5 h-5 border border-theme-glass-light rounded-lg flex items-center justify-center transition-all",
+            value ? "bg-theme-accent border-theme-accent shadow-glow-sm" : "bg-theme-glass group-hover:border-theme-accent/50"
+          )}>
+            {value && <div className="w-2 h-2 bg-theme-primary rounded-full shadow-sm" />}
+          </div>
+          <span className="text-[11px] font-bold text-theme-secondary uppercase tracking-tight">Enable Parameter</span>
         </label>
       );
     }
@@ -138,98 +144,97 @@ const PluginDialog = ({
         value={value || ''}
         onChange={(e) => handleChange(arg.name, e.target.value)}
         placeholder={arg.mark || ''}
-        className="w-full px-3 py-2 bg-dark-950 border border-dark-600 rounded text-sm text-white outline-none focus:border-accent-primary"
+        className="glass-input w-full font-mono py-2 px-4 text-theme-primary"
       />
     );
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-dark-800 border border-dark-600 rounded-lg shadow-xl w-full max-w-md">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700">
-          <h3 className="text-sm font-bold text-white">{command.name}</h3>
-          <button 
-            onClick={onClose}
-            className="p-1 hover:bg-dark-700 rounded transition-colors"
-          >
-            <X className="w-4 h-4 text-gray-400" />
-          </button>
-        </div>
-
-        {/* Parameters */}
-        {command.args?.length > 0 && (
-          <div className="p-4 space-y-4">
-            <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">
-              Parameters
-            </div>
-            {command.args.map((arg) => (
-              <div key={arg.name} className="space-y-1">
-                <label className="block text-sm text-gray-300">
-                  {arg.name}
-                  {arg.required && <span className="text-red-400 ml-1">*</span>}
-                  {arg.description && (
-                    <span className="text-gray-500 text-xs ml-2">({arg.description})</span>
-                  )}
-                </label>
-                {renderInput(arg)}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Execute Plugin: ${command.name}`}
+      width="max-w-2xl"
+    >
+      <div className="flex flex-col bg-theme-glass-panel">
+        <div className="max-h-[70vh] overflow-y-auto custom-scrollbar bg-theme-glass-panel">
+          {/* Parameters */}
+          {command.args?.length > 0 && (
+            <div className="p-6 space-y-6">
+              <div className="flex items-center space-x-2 text-[10px] font-black text-theme-muted uppercase tracking-[0.2em] mb-2 border-b border-theme-glass-light pb-2">
+                <Settings size={14} className="text-theme-accent" />
+                <span>Command Parameters</span>
               </div>
-            ))}
-          </div>
-        )}
+              <div className="grid grid-cols-1 gap-6">
+                {command.args.map((arg) => (
+                  <div key={arg.name} className="space-y-2">
+                    <label className="block text-[10px] font-black text-theme-muted uppercase tracking-widest ml-1">
+                      {arg.name}
+                      {arg.required && <span className="text-theme-danger ml-1">*</span>}
+                      {arg.description && (
+                        <span className="text-theme-muted text-[9px] ml-2 normal-case font-bold italic opacity-60">({arg.description})</span>
+                      )}
+                    </label>
+                    <div className="w-full">
+                      {renderInput(arg)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-        {/* Description */}
-        {command.description && (
-          <div className="px-4 pb-4">
-            <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
-              Description
-            </div>
-            <div className="p-3 bg-dark-900 rounded text-sm text-gray-400 border border-dark-700">
-              {command.description}
-            </div>
-          </div>
-        )}
+          {/* Metadata Section (Description & Example) */}
+          <div className="p-6 pt-0 space-y-6">
+            {command.description && (
+              <div className="space-y-2">
+                <div className="text-[10px] font-black text-theme-muted uppercase tracking-widest ml-1">Description</div>
+                <div className="p-4 bg-theme-glass border border-theme-glass-light rounded-2xl text-[11px] text-theme-secondary leading-relaxed shadow-glow-sm">
+                  {command.description}
+                </div>
+              </div>
+            )}
 
-        {/* Example */}
-        {command.example && (
-          <div className="px-4 pb-4">
-            <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
-              Example
-            </div>
-            <div className="p-2 bg-dark-950 rounded font-mono text-xs text-accent-primary border border-dark-700">
-              {command.example}
-            </div>
-          </div>
-        )}
+            {command.example && (
+              <div className="space-y-2">
+                <div className="text-[10px] font-black text-theme-muted uppercase tracking-widest ml-1">Usage Example</div>
+                <div className="p-4 bg-theme-glass border border-theme-glass-light rounded-2xl font-mono text-[10px] text-theme-accent shadow-glow-sm">
+                  {command.example}
+                </div>
+              </div>
+            )}
 
-        {/* Preview */}
-        <div className="px-4 pb-4">
-          <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
-            Command Preview
-          </div>
-          <div className="p-2 bg-dark-950 rounded font-mono text-xs text-green-400 border border-dark-700 break-all">
-            {buildCommandLine()}
+            {/* Live Preview */}
+            <div className="space-y-2">
+              <div className="text-[10px] font-black text-theme-muted uppercase tracking-widest flex items-center justify-between ml-1 pr-1">
+                <span>Final Command Preview</span>
+                <span className="text-theme-accent-secondary opacity-50 font-mono text-[9px]">READY</span>
+              </div>
+              <div className="p-4 bg-theme-glass-panel/40 border border-theme-glass-light rounded-2xl font-mono text-[10px] text-theme-success break-all shadow-glow-sm">
+                <span className="text-theme-muted mr-2">$</span>{buildCommandLine()}
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Buttons */}
-        <div className="flex justify-end space-x-2 px-4 py-3 border-t border-dark-700">
+        <div className="flex justify-end space-x-3 p-6 bg-theme-glass-panel border-t border-theme-glass-light">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
+            className="glass-btn px-6 py-2 text-xs font-bold text-theme-muted hover:text-theme-primary transition-all uppercase tracking-widest"
           >
             Cancel
           </button>
           <button
             onClick={handleExecute}
-            className="flex items-center space-x-2 px-4 py-2 bg-accent-primary hover:bg-accent-primary/80 text-white rounded text-sm transition-colors"
+            className="glass-btn-primary px-8 py-2 text-xs font-black uppercase tracking-widest shadow-glow-sm hover:shadow-glow flex items-center space-x-2 text-white"
           >
-            <Play className="w-4 h-4" />
+            <Play className="w-3 h-3 text-white" />
             <span>Execute</span>
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

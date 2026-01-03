@@ -78,7 +78,7 @@ const TasksList = () => {
         { label: 'Cancel', icon: StopCircle, disabled: task.a_completed, onClick: () => {
           if (window.confirm('Cancel this task?')) taskApi.cancel(task.a_id, [task.a_task_id]);
         }},
-        { label: 'Delete task', icon: Trash2, color: 'text-accent-danger', onClick: () => {
+        { label: 'Delete task', icon: Trash2, color: 'text-theme-danger', onClick: () => {
           if (window.confirm('Delete this task record?')) {
             taskApi.delete(task.a_id, [task.a_task_id]);
           }
@@ -99,19 +99,19 @@ const TasksList = () => {
   });
 
   return (
-    <div className="flex flex-col h-full w-full bg-dark-900 select-none overflow-hidden" onClick={() => setMenu(null)}>
+    <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setMenu(null)}>
       {/* 1. Header Controls */}
-      <div className="flex items-center justify-between px-2 py-1 bg-dark-800 border-b border-dark-700 shrink-0">
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center bg-dark-950 border border-dark-700 rounded-sm px-1.5 py-0.5">
-            <span className="text-[9px] font-black text-gray-600 uppercase mr-2">Agent:</span>
+      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
+        <div className="flex items-center space-x-3">
+          <div className="flex items-center glass-input rounded-lg px-3 py-1.5">
+            <span className="text-[10px] font-semibold text-theme-muted uppercase mr-2">Agent:</span>
             <select 
               value={filterAgent}
               onChange={(e) => setFilterAgent(e.target.value)}
-              className="bg-transparent text-[10px] font-bold text-accent-primary outline-none cursor-pointer"
+              className="bg-transparent text-sm font-medium text-theme-accent outline-none cursor-pointer"
             >
               {agentIds.map(id => (
-                <option key={id} value={id} className="bg-dark-800 text-[#BEBEBE]">{id === 'All agents' ? 'GLOBAL_VIEW' : id.substring(0,8)}</option>
+                <option key={id} value={id} className="bg-theme-glass-panel text-theme-primary">{id === 'All agents' ? 'All Agents' : id.substring(0,8)}</option>
               ))}
             </select>
           </div>
@@ -119,12 +119,12 @@ const TasksList = () => {
           <button 
             onClick={() => setIsSearchVisible(!isSearchVisible)}
             className={cn(
-              "p-1 rounded transition-colors",
-              isSearchVisible ? "bg-accent-selection/30 text-accent-primary" : "text-gray-500 hover:text-gray-300"
+              "p-2 rounded-xl transition-all",
+              isSearchVisible ? "bg-theme-accent/20 text-theme-accent border border-theme-accent/30" : "text-theme-muted hover:text-theme-primary hover:bg-theme-hover"
             )}
             title="Toggle Search (Ctrl+F)"
           >
-            <Search className="w-3.5 h-3.5" />
+            <Search className="w-4 h-4" />
           </button>
         </div>
 
@@ -134,46 +134,46 @@ const TasksList = () => {
               setLoading(true);
               fetchAgents().finally(() => setLoading(false));
             }}
-            className="p-1 rounded hover:bg-dark-700 text-gray-500 hover:text-white transition-all"
+            className="p-2 glass-btn text-theme-muted hover:text-theme-accent transition-all"
             title="Refresh All Tasks"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-accent-primary")} />
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-theme-accent")} />
           </button>
         </div>
       </div>
 
       {/* 2. Search Panel */}
       {isSearchVisible && (
-        <div className="flex items-center px-4 py-1.5 bg-dark-800 border-b border-dark-700 space-x-3 animate-in slide-in-from-top-2 duration-200 shrink-0">
+        <div className="flex items-center px-4 py-2 glass-card-sm border-b border-theme-glass-light space-x-3 shrink-0">
           <div className="relative flex-1">
-            <Filter className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600" />
+            <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
             <input 
               type="text" 
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search command line history..." 
-              className="qt-input w-full pl-8 py-1"
+              className="glass-input w-full pl-10 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
             />
           </div>
-          <div className="flex items-center bg-dark-950 border border-dark-700 rounded-sm px-2 py-1 shrink-0">
-            <span className="text-[9px] font-black text-gray-600 uppercase mr-2">Status:</span>
+          <div className="flex items-center glass-input rounded-lg px-3 py-1.5 shrink-0">
+            <span className="text-[10px] font-semibold text-theme-muted uppercase mr-2">Status:</span>
             <select 
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="bg-transparent text-[10px] font-bold text-[#BEBEBE] outline-none cursor-pointer"
+              className="bg-transparent text-sm font-medium text-theme-primary outline-none cursor-pointer"
             >
-              <option className="bg-dark-800">Any status</option>
-              <option className="bg-dark-800">In Progress</option>
-              <option className="bg-dark-800">Completed</option>
+              <option className="bg-theme-glass-panel">Any status</option>
+              <option className="bg-theme-glass-panel">In Progress</option>
+              <option className="bg-theme-glass-panel">Completed</option>
             </select>
           </div>
         </div>
       )}
 
       {/* 3. Main Tasks Table */}
-      <div className="flex-1 overflow-auto custom-scrollbar bg-dark-950/10">
-        <table className="qt-table min-w-[800px]">
+      <div className="flex-1 overflow-auto custom-scrollbar glass-panel">
+        <table className="glass-table min-w-[800px]">
           <thead>
             <tr>
               <th className="w-24">Type</th>
@@ -186,9 +186,9 @@ const TasksList = () => {
             {filteredTasks.length === 0 ? (
               <tr>
                 <td colSpan="4" className="py-24 text-center border-none">
-                  <div className="flex flex-col items-center space-y-4 opacity-20">
-                    <Layout size={48} className="text-gray-600" />
-                    <p className="text-[10px] font-black tracking-[0.2em] uppercase text-gray-500">No telemetry records matching criteria</p>
+                  <div className="flex flex-col items-center space-y-4 opacity-40">
+                    <Layout size={48} className="text-theme-muted" />
+                    <p className="text-[10px] font-black tracking-[0.2em] uppercase text-theme-muted">No telemetry records matching criteria</p>
                   </div>
                 </td>
               </tr>
@@ -199,38 +199,38 @@ const TasksList = () => {
                   onClick={() => setSelectedTask(task)}
                   onContextMenu={(e) => handleContextMenu(e, task)}
                   className={cn(
-                    "transition-colors group h-8 cursor-default",
-                    selectedTask?.a_task_id === task.a_task_id && "bg-accent-selection/20 border-l-2 border-accent-primary"
+                    "group cursor-pointer",
+                    selectedTask?.a_task_id === task.a_task_id && "bg-theme-hover"
                   )}
                 >
-                  <td className="w-24 px-3 py-2">
-                    <span className="px-1.5 py-0.5 rounded-sm bg-dark-800 border border-dark-700 font-mono text-gray-500 uppercase text-[9px]">
+                  <td className="w-24">
+                    <span className={cn(
+                      "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider",
+                      task.Status === 'Completed' ? "bg-theme-success/10 text-theme-success border border-theme-success/20" : "bg-theme-accent/10 text-theme-accent border border-theme-accent/20"
+                    )}>
                       {task.a_task_type || 'CMD'}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-gray-300 font-mono tracking-tight truncate max-w-xl">
-                    <span className="text-gray-600 mr-2 opacity-50">$</span>
-                    {task.a_cmdline}
-                  </td>
+                  <td className="px-3 py-2 text-theme-primary font-mono">{task.a_cmdline}</td>
                   <td className="px-3 py-2">
                     <div className="flex items-center space-x-2">
                       <div className={cn(
                         "w-1.5 h-1.5 rounded-full shadow-[0_0_4px]",
-                        task.Status === 'Success' || task.a_completed ? "bg-accent-secondary shadow-accent-secondary/50" : 
-                        task.Status === 'Error' ? "bg-accent-danger shadow-accent-danger/50" : 
-                        "bg-accent-warning shadow-accent-warning/50 animate-pulse"
+                        task.Status === 'Success' || task.a_completed ? "bg-theme-success shadow-theme-success/50" : 
+                        task.Status === 'Error' ? "bg-theme-danger shadow-theme-danger/50" : 
+                        "bg-theme-accent shadow-theme-accent/50 animate-pulse"
                       )} />
                       <span className={cn(
                         "text-[10px] font-black uppercase tracking-tighter",
-                        task.Status === 'Success' || task.a_completed ? "text-accent-secondary" : 
-                        task.Status === 'Error' ? "text-accent-danger" : 
-                        "text-accent-warning"
+                        task.Status === 'Success' || task.a_completed ? "text-theme-accent-secondary" : 
+                        task.Status === 'Error' ? "text-theme-danger" : 
+                        "text-theme-accent"
                       )}>
                         {task.Status || (task.a_completed ? 'Finished' : 'Running')}
                       </span>
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-right text-gray-600 font-mono text-[10px]">
+                  <td className="px-3 py-2 text-right text-theme-muted font-mono text-[10px]">
                     {new Date((task.a_finish_time || task.a_start_time) * 1000).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   </td>
                 </tr>
@@ -244,46 +244,46 @@ const TasksList = () => {
       {selectedTask && (
         <div className="shrink-0 flex flex-col">
           <div 
-            className="h-1 bg-dark-700 hover:bg-accent-primary/50 cursor-row-resize transition-colors z-20 flex items-center justify-center group"
+            className="h-1 bg-theme-glass-light hover:bg-theme-accent/50 cursor-row-resize transition-colors z-20 flex items-center justify-center group"
             onMouseDown={() => {
               isResizing.current = true;
               document.body.style.cursor = 'row-resize';
             }}
           >
-            <div className="w-8 h-0.5 bg-dark-600 rounded-full group-hover:bg-accent-primary transition-colors" />
+            <div className="w-10 h-0.5 bg-theme-glass rounded-full group-hover:bg-theme-accent transition-colors shadow-sm" />
           </div>
           <div 
             style={{ height: `${outputHeight}px` }}
-            className="bg-dark-900 border-t border-dark-700 flex flex-col overflow-hidden relative shadow-[0_-10px_20px_rgba(0,0,0,0.3)]"
+            className="bg-theme-glass-panel border-t border-theme-glass-light flex flex-col overflow-hidden relative shadow-glow"
           >
-            <div className="flex items-center justify-between px-3 py-1.5 bg-dark-800 border-b border-dark-700 shrink-0">
+            <div className="flex items-center justify-between px-4 py-2 bg-theme-glass border-b border-theme-glass-light shrink-0">
               <div className="flex items-center space-x-3">
-                <Terminal className="w-3.5 h-3.5 text-accent-primary" />
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-white uppercase tracking-widest leading-none">Task Telemetry Output</span>
-                  <span className="text-[9px] font-mono text-gray-500 truncate max-w-lg mt-0.5">{selectedTask.a_task_id}</span>
+                <Terminal className="w-4 h-4 text-theme-accent" />
+                <div className="flex flex-col text-left">
+                  <span className="text-[10px] font-black text-theme-primary uppercase tracking-widest leading-none">Task Telemetry Output</span>
+                  <span className="text-[9px] font-mono text-theme-muted truncate max-w-lg mt-1">{selectedTask.a_task_id}</span>
                 </div>
               </div>
               <div className="flex items-center space-x-2">
                 <button 
                   onClick={() => navigator.clipboard.writeText(selectedTask.a_output || '')}
-                  className="p-1 hover:bg-dark-700 rounded text-gray-500 hover:text-white transition-colors"
+                  className="p-1.5 hover:bg-theme-glass-panel rounded-lg text-theme-muted hover:text-theme-primary transition-all shadow-sm"
                   title="Copy Output"
                 >
-                  <Copy size={14} />
+                  <Copy size={16} />
                 </button>
-                <div className="w-px h-3.5 bg-dark-700 mx-1" />
-                <button onClick={() => setSelectedTask(null)} className="text-gray-500 hover:text-white transition-colors">
-                  <X size={16} />
+                <div className="w-px h-5 bg-theme-glass-light mx-1" />
+                <button onClick={() => setSelectedTask(null)} className="p-1.5 hover:bg-theme-glass-panel text-theme-muted hover:text-theme-primary transition-all rounded-lg">
+                  <X size={18} />
                 </button>
               </div>
             </div>
-            <div className="flex-1 p-4 font-mono text-[12px] text-[#D0D0D0] overflow-auto select-text bg-dark-950/50 custom-scrollbar leading-relaxed">
+            <div className="flex-1 p-6 font-mono text-[12px] text-theme-secondary overflow-auto select-text bg-theme-glass-panel/30 custom-scrollbar leading-relaxed">
               {selectedTask.a_output ? (
                 <pre className="whitespace-pre-wrap break-words">{selectedTask.a_output}</pre>
               ) : (
-                <div className="flex flex-col items-center justify-center h-full text-gray-700 space-y-2 uppercase font-black text-[10px] tracking-[0.2em]">
-                  <AlertCircle size={32} className="opacity-20" />
+                <div className="flex flex-col items-center justify-center h-full text-theme-muted space-y-3 uppercase font-black text-[10px] tracking-[0.2em] opacity-40">
+                  <AlertCircle size={48} className="text-theme-accent" />
                   <span>Stream awaiting response...</span>
                 </div>
               )}

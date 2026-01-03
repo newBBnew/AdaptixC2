@@ -147,94 +147,95 @@ const CredentialsList = () => {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-dark-900 select-none overflow-hidden" onClick={() => setMenu(null)}>
-      {/* 1. Header with Controls (Mimics CredentialsWidget.cpp) */}
-      <div className="flex items-center justify-between px-4 py-2 bg-dark-800 border-b border-dark-700 shrink-0">
+    <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setMenu(null)}>
+      {/* 1. Header with Controls */}
+      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20">
-            <Key className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary">Credentials</span>
-          </div>
-          <div className="h-4 w-px bg-dark-600" />
           <button 
             onClick={() => setIsSearchVisible(!isSearchVisible)}
             className={cn(
-              "p-1 rounded hover:bg-dark-700 transition-colors",
-              isSearchVisible ? "bg-accent-primary/20 text-accent-primary" : "text-gray-500"
+              "p-2 rounded-xl transition-all",
+              isSearchVisible ? "bg-theme-accent/20 text-theme-accent border border-theme-accent/30" : "text-theme-muted hover:text-theme-primary hover:bg-theme-hover"
             )}
             title="Toggle Search (Ctrl+F)"
           >
-            <Search className="w-3.5 h-3.5" />
+            <Search className="w-4 h-4" />
+          </button>
+          <div className="h-5 w-px bg-theme-glass-light mx-1" />
+          <button 
+            onClick={() => {
+              setLoading(true);
+              fetchAgents().finally(() => setLoading(false));
+            }}
+            className="p-2 glass-btn text-theme-muted hover:text-theme-accent transition-all"
+            title="Refresh Credentials"
+          >
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-theme-accent")} />
           </button>
         </div>
 
-        <div className="flex items-center space-x-1">
-          <button 
-            onClick={fetchAgents}
-            className="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
-            title="Refresh"
-          >
-            <RefreshCw className={cn("w-3.5 h-3.5", false && "animate-spin text-accent-primary")} />
-          </button>
-          <div className="h-4 w-px bg-dark-600 mx-1" />
+        <div className="flex items-center">
           <button 
             onClick={() => {
               setEditData(null);
               setIsCreateOpen(true);
             }}
-            className="flex items-center space-x-1.5 px-3 py-1 rounded bg-accent-primary/10 border border-accent-primary/30 text-accent-primary hover:bg-accent-primary/20 transition-all group"
+            className="glass-btn-primary px-4 py-2 text-theme-primary flex items-center space-x-2 shadow-glow-sm"
           >
-            <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-bold uppercase">Add Cred</span>
+            <Plus className="w-4 h-4" />
+            <span className="font-semibold text-sm">Import Credential</span>
           </button>
         </div>
       </div>
 
       {/* 2. Search Panel */}
       {isSearchVisible && (
-        <div className="flex items-center px-4 py-2 bg-dark-800/50 border-b border-dark-700 animate-in slide-in-from-top-2 duration-200 shrink-0 space-x-4">
+        <div className="flex items-center px-4 py-2 glass-card-sm border-b border-theme-glass-light shrink-0 space-x-3">
           <div className="relative flex-1 max-w-md">
-            <Filter className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600" />
+            <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
             <input 
               type="text" 
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="filter: (adm | user) & hash..." 
-              className="w-full bg-dark-950/50 border border-dark-600 rounded px-8 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
+              placeholder="Search user, realm, password..." 
+              className="glass-input w-full pl-10 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
             />
           </div>
-          <select 
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="bg-dark-950/50 border border-dark-600 rounded px-2 py-1 text-[11px] text-gray-300 outline-none focus:border-accent-primary/50"
-          >
-            {credTypes.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <div className="flex items-center glass-input rounded-lg px-3 py-1.5 shrink-0">
+            <span className="text-[10px] font-black text-theme-muted uppercase mr-2">Category:</span>
+            <select 
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="bg-transparent text-[10px] font-bold text-theme-primary outline-none cursor-pointer"
+            >
+              {credTypes.map(t => <option key={t} value={t} className="bg-theme-glass-panel text-theme-primary">{t}</option>)}
+            </select>
+          </div>
         </div>
       )}
 
       {/* 3. Table Area */}
-      <div className="flex-1 overflow-auto scrollbar-thin">
-        <table className="w-full text-left border-collapse table-auto min-w-[1000px]">
-          <thead className="sticky top-0 bg-dark-800 z-10 shadow-sm">
-            <tr className="border-b border-dark-700 text-gray-500 text-[10px] font-bold uppercase tracking-tight">
-              <th className="py-2 px-4 border-r border-dark-700/30">User</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Password / Hash</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Realm / Domain</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Type</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Source</th>
-              <th className="py-2 px-4 border-r border-dark-700/30">Tag</th>
-              <th className="py-2 px-4 text-right">Actions</th>
+      <div className="flex-1 overflow-auto custom-scrollbar glass-panel">
+        <table className="glass-table min-w-[1000px]">
+          <thead>
+            <tr>
+              <th className="w-48">Operator / User</th>
+              <th className="w-64">Credential Material</th>
+              <th className="w-48">Domain / Realm</th>
+              <th className="w-32">Type</th>
+              <th className="w-32">Source Node</th>
+              <th>Artifact Tag</th>
+              <th className="text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="text-[11px] font-medium divide-y divide-dark-800/30">
+          <tbody className="text-[11px] font-medium text-theme-primary">
             {filteredCreds.length === 0 ? (
               <tr>
-                <td colSpan="7" className="py-20 text-center text-gray-600 italic">
-                  <div className="flex flex-col items-center space-y-3 opacity-20">
-                    <Key size={40} />
-                    <p className="text-xs font-medium tracking-widest uppercase">No credentials looted</p>
+                <td colSpan="7" className="py-24 text-center border-none">
+                  <div className="flex flex-col items-center space-y-4 opacity-40">
+                    <Key size={48} className="text-theme-muted" />
+                    <p className="text-[10px] font-black tracking-[0.2em] uppercase text-theme-muted">No telemetry loot recovered</p>
                   </div>
                 </td>
               </tr>
@@ -242,53 +243,46 @@ const CredentialsList = () => {
               filteredCreds.map((c) => (
                 <tr 
                   key={c.cred_id} 
-                  className="hover:bg-accent-primary/5 transition-colors group h-8 cursor-default"
+                  onContextMenu={(e) => handleContextMenu(e, c)}
+                  className="transition-colors group h-8 cursor-default hover:bg-theme-hover"
                 >
-                  <td className="px-4 text-accent-primary font-bold truncate flex items-center space-x-2">
-                    <User size={12} className="text-gray-500" />
-                    <span>{c.username}</span>
+                  <td className="text-theme-accent font-black font-mono">
+                    <div className="flex items-center space-x-2">
+                      <User size={12} className="text-theme-muted" />
+                      <span>{c.username}</span>
+                    </div>
                   </td>
-                  <td className="px-4 text-gray-300 font-mono truncate max-w-xs select-text" onClick={() => handleCopyPassword(c.password)}>
-                    {c.password}
+                  <td className="text-theme-primary font-mono select-text cursor-pointer hover:text-theme-accent transition-colors" onClick={() => handleCopyPassword(c.password)}>
+                    <div className="flex items-center justify-between">
+                      <span className="truncate max-w-[200px]">{c.password}</span>
+                      <Copy size={10} className="text-theme-muted opacity-0 group-hover:opacity-100" />
+                    </div>
                   </td>
-                  <td className="px-4 text-gray-400 font-mono truncate">{c.realm || '---'}</td>
-                  <td className="px-4">
-                    <span className="px-1.5 py-0.5 rounded bg-dark-700 text-[9px] font-black uppercase text-gray-400 border border-dark-600">
+                  <td className="text-theme-secondary font-mono">{c.realm || 'LOCAL_DB'}</td>
+                  <td>
+                    <span className="px-1.5 py-0.5 rounded-sm bg-theme-glass-panel text-[9px] font-black uppercase text-theme-muted border border-theme-glass-light">
                       {c.type}
                     </span>
                   </td>
-                  <td className="px-4 text-gray-500 text-[10px] truncate">
-                    <div className="flex items-center space-x-1">
-                      <Database size={10} />
-                      <span>{c.host || c.agent_id?.substring(0,8)}</span>
+                  <td className="text-theme-secondary text-[10px] font-mono">
+                    <div className="flex items-center space-x-1.5">
+                      <Database size={10} className="text-theme-muted" />
+                      <span>{c.host || (c.agent_id ? c.agent_id.substring(0,8) : 'MANUAL')}</span>
                     </div>
                   </td>
-                  <td className="px-4">
-                    {c.tag && (
-                      <span className="px-1.5 py-0.5 rounded bg-accent-secondary/10 text-[9px] font-black uppercase text-accent-secondary border border-accent-secondary/20">
+                  <td>
+                    {c.tag ? (
+                      <span className="px-1.5 py-0.5 rounded-sm bg-theme-glass-panel text-[9px] font-black uppercase text-theme-accent-secondary border border-theme-glass-light">
                         {c.tag}
                       </span>
+                    ) : (
+                      <span className="text-theme-muted text-[9px] font-black italic opacity-30">UNTAGGED</span>
                     )}
                   </td>
-                  <td className="px-4 text-right">
-                    <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => handleCopyPassword(c.password)} className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" title="Copy Password">
-                        <Copy size={14} />
-                      </button>
-                      <button 
-                        onClick={() => handleEdit(c)}
-                        className="p-1 rounded hover:bg-dark-700 text-gray-400 hover:text-white transition-colors" 
-                        title="Edit"
-                      >
-                        <Edit3 size={14} />
-                      </button>
-                      <button 
-                        onClick={() => handleRemove(c.cred_id)}
-                        className="p-1 rounded hover:bg-dark-700 text-accent-danger transition-colors" 
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                  <td className="text-right">
+                    <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity pr-2">
+                      <button onClick={() => handleEdit(c)} className="p-1 rounded hover:bg-theme-hover text-theme-muted hover:text-theme-accent transition-colors"><Edit3 size={14} /></button>
+                      <button onClick={() => handleRemove(c.cred_id)} className="p-1 rounded hover:bg-theme-hover text-theme-muted hover:text-theme-danger transition-colors"><Trash2 size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -299,13 +293,16 @@ const CredentialsList = () => {
       </div>
       
       {/* 4. Footer Summary */}
-      <div className="px-4 py-1.5 bg-dark-800 border-t border-dark-700 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tighter shrink-0">
-        <div className="flex items-center space-x-4">
-          <span>Total Credentials: <span className="text-accent-primary">{credentials.length}</span></span>
+      <div className="px-3 py-1.5 glass-card-sm border-t border-theme-glass-light flex items-center justify-between text-[9px] font-black text-theme-muted uppercase tracking-[0.15em] shrink-0">
+        <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light shadow-glow-sm">
+            <span className="opacity-60">LOOT_RECOVERED:</span>
+            <span className="text-theme-accent font-mono font-bold">{credentials.length}</span>
+          </div>
         </div>
-        <div className="flex items-center space-x-1">
-          <Shield size={10} className="text-accent-secondary" />
-          <span className="text-accent-secondary/80">Encrypted Loot Sync</span>
+        <div className="flex items-center space-x-3 pr-1">
+          <span className="text-theme-muted opacity-80 uppercase tracking-[0.2em]">Encrypted_Database_Sync</span>
+          <div className="w-2 h-2 rounded-full bg-theme-accent shadow-glow-sm animate-pulse" />
         </div>
       </div>
 
