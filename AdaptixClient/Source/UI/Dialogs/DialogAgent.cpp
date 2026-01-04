@@ -142,7 +142,9 @@ void DialogAgent::createUI()
     auto separatorLine = new QFrame(this);
     separatorLine->setFrameShape(QFrame::VLine);
     separatorLine->setFrameShadow(QFrame::Sunken);
-    if (GlobalClient->settings->data.MainTheme == "Dark_Ice")
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    if (isDarkIce || isGlass)
         separatorLine->setStyleSheet("QFrame { color: rgba(0, 240, 255, 30); background-color: rgba(0, 240, 255, 30); }");
     else
         separatorLine->setStyleSheet("QFrame { color: rgba(100, 100, 100, 50); background-color: rgba(100, 100, 100, 50); }");

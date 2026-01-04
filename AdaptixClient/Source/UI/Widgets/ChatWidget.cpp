@@ -106,10 +106,11 @@ void ChatWidget::handleChat()
 void ChatWidget::AddChatMessage(const qint64 time, const QString &username, const QString &message)
 {
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     chatTextEdit->appendColor(UnixTimestampGlobalToStringLocal(time), QColor(COLOR_Gray));
     chatTextEdit->appendPlain(" [");
     if (username == adaptixWidget->GetProfile()->GetUsername())
-        chatTextEdit->appendColor(username, isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
+        chatTextEdit->appendColor(username, (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
     else
         chatTextEdit->appendColor(username, isDarkIce ? QColor("#00C2FF") : QColor(COLOR_KellyGreen));
     chatTextEdit->appendPlain("] :: ");
@@ -126,8 +127,9 @@ void ChatWidget::findAndHighlightAll(const QString &pattern)
     cursor.movePosition(QTextCursor::Start);
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground(isDarkIce ? QColor(0, 240, 255, 100) : Qt::blue);
+    baseFmt.setBackground((isDarkIce || isGlass) ? QColor(0, 240, 255, 100) : Qt::blue);
     baseFmt.setForeground(Qt::white);
 
     while (true) {

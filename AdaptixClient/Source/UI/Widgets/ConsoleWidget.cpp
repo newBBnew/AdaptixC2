@@ -144,8 +144,9 @@ void ConsoleWidget::findAndHighlightAll(const QString &pattern)
     cursor.movePosition(QTextCursor::Start);
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground(isDarkIce ? QColor(0, 240, 255, 100) : Qt::blue);
+    baseFmt.setBackground((isDarkIce || isGlass) ? QColor(0, 240, 255, 100) : Qt::blue);
     baseFmt.setForeground(Qt::white);
 
     while (true) {
@@ -211,8 +212,9 @@ void ConsoleWidget::ConsoleOutputMessage(const qint64 timestamp, const QString &
         promptTime = UnixTimestampGlobalToStringLocal(timestamp);
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-    QColor timeColor = isDarkIce ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
-    QColor dividerColor = isDarkIce ? QColor(COLOR_IceBorder) : QColor(COLOR_Gray);
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    QColor timeColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
+    QColor dividerColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBorder) : QColor(COLOR_Gray);
 
     if( !message.isEmpty() ) {
 
@@ -253,8 +255,9 @@ void ConsoleWidget::ConsoleOutputPrompt(const qint64 timestamp, const QString &t
         promptTime = UnixTimestampGlobalToStringLocal(timestamp);
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-    QColor timeColor = isDarkIce ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
-    QColor accentColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_Gray);
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    QColor timeColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
+    QColor accentColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_Gray);
 
     if ( !commandLine.isEmpty() ) {
         OutputTextEdit->appendPlain("\n");

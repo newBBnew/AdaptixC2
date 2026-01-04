@@ -111,15 +111,14 @@ void BrowserProcessWidget::SetStatus(qint64 time, int msgType, const QString &me
     QString sTime  = UnixTimestampGlobalToStringLocal(time);
     QString status;
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     
     if( msgType == CONSOLE_OUT_LOCAL_ERROR || msgType == CONSOLE_OUT_ERROR ) {
         status = TextColorHtml(message, COLOR_ChiliPepper) + " >> " + sTime;
-        statusLabel->setText(status);
+    } else {
+        status = TextColorHtml(message, (isDarkIce || isGlass) ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
     }
-    else {
-        status = TextColorHtml(message, isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
-        statusLabel->setText(status);
-    }
+    statusLabel->setText(status);
 }
 
 void BrowserProcessWidget::SetProcess(int msgType, const QString &data) const
@@ -207,8 +206,9 @@ void BrowserProcessWidget::setTableProcessDataWin(const QMap<int, BrowserProcess
         item_Process->setFlags(item_Process->flags() ^ Qt::ItemIsEditable);
 
         bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+        bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
         if ( agent->data.Pid == QString::number(item.pid) ) {
-            QColor highlightColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ChiliPepper);
+            QColor highlightColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_ChiliPepper);
             item_Pid->setForeground(highlightColor);
             item_Ppid->setForeground(highlightColor);
             item_Arch->setForeground(highlightColor);
@@ -267,8 +267,9 @@ void BrowserProcessWidget::setTableProcessDataUnix(const QMap<int, BrowserProces
         item_Process->setFlags(item_Process->flags() ^ Qt::ItemIsEditable);
 
         bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+        bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
         if ( agent->data.Pid == QString::number(item.pid) ) {
-            QColor highlightColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ChiliPepper);
+            QColor highlightColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_ChiliPepper);
             item_Pid->setForeground(highlightColor);
             item_Ppid->setForeground(highlightColor);
             item_Tty->setForeground(highlightColor);

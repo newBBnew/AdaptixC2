@@ -96,16 +96,17 @@ void GraphItem::paint( QPainter* painter, const QStyleOptionGraphicsItem* option
 
     if ( this->isSelected() ) {
         bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-        QColor selectColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_BrightOrange);
+        bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+        QColor selectColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_BrightOrange);
         
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing);
         painter->setPen( QPen( QBrush( selectColor ), 2, Qt::SolidLine ) );
         
-        // Add a subtle glow effect for Dark Ice theme
-        if (selectColor == QColor(COLOR_IceBlue)) {
+        // Add glow effect for advanced themes
+        if (isDarkIce || isGlass) {
             QRadialGradient glow(rect.center(), rect.width());
-            glow.setColorAt(0, QColor(0, 240, 255, 40));
+            glow.setColorAt(0, QColor(0, 240, 255, isGlass ? 60 : 40));
             glow.setColorAt(1, Qt::transparent);
             painter->setBrush(glow);
             painter->setPen(QPen(selectColor, 2));
@@ -113,7 +114,7 @@ void GraphItem::paint( QPainter* painter, const QStyleOptionGraphicsItem* option
             painter->setPen(QPen(selectColor, 1, Qt::DotLine));
         }
         
-        painter->drawRoundedRect( boundingRect().adjusted(-2, -2, 2, 2), 5, 5 );
+        painter->drawRoundedRect( boundingRect().adjusted(-2, -2, 2, 2), isGlass ? 8 : 5, isGlass ? 8 : 5 );
         painter->restore();
     }
 }

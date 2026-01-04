@@ -252,7 +252,8 @@ void AdaptixWidget::createUI()
     reconnectButton->setFixedSize(37, 28);
     reconnectButton->setToolTip("Reconnect to C2");
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-    QIcon onReconnectButton = RecolorIcon(reconnectButton->icon(), isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen);
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    QIcon onReconnectButton = RecolorIcon(reconnectButton->icon(), (isDarkIce || isGlass) ? COLOR_IceBlue : COLOR_NeonGreen);
     reconnectButton->setIcon(onReconnectButton);
 
     horizontalSpacer1 = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
@@ -984,7 +985,8 @@ void AdaptixWidget::OnReconnect()
                     ChannelThread->start();
 
                     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-                    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/link"), isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen);
+                    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+                    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/link"), (isDarkIce || isGlass) ? COLOR_IceBlue : COLOR_NeonGreen);
                     reconnectButton->setIcon(onReconnectButton);
                 }
 

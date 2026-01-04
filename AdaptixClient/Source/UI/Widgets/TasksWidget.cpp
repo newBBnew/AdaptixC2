@@ -135,9 +135,10 @@ void TasksWidget::createUI()
     comboStatus->addItems(QStringList() << "Any status" << "Hosted" << "Running" << "Success" << "Error" << "Canceled");
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     hideButton = new ClickableLabel("  x  ");
     hideButton->setCursor(Qt::PointingHandCursor);
-    if (isDarkIce)
+    if (isDarkIce || isGlass)
         hideButton->setStyleSheet("QLabel { color: #475569; font-weight: bold; } QLabel:hover { color: #00F0FF; }");
     else
         hideButton->setStyleSheet("QLabel { color: #888; font-weight: bold; } QLabel:hover { color: #e34234; }");

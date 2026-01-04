@@ -90,15 +90,16 @@ void DialogExtender::AddExtenderItem(const ExtensionFile &extenderItem) const
 
     item_Status->setFlags( item_Status->flags() ^ Qt::ItemIsEditable );
     bool isDarkIce = (extender->getMainAdaptix()->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (extender->getMainAdaptix()->settings->data.MainTheme == "Glass_Morph");
     item_Status->setTextAlignment( Qt::AlignCenter );
     if ( extenderItem.Enabled ) {
         item_Status->setText("Enable");
-        item_Status->setForeground(isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
+        item_Status->setForeground( (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen) );
     }
     else {
         if (extenderItem.Message.isEmpty()) {
             item_Status->setText("Disable");
-            item_Status->setForeground(isDarkIce ? QColor("#475569") : QColor(COLOR_BrightOrange));
+            item_Status->setForeground((isDarkIce || isGlass) ? QColor("#475569") : QColor(COLOR_BrightOrange));
         }
         else {
             item_Status->setText("Failed");
@@ -132,14 +133,14 @@ void DialogExtender::UpdateExtenderItem(const ExtensionFile &extenderItem) const
             tableWidget->item(row, 3)->setText(extenderItem.Description);
 
             bool isDarkIce = (extender->getMainAdaptix()->settings->data.MainTheme == "Dark_Ice");
+            bool isGlass = (extender->getMainAdaptix()->settings->data.MainTheme == "Glass_Morph");
             if ( extenderItem.Enabled ) {
                 tableWidget->item(row, 2)->setText("Enable");
-                tableWidget->item(row, 2)->setForeground(isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
-            }
-            else {
+                tableWidget->item(row, 2)->setForeground((isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
+            } else {
                 if (extenderItem.Message.isEmpty()) {
                     tableWidget->item(row, 2)->setText("Disable");
-                    tableWidget->item(row, 2)->setForeground(isDarkIce ? QColor("#475569") : QColor(COLOR_BrightOrange));
+                    tableWidget->item(row, 2)->setForeground((isDarkIce || isGlass) ? QColor("#475569") : QColor(COLOR_SaturGray));
                 }
                 else {
                     tableWidget->item(row, 2)->setText("Failed");

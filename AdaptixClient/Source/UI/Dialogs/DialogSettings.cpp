@@ -83,6 +83,7 @@ void DialogSettings::createUI()
     themeCombo = new QComboBox(mainSettingWidget);
     themeCombo->addItem("Dark");
     themeCombo->addItem("Dark_Ice");
+    themeCombo->addItem("Glass_Morph");
     themeCombo->addItem("Light");
     themeCombo->addItem("Dracula");
     themeCombo->addItem("Fallout");

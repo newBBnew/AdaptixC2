@@ -118,8 +118,9 @@ void AxConsoleWidget::findAndHighlightAll(const QString &pattern)
     cursor.movePosition(QTextCursor::Start);
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground(isDarkIce ? QColor(0, 240, 255, 100) : Qt::blue);
+    baseFmt.setBackground((isDarkIce || isGlass) ? QColor(0, 240, 255, 100) : Qt::blue);
     baseFmt.setForeground(Qt::white);
 
     while (true) {
@@ -168,7 +169,8 @@ void AxConsoleWidget::AddToHistory(const QString &command) { kphInputLineEdit->A
 
 void AxConsoleWidget::PrintMessage(const QString &message) {
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-    OutputTextEdit->appendColor(message + "\n", isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    OutputTextEdit->appendColor(message + "\n", (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
 }
 
 void AxConsoleWidget::PrintError(const QString &message) {
@@ -188,7 +190,8 @@ void AxConsoleWidget::processInput()
     this->AddToHistory(code);
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-    QColor accentColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_LightGray);
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    QColor accentColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_LightGray);
     QColor textColor = isDarkIce ? QColor(COLOR_White) : QColor(COLOR_White);
 
     OutputTextEdit->appendColorUnderline("ax script", accentColor);

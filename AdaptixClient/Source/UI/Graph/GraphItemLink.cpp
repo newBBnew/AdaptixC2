@@ -94,9 +94,10 @@ void GraphItemLink::paint( QPainter* painter, const QStyleOptionGraphicsItem* op
     {
         QColor drawColor = this->color;
         bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+        bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
         
         if (this->listenerType == "external") {
-            if (isDarkIce) drawColor = QColor(COLOR_IceBlue);
+            if (isDarkIce || isGlass) drawColor = QColor(COLOR_IceBlue);
             
             painter->save();
             if (this->dst->agent->data.Async)
@@ -104,9 +105,9 @@ void GraphItemLink::paint( QPainter* painter, const QStyleOptionGraphicsItem* op
             else
                 painter->setPen( QPen( drawColor, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
             
-            if (isDarkIce) {
+            if (isDarkIce || isGlass) {
                 // Add a faint outer glow to the entry link
-                QPen glowPen(QColor(0, 240, 255, 60), 6);
+                QPen glowPen(QColor(0, 240, 255, isGlass ? 80 : 60), isGlass ? 8 : 6);
                 painter->setPen(glowPen);
                 painter->drawLine(line);
                 painter->setPen(drawColor == QColor(COLOR_IceBlue) ? QPen(drawColor, 2) : painter->pen());
@@ -119,7 +120,7 @@ void GraphItemLink::paint( QPainter* painter, const QStyleOptionGraphicsItem* op
             paintLineText(painter, angle, line, this->listenerName, drawColor);
         }
         else if (this->listenerType == "internal") {
-            QColor greyColor = isDarkIce ? QColor("#475569") : QColor(COLOR_SaturGray);
+            QColor greyColor = (isDarkIce || isGlass) ? QColor("#475569") : QColor(COLOR_SaturGray);
 
             painter->setPen( QPen( greyColor, 3, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin ) );
             painter->setBrush( greyColor );
@@ -131,12 +132,13 @@ void GraphItemLink::paint( QPainter* painter, const QStyleOptionGraphicsItem* op
     else {
         QColor drawColor = this->color;
         bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-        if (isDarkIce && this->listenerType == "external") drawColor = QColor(0, 240, 255);
+        bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+        if ((isDarkIce || isGlass) && this->listenerType == "external") drawColor = QColor(0, 240, 255);
 
         painter->save();
-        if (isDarkIce) {
-            // "Optical Fiber" effect for Dark Ice
-            QPen glowPen(QColor(drawColor.red(), drawColor.green(), drawColor.blue(), 40), 5);
+        if (isDarkIce || isGlass) {
+            // "Optical Fiber" effect for modern themes
+            QPen glowPen(QColor(drawColor.red(), drawColor.green(), drawColor.blue(), isGlass ? 50 : 40), isGlass ? 7 : 5);
             painter->setPen(glowPen);
             painter->drawLine(line);
         }

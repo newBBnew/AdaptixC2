@@ -121,8 +121,9 @@ void LogsWidget::findAndHighlightAll(const QString &pattern)
     cursor.movePosition(QTextCursor::Start);
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground(isDarkIce ? QColor(0, 240, 255, 100) : Qt::blue);
+    baseFmt.setBackground((isDarkIce || isGlass) ? QColor(0, 240, 255, 100) : Qt::blue);
     baseFmt.setForeground(Qt::white);
 
     while (true) {
@@ -172,13 +173,14 @@ void LogsWidget::AddLogs(const int type, const qint64 time, const QString &messa
     QString logMsg = message + "\n";
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-    if( type == EVENT_CLIENT_CONNECT )         logsConsoleTextEdit->appendColor(logMsg, isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    if( type == EVENT_CLIENT_CONNECT )         logsConsoleTextEdit->appendColor(logMsg, (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
     else if( type == EVENT_CLIENT_DISCONNECT ) logsConsoleTextEdit->appendColor(logMsg, QColor(COLOR_Gray));
-    else if( type == EVENT_LISTENER_START )    logsConsoleTextEdit->appendColor(logMsg, isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_BrightOrange));
-    else if( type == EVENT_LISTENER_STOP )     logsConsoleTextEdit->appendColor(logMsg, isDarkIce ? QColor("#475569") : QColor(COLOR_BrightOrange));
-    else if( type == EVENT_AGENT_NEW )         logsConsoleTextEdit->appendColor(logMsg, isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
-    else if( type == EVENT_TUNNEL_START )      logsConsoleTextEdit->appendColor(logMsg, isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_PastelYellow));
-    else if( type == EVENT_TUNNEL_STOP )       logsConsoleTextEdit->appendColor(logMsg, isDarkIce ? QColor("#475569") : QColor(COLOR_PastelYellow));
+    else if( type == EVENT_LISTENER_START )    logsConsoleTextEdit->appendColor(logMsg, (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_BrightOrange));
+    else if( type == EVENT_LISTENER_STOP )     logsConsoleTextEdit->appendColor(logMsg, (isDarkIce || isGlass) ? QColor("#475569") : QColor(COLOR_BrightOrange));
+    else if( type == EVENT_AGENT_NEW )         logsConsoleTextEdit->appendColor(logMsg, (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
+    else if( type == EVENT_TUNNEL_START )      logsConsoleTextEdit->appendColor(logMsg, (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_PastelYellow));
+    else if( type == EVENT_TUNNEL_STOP )       logsConsoleTextEdit->appendColor(logMsg, (isDarkIce || isGlass) ? QColor("#475569") : QColor(COLOR_PastelYellow));
     else                                       logsConsoleTextEdit->appendPlain(logMsg);
 }
 
