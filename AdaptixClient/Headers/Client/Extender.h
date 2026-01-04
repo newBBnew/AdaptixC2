@@ -15,6 +15,8 @@ public:
     explicit Extender(MainAdaptix* m);
     ~Extender() override;
 
+    MainAdaptix* getMainAdaptix() const { return mainAdaptix; }
+
     DialogExtender* dialogExtender = nullptr;
     QMap<QString, ExtensionFile> extenderFiles;
 

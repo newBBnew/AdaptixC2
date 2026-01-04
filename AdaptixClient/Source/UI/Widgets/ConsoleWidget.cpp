@@ -143,8 +143,9 @@ void ConsoleWidget::findAndHighlightAll(const QString &pattern)
     QTextCursor cursor(OutputTextEdit->document());
     cursor.movePosition(QTextCursor::Start);
 
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground(Qt::blue);
+    baseFmt.setBackground(isDarkIce ? QColor(0, 240, 255, 100) : Qt::blue);
     baseFmt.setForeground(Qt::white);
 
     while (true) {
@@ -209,13 +210,17 @@ void ConsoleWidget::ConsoleOutputMessage(const qint64 timestamp, const QString &
     if (GlobalClient->settings->data.ConsoleTime)
         promptTime = UnixTimestampGlobalToStringLocal(timestamp);
 
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    QColor timeColor = isDarkIce ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
+    QColor dividerColor = isDarkIce ? QColor(COLOR_IceBorder) : QColor(COLOR_Gray);
+
     if( !message.isEmpty() ) {
 
         if ( !promptTime.isEmpty() )
-            OutputTextEdit->appendColor("[" + promptTime + "] ", QColor(COLOR_SaturGray));
+            OutputTextEdit->appendColor("[" + promptTime + "] ", timeColor);
 
         if (type == CONSOLE_OUT_INFO || type == CONSOLE_OUT_LOCAL_INFO)
-            OutputTextEdit->appendColor("[*] ", QColor(COLOR_BabyBlue));
+            OutputTextEdit->appendColor("[*] ", isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_BabyBlue));
         else if (type == CONSOLE_OUT_SUCCESS || type == CONSOLE_OUT_LOCAL_SUCCESS)
             OutputTextEdit->appendColor("[+] ", QColor(COLOR_Yellow));
         else if (type == CONSOLE_OUT_ERROR || type == CONSOLE_OUT_LOCAL_ERROR)
@@ -237,7 +242,7 @@ void ConsoleWidget::ConsoleOutputMessage(const qint64 timestamp, const QString &
         if ( !taskId.isEmpty() )
             deleter = QString("\n+--- Task [%1] closed ----------------------------------------------------------+\n").arg(taskId);
 
-        OutputTextEdit->appendColor(deleter, QColor(COLOR_Gray));
+        OutputTextEdit->appendColor(deleter, dividerColor);
     }
 }
 
@@ -247,20 +252,24 @@ void ConsoleWidget::ConsoleOutputPrompt(const qint64 timestamp, const QString &t
     if (GlobalClient->settings->data.ConsoleTime)
         promptTime = UnixTimestampGlobalToStringLocal(timestamp);
 
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    QColor timeColor = isDarkIce ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
+    QColor accentColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_Gray);
+
     if ( !commandLine.isEmpty() ) {
         OutputTextEdit->appendPlain("\n");
 
         if ( !promptTime.isEmpty() )
-            OutputTextEdit->appendColor("[" + promptTime + "] ", QColor(COLOR_SaturGray));
+            OutputTextEdit->appendColor("[" + promptTime + "] ", timeColor);
 
         if ( !user.isEmpty() )
-            OutputTextEdit->appendColor(user + " ", QColor(COLOR_Gray));
+            OutputTextEdit->appendColor(user + " ", accentColor);
 
         if( !taskId.isEmpty() )
-            OutputTextEdit->appendColor("[" + taskId + "] ", QColor(COLOR_SaturGray));
+            OutputTextEdit->appendColor("[" + taskId + "] ", timeColor);
 
-        OutputTextEdit->appendColorUnderline(agent->data.Name, QColor(COLOR_Gray));
-        OutputTextEdit->appendColor(" > ", QColor(COLOR_Gray));
+        OutputTextEdit->appendColorUnderline(agent->data.Name, accentColor);
+        OutputTextEdit->appendColor(" > ", accentColor);
 
         OutputTextEdit->appendBold(commandLine + "\n");
     }

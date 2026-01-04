@@ -2,6 +2,8 @@
 #include <UI/Graph/GraphItemLink.h>
 #include <UI/Graph/GraphItem.h>
 #include <UI/Graph/SessionsGraph.h>
+#include <Client/Settings.h>
+#include <MainAdaptix.h>
 
 GraphItemLink::GraphItemLink( GraphItem* src, GraphItem* dst, QString linkName)
 {
@@ -90,18 +92,34 @@ void GraphItemLink::paint( QPainter* painter, const QStyleOptionGraphicsItem* op
 
     if ( this->src->agent == nullptr && this->dst->agent )
     {
+        QColor drawColor = this->color;
+        bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+        
         if (this->listenerType == "external") {
+            if (isDarkIce) drawColor = QColor(COLOR_IceBlue);
+            
+            painter->save();
             if (this->dst->agent->data.Async)
-                painter->setPen( QPen( this->color, 3, Qt::DotLine, Qt::RoundCap, Qt::RoundJoin ) );
+                painter->setPen( QPen( drawColor, 3, Qt::DotLine, Qt::RoundCap, Qt::RoundJoin ) );
             else
-                painter->setPen( QPen( this->color, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
-            painter->setBrush( this->color );
+                painter->setPen( QPen( drawColor, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
+            
+            if (isDarkIce) {
+                // Add a faint outer glow to the entry link
+                QPen glowPen(QColor(0, 240, 255, 60), 6);
+                painter->setPen(glowPen);
+                painter->drawLine(line);
+                painter->setPen(drawColor == QColor(COLOR_IceBlue) ? QPen(drawColor, 2) : painter->pen());
+            }
+            
+            painter->setBrush( drawColor );
             painter->drawPolygon( QPolygonF() << line.p1() << sourceArrowP1 << sourceArrowP2 );
+            painter->restore();
 
-            paintLineText(painter, angle, line, this->listenerName, this->color);
+            paintLineText(painter, angle, line, this->listenerName, drawColor);
         }
         else if (this->listenerType == "internal") {
-            QColor greyColor(COLOR_SaturGray);
+            QColor greyColor = isDarkIce ? QColor("#475569") : QColor(COLOR_SaturGray);
 
             painter->setPen( QPen( greyColor, 3, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin ) );
             painter->setBrush( greyColor );
@@ -111,15 +129,28 @@ void GraphItemLink::paint( QPainter* painter, const QStyleOptionGraphicsItem* op
         }
     }
     else {
-        painter->setPen( QPen( this->color, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
-        painter->setBrush( this->color  );
+        QColor drawColor = this->color;
+        bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+        if (isDarkIce && this->listenerType == "external") drawColor = QColor(0, 240, 255);
+
+        painter->save();
+        if (isDarkIce) {
+            // "Optical Fiber" effect for Dark Ice
+            QPen glowPen(QColor(drawColor.red(), drawColor.green(), drawColor.blue(), 40), 5);
+            painter->setPen(glowPen);
+            painter->drawLine(line);
+        }
+        
+        painter->setPen( QPen( drawColor, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
+        painter->setBrush( drawColor  );
         painter->drawPolygon( QPolygonF() << line.p2() << destArrowP1 << destArrowP2 );
+        painter->restore();
 
         QString linkText = this->listenerName;
         if (!this->linkName.isEmpty())
             linkText = QString("%1 (%2)").arg(this->listenerName).arg(this->linkName);
 
-        paintLineText(painter, angle, line, linkText, this->color);
+        paintLineText(painter, angle, line, linkText, drawColor);
     }
 }
 

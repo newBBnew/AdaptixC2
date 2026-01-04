@@ -1,5 +1,6 @@
 #include <UI/Widgets/FileDeliveryWidget.h>
 #include <UI/Widgets/AdaptixWidget.h>
+#include <Client/Settings.h>
 #include <UI/Widgets/DockWidgetRegister.h>
 #include <Client/Requestor.h>
 #include <Client/AuthProfile.h>
@@ -48,9 +49,13 @@ void FileDeliveryWidget::createUI()
     autoSearchCheck->setChecked(true);
     autoSearchCheck->setToolTip("Auto search on text change. If unchecked, press Enter to search.");
 
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     hideButton = new ClickableLabel("  x  ");
     hideButton->setCursor(Qt::PointingHandCursor);
-    hideButton->setStyleSheet("QLabel { color: #888; font-weight: bold; } QLabel:hover { color: #e34234; }");
+    if (isDarkIce)
+        hideButton->setStyleSheet("QLabel { color: #475569; font-weight: bold; } QLabel:hover { color: #00F0FF; }");
+    else
+        hideButton->setStyleSheet("QLabel { color: #888; font-weight: bold; } QLabel:hover { color: #e34234; }");
 
     auto searchLayout = new QHBoxLayout(searchWidget);
     searchLayout->setContentsMargins(0, 5, 0, 0);

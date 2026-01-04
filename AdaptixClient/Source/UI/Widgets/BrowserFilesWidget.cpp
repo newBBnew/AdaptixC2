@@ -4,6 +4,7 @@
 #include <UI/Widgets/AdaptixWidget.h>
 #include <UI/Widgets/BrowserFilesWidget.h>
 #include <UI/Widgets/ConsoleWidget.h>
+#include <Client/Settings.h>
 #include <UI/Widgets/DockWidgetRegister.h>
 #include <Client/AuthProfile.h>
 #include <Client/AxScript/AxScriptManager.h>
@@ -182,10 +183,11 @@ void BrowserFilesWidget::SetDisksWin(const qint64 time, const int msgType, const
 {
     QString sTime  = UnixTimestampGlobalToStringLocal(time);
     QString status;
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     if( msgType == CONSOLE_OUT_LOCAL_ERROR || msgType == CONSOLE_OUT_ERROR )
         status = TextColorHtml(message, COLOR_ChiliPepper) + " >> " + sTime;
     else
-        status = TextColorHtml(message, COLOR_NeonGreen) + " >> " + sTime;
+        status = TextColorHtml(message, isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
 
     statusLabel->setText(status);
 
@@ -214,12 +216,13 @@ void BrowserFilesWidget::AddFiles(const qint64 time, const int msgType, const QS
 {
     QString sTime  = UnixTimestampGlobalToStringLocal(time);
     QString status;
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     if( msgType == CONSOLE_OUT_LOCAL_ERROR || msgType == CONSOLE_OUT_ERROR ) {
         status = TextColorHtml(message, COLOR_ChiliPepper) + " >> " + sTime;
         statusLabel->setText(status);
         return;
     }
-    status = TextColorHtml(message, COLOR_NeonGreen) + " >> " + sTime;
+    status = TextColorHtml(message, isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
     statusLabel->setText(status);
 
     QString fPath = "";
@@ -251,12 +254,14 @@ void BrowserFilesWidget::SetStatus(const qint64 time, const int msgType, const Q
 {
     QString sTime  = UnixTimestampGlobalToStringLocal(time);
     QString status;
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    
     if( msgType == CONSOLE_OUT_LOCAL_ERROR || msgType == CONSOLE_OUT_ERROR ) {
         status = TextColorHtml(message, COLOR_ChiliPepper) + " >> " + sTime;
         statusLabel->setText(status);
     }
     else {
-        status = TextColorHtml(message, COLOR_NeonGreen) + " >> " + sTime;
+        status = TextColorHtml(message, isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
         statusLabel->setText(status);
     }
 }

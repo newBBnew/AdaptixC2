@@ -1,4 +1,8 @@
 #include <UI/Dialogs/DialogListener.h>
+#include <UI/Dialogs/DialogAgent.h>
+#include <UI/Widgets/AdaptixWidget.h>
+#include <Client/Settings.h>
+#include <MainAdaptix.h>
 #include <Utils/NonBlockingDialogs.h>
 #include <Client/Requestor.h>
 #include <Client/Storage.h>
@@ -158,7 +162,10 @@ void DialogListener::createUI()
     auto separatorLine = new QFrame(this);
     separatorLine->setFrameShape(QFrame::VLine);
     separatorLine->setFrameShadow(QFrame::Sunken);
-    separatorLine->setStyleSheet("QFrame { color: rgba(100, 100, 100, 50); background-color: rgba(100, 100, 100, 50); }");
+    if (GlobalClient->settings->data.MainTheme == "Dark_Ice")
+        separatorLine->setStyleSheet("QFrame { color: rgba(0, 240, 255, 30); background-color: rgba(0, 240, 255, 30); }");
+    else
+        separatorLine->setStyleSheet("QFrame { color: rgba(100, 100, 100, 50); background-color: rgba(100, 100, 100, 50); }");
 
     mainGridLayout = new QGridLayout(this);
     mainGridLayout->setContentsMargins(5, 5, 5, 5);

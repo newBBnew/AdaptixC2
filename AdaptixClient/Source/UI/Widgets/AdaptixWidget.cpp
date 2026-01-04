@@ -1,6 +1,7 @@
 #include <QJSEngine>
 #include <QTimer>
 #include <Agent/Agent.h>
+#include <Client/Settings.h>
 #include <Workers/LastTickWorker.h>
 #include <Workers/WebSocketWorker.h>
 #include <UI/Widgets/AdaptixWidget.h>
@@ -250,7 +251,8 @@ void AdaptixWidget::createUI()
     reconnectButton->setIconSize( QSize( 24,24 ));
     reconnectButton->setFixedSize(37, 28);
     reconnectButton->setToolTip("Reconnect to C2");
-    QIcon onReconnectButton = RecolorIcon(reconnectButton->icon(), COLOR_NeonGreen);
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    QIcon onReconnectButton = RecolorIcon(reconnectButton->icon(), isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen);
     reconnectButton->setIcon(onReconnectButton);
 
     horizontalSpacer1 = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
@@ -981,7 +983,8 @@ void AdaptixWidget::OnReconnect()
 
                     ChannelThread->start();
 
-                    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/link"), COLOR_NeonGreen);
+                    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+                    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/link"), isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen);
                     reconnectButton->setIcon(onReconnectButton);
                 }
 

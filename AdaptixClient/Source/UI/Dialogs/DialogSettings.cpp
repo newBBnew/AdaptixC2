@@ -82,6 +82,7 @@ void DialogSettings::createUI()
     themeLabel = new QLabel("Main theme: ", mainSettingWidget);
     themeCombo = new QComboBox(mainSettingWidget);
     themeCombo->addItem("Dark");
+    themeCombo->addItem("Dark_Ice");
     themeCombo->addItem("Light");
     themeCombo->addItem("Dracula");
     themeCombo->addItem("Fallout");

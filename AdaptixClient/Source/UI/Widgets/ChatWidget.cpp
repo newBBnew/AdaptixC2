@@ -1,5 +1,6 @@
 #include <UI/Widgets/ChatWidget.h>
 #include <UI/Widgets/DockWidgetRegister.h>
+#include <Client/Settings.h>
 #include <Utils/Convert.h>
 #include <UI/Widgets/AdaptixWidget.h>
 #include <Client/AuthProfile.h>
@@ -104,14 +105,15 @@ void ChatWidget::handleChat()
 
 void ChatWidget::AddChatMessage(const qint64 time, const QString &username, const QString &message)
 {
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     chatTextEdit->appendColor(UnixTimestampGlobalToStringLocal(time), QColor(COLOR_Gray));
     chatTextEdit->appendPlain(" [");
     if (username == adaptixWidget->GetProfile()->GetUsername())
-        chatTextEdit->appendColor(username, QColor(COLOR_NeonGreen));
+        chatTextEdit->appendColor(username, isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
     else
-        chatTextEdit->appendColor(username, QColor(COLOR_KellyGreen));
+        chatTextEdit->appendColor(username, isDarkIce ? QColor("#00C2FF") : QColor(COLOR_KellyGreen));
     chatTextEdit->appendPlain("] :: ");
-    chatTextEdit->appendColor(message, QColor(COLOR_ConsoleWhite));
+    chatTextEdit->appendColor(message, isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
     chatTextEdit->appendPlain("\n");
 }
 
@@ -123,8 +125,9 @@ void ChatWidget::findAndHighlightAll(const QString &pattern)
     QTextCursor cursor(chatTextEdit->document());
     cursor.movePosition(QTextCursor::Start);
 
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground(Qt::blue);
+    baseFmt.setBackground(isDarkIce ? QColor(0, 240, 255, 100) : Qt::blue);
     baseFmt.setForeground(Qt::white);
 
     while (true) {

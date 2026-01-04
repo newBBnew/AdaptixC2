@@ -4,6 +4,8 @@
 #include <UI/Graph/SessionsGraph.h>
 #include <UI/Graph/GraphScene.h>
 #include <UI/Widgets/AdaptixWidget.h>
+#include <Client/Settings.h>
+#include <MainAdaptix.h>
 
 GraphItemNote::GraphItemNote(const QString &h, const QString &t)
 {
@@ -93,8 +95,26 @@ void GraphItem::paint( QPainter* painter, const QStyleOptionGraphicsItem* option
     }
 
     if ( this->isSelected() ) {
-        painter->setPen( QPen( QBrush( COLOR_BrightOrange ), 1, Qt::DotLine ) );
-        painter->drawRect( boundingRect() );
+        bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+        QColor selectColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_BrightOrange);
+        
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->setPen( QPen( QBrush( selectColor ), 2, Qt::SolidLine ) );
+        
+        // Add a subtle glow effect for Dark Ice theme
+        if (selectColor == QColor(COLOR_IceBlue)) {
+            QRadialGradient glow(rect.center(), rect.width());
+            glow.setColorAt(0, QColor(0, 240, 255, 40));
+            glow.setColorAt(1, Qt::transparent);
+            painter->setBrush(glow);
+            painter->setPen(QPen(selectColor, 2));
+        } else {
+            painter->setPen(QPen(selectColor, 1, Qt::DotLine));
+        }
+        
+        painter->drawRoundedRect( boundingRect().adjusted(-2, -2, 2, 2), 5, 5 );
+        painter->restore();
     }
 }
 

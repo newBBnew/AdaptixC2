@@ -181,6 +181,13 @@
 #define COLOR_ConsoleWhite    "#E0E0E0"     /// white
 #define COLOR_White           "#FFFFFF"     /// white
 
+/// Dark Ice Palette
+#define COLOR_IceBlue         "#00F0FF"     /// ice blue
+#define COLOR_IceDark         "#05080A"     /// navy black
+#define COLOR_IceSurface      "#0F172A"     /// surface blue
+#define COLOR_IceBorder       "#1E293B"     /// border blue
+#define COLOR_IceGlow         "#00C2FF"     /// glow blue
+
 //////////
 
 class AxContainerWrapper;

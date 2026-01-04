@@ -1,4 +1,6 @@
 #include <UI/Dialogs/DialogConnect.h>
+#include <UI/Widgets/DockWidgetRegister.h>
+#include <Client/Settings.h>
 #include <Client/AuthProfile.h>
 #include <Client/Storage.h>
 #include <MainAdaptix.h>
@@ -134,6 +136,7 @@ void DialogConnect::createUI()
     projectLayout->setColumnMinimumWidth(0, 100);
 
     buttonConnect = new QPushButton(this);
+    buttonConnect->setObjectName("buttonConnect");
     buttonConnect->setProperty("ButtonStyle", "dialog_apply");
     buttonConnect->setText("Connect");
     buttonConnect->setFixedWidth(160);
@@ -200,7 +203,10 @@ void DialogConnect::createUI()
     auto separatorLine = new QFrame(this);
     separatorLine->setFrameShape(QFrame::VLine);
     separatorLine->setFrameShadow(QFrame::Sunken);
-    separatorLine->setStyleSheet("QFrame { color: rgba(100, 100, 100, 50); background-color: rgba(100, 100, 100, 50); }");
+    if (GlobalClient->settings->data.MainTheme == "Dark_Ice")
+        separatorLine->setStyleSheet("QFrame { color: rgba(0, 240, 255, 30); background-color: rgba(0, 240, 255, 30); }");
+    else
+        separatorLine->setStyleSheet("QFrame { color: rgba(100, 100, 100, 50); background-color: rgba(100, 100, 100, 50); }");
 
     gridLayout = new QGridLayout(this);
     gridLayout->setContentsMargins(5, 5, 5, 5);

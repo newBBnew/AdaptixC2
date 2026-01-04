@@ -2,6 +2,7 @@
 #include <QJSValue>
 #include <UI/Widgets/AxConsoleWidget.h>
 #include <UI/Widgets/AdaptixWidget.h>
+#include <Client/Settings.h>
 #include <UI/Widgets/DockWidgetRegister.h>
 #include <Utils/KeyPressHandler.h>
 #include <Utils/CustomElements.h>
@@ -116,8 +117,9 @@ void AxConsoleWidget::findAndHighlightAll(const QString &pattern)
     QTextCursor cursor(OutputTextEdit->document());
     cursor.movePosition(QTextCursor::Start);
 
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground(Qt::blue);
+    baseFmt.setBackground(isDarkIce ? QColor(0, 240, 255, 100) : Qt::blue);
     baseFmt.setForeground(Qt::white);
 
     while (true) {
@@ -164,9 +166,14 @@ void AxConsoleWidget::InputFocus() const { InputLineEdit->setFocus(); }
 
 void AxConsoleWidget::AddToHistory(const QString &command) { kphInputLineEdit->AddToHistory(command); }
 
-void AxConsoleWidget::PrintMessage(const QString &message) { OutputTextEdit->appendColor(message + "\n", QColor(COLOR_ConsoleWhite)); }
+void AxConsoleWidget::PrintMessage(const QString &message) {
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    OutputTextEdit->appendColor(message + "\n", isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
+}
 
-void AxConsoleWidget::PrintError(const QString &message) { OutputTextEdit->appendColor(message + "\n", QColor(COLOR_ChiliPepper)); }
+void AxConsoleWidget::PrintError(const QString &message) {
+    OutputTextEdit->appendColor(message + "\n", QColor(COLOR_ChiliPepper));
+}
 
 void AxConsoleWidget::processInput()
 {
@@ -180,9 +187,13 @@ void AxConsoleWidget::processInput()
 
     this->AddToHistory(code);
 
-    OutputTextEdit->appendColorUnderline("ax script", QColor(COLOR_LightGray));
-    OutputTextEdit->appendColor(" >>> ", QColor(COLOR_LightGray));
-    OutputTextEdit->appendColorBold(code + "\n", QColor(COLOR_White));
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    QColor accentColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_LightGray);
+    QColor textColor = isDarkIce ? QColor(COLOR_White) : QColor(COLOR_White);
+
+    OutputTextEdit->appendColorUnderline("ax script", accentColor);
+    OutputTextEdit->appendColor(" >>> ", accentColor);
+    OutputTextEdit->appendColorBold(code + "\n", textColor);
 
     QJSValue result = scriptManager->MainScriptEngine()->evaluate(code);
     if (result.isError()) {
@@ -192,7 +203,7 @@ void AxConsoleWidget::processInput()
     else if (!result.isUndefined()) {
         QString message = result.toString();
         if (!message.isEmpty())
-            OutputTextEdit->appendColor(message + "\n", QColor(COLOR_ConsoleWhite));
+            OutputTextEdit->appendColor(message + "\n", isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
     }
 }
 

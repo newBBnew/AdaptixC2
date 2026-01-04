@@ -1,5 +1,6 @@
 #include <UI/Widgets/CredentialsWidget.h>
 #include <UI/Widgets/AdaptixWidget.h>
+#include <Client/Settings.h>
 #include <UI/Widgets/DockWidgetRegister.h>
 #include <UI/Dialogs/DialogCredential.h>
 #include <Client/Requestor.h>
@@ -72,9 +73,13 @@ void CredentialsWidget::createUI()
     storageComboBox->setInsertPolicy(QComboBox::NoInsert);
     storageComboBox->addItem("All Storages");
 
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     hideButton = new ClickableLabel("  x  ");
     hideButton->setCursor(Qt::PointingHandCursor);
-    hideButton->setStyleSheet("QLabel { color: #888; font-weight: bold; } QLabel:hover { color: #e34234; }");
+    if (isDarkIce)
+        hideButton->setStyleSheet("QLabel { color: #475569; font-weight: bold; } QLabel:hover { color: #00F0FF; }");
+    else
+        hideButton->setStyleSheet("QLabel { color: #888; font-weight: bold; } QLabel:hover { color: #e34234; }");
 
     searchLayout = new QHBoxLayout(searchWidget);
     searchLayout->setContentsMargins(0, 5, 0, 0);

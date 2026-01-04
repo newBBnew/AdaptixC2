@@ -1,6 +1,7 @@
 #include <Agent/Agent.h>
 #include <UI/Widgets/BrowserProcessWidget.h>
 #include <UI/Widgets/ConsoleWidget.h>
+#include <Client/Settings.h>
 #include <UI/Widgets/AdaptixWidget.h>
 #include <UI/Widgets/DockWidgetRegister.h>
 #include <Client/AuthProfile.h>
@@ -109,12 +110,14 @@ void BrowserProcessWidget::SetStatus(qint64 time, int msgType, const QString &me
 {
     QString sTime  = UnixTimestampGlobalToStringLocal(time);
     QString status;
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    
     if( msgType == CONSOLE_OUT_LOCAL_ERROR || msgType == CONSOLE_OUT_ERROR ) {
         status = TextColorHtml(message, COLOR_ChiliPepper) + " >> " + sTime;
         statusLabel->setText(status);
     }
     else {
-        status = TextColorHtml(message, COLOR_NeonGreen) + " >> " + sTime;
+        status = TextColorHtml(message, isDarkIce ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
         statusLabel->setText(status);
     }
 }
@@ -203,13 +206,15 @@ void BrowserProcessWidget::setTableProcessDataWin(const QMap<int, BrowserProcess
         auto item_Process = new QTableWidgetItem( item.process );
         item_Process->setFlags(item_Process->flags() ^ Qt::ItemIsEditable);
 
+        bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
         if ( agent->data.Pid == QString::number(item.pid) ) {
-            item_Pid->setForeground(QColor(COLOR_ChiliPepper));
-            item_Ppid->setForeground(QColor(COLOR_ChiliPepper));
-            item_Arch->setForeground(QColor(COLOR_ChiliPepper));
-            item_Session->setForeground(QColor(COLOR_ChiliPepper));
-            item_Context->setForeground(QColor(COLOR_ChiliPepper));
-            item_Process->setForeground(QColor(COLOR_ChiliPepper));
+            QColor highlightColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ChiliPepper);
+            item_Pid->setForeground(highlightColor);
+            item_Ppid->setForeground(highlightColor);
+            item_Arch->setForeground(highlightColor);
+            item_Session->setForeground(highlightColor);
+            item_Context->setForeground(highlightColor);
+            item_Process->setForeground(highlightColor);
         }
 
         tableWidget->setItem(row, 0, item_Pid);
@@ -261,12 +266,14 @@ void BrowserProcessWidget::setTableProcessDataUnix(const QMap<int, BrowserProces
         auto item_Process = new QTableWidgetItem( item.process );
         item_Process->setFlags(item_Process->flags() ^ Qt::ItemIsEditable);
 
+        bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
         if ( agent->data.Pid == QString::number(item.pid) ) {
-            item_Pid->setForeground(QColor(COLOR_ChiliPepper));
-            item_Ppid->setForeground(QColor(COLOR_ChiliPepper));
-            item_Tty->setForeground(QColor(COLOR_ChiliPepper));
-            item_Context->setForeground(QColor(COLOR_ChiliPepper));
-            item_Process->setForeground(QColor(COLOR_ChiliPepper));
+            QColor highlightColor = isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ChiliPepper);
+            item_Pid->setForeground(highlightColor);
+            item_Ppid->setForeground(highlightColor);
+            item_Tty->setForeground(highlightColor);
+            item_Context->setForeground(highlightColor);
+            item_Process->setForeground(highlightColor);
         }
 
         tableWidget->setItem(row, 0, item_Pid);

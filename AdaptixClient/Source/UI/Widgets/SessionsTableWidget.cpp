@@ -88,9 +88,13 @@ void SessionsTableWidget::createUI()
 
     checkOnlyActive = new QCheckBox("only active", searchWidget);
 
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     hideButton = new ClickableLabel("  x  ");
     hideButton->setCursor(Qt::PointingHandCursor);
-    hideButton->setStyleSheet("QLabel { color: #888; font-weight: bold; } QLabel:hover { color: #e34234; }");
+    if (isDarkIce)
+        hideButton->setStyleSheet("QLabel { color: #475569; font-weight: bold; } QLabel:hover { color: #00F0FF; }");
+    else
+        hideButton->setStyleSheet("QLabel { color: #888; font-weight: bold; } QLabel:hover { color: #e34234; }");
 
     searchLayout = new QHBoxLayout(searchWidget);
     searchLayout->setContentsMargins(0, 4, 0, 0);
@@ -126,10 +130,17 @@ void SessionsTableWidget::createUI()
     tableView->horizontalHeader()->setHighlightSections( false );
     tableView->horizontalHeader()->setSectionsMovable( true );
     tableView->horizontalHeader()->setFirstSectionMovable( false );
-    tableView->horizontalHeader()->setStyleSheet(
-        "QHeaderView::section { border-right: 1px solid #555; }"
-        "QHeaderView::section:last { border-right: none; }"
-    );
+    if (isDarkIce) {
+        tableView->horizontalHeader()->setStyleSheet(
+            "QHeaderView::section { border-right: 1px solid #1E293B; }"
+            "QHeaderView::section:last { border-right: none; }"
+        );
+    } else {
+        tableView->horizontalHeader()->setStyleSheet(
+            "QHeaderView::section { border-right: 1px solid #555; }"
+            "QHeaderView::section:last { border-right: none; }"
+        );
+    }
     tableView->verticalHeader()->setVisible( false );
 
     // Connect signals for saving column state
