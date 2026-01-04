@@ -1,16 +1,373 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSocket } from './SocketContext';
 import { agentApi } from '../api/agent';
-import { listenerApi, taskApi, tunnelApi, deliveryApi, dataApi } from '../api/control';
+import { listenerApi, taskApi, tunnelApi, deliveryApi, dataApi, scriptApi } from '../api/control';
 import { PacketType } from '../constants/packetTypes';
-import axEngine from '../utils/axScript';
+import createAxEngine from '../utils/axScript';
 
 const AgentContext = createContext();
 
 export const useAgents = () => useContext(AgentContext);
 
+// Pure helper functions defined outside the component to ensure absolute safety from TDZ
+const _unserializeParams = (cmdline) => {
+  const tokens = [];
+  let token = '';
+  let inQuotes = false;
+  const len = cmdline.length;
+  for (let i = 0; i < len; ) {
+    const c = cmdline[i];
+    if (/\s/.test(c) && !inQuotes) {
+      if (token.length > 0) {
+        tokens.push(token);
+        token = '';
+      }
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      inQuotes = !inQuotes;
+      i++;
+      continue;
+    }
+    if (c === '\\') {
+      let numBS = 0;
+      while (i < len && cmdline[i] === '\\') {
+        numBS++;
+        i++;
+      }
+      if (i < len && cmdline[i] === '"') {
+        token += '\\'.repeat(Math.floor(numBS / 2));
+        if (numBS % 2 === 0) {
+          inQuotes = !inQuotes;
+        } else {
+          token += '"';
+        }
+        i++;
+      } else {
+        token += '\\'.repeat(numBS);
+      }
+      continue;
+    }
+    token += c;
+    i++;
+  }
+  if (token.length > 0) tokens.push(token);
+  return tokens;
+};
+
+const _parseCommandArgs = (cmdDef, argParts, isSubcommand = false) => {
+  const result = {};
+  if (!cmdDef || !cmdDef.args) return result;
+  let argIndex = 0;
+  const args = cmdDef.args || [];
+  for (let i = 0; i < argParts.length && argIndex < args.length; i++) {
+    const part = argParts[i];
+    const argDef = args[argIndex];
+    if (part.startsWith('-') && argDef.mark) {
+      if (argDef.type.toUpperCase() === 'BOOL' && argDef.mark === part) {
+        result[argDef.mark] = true;
+        continue;
+      }
+      if (argDef.mark === part && i + 1 < argParts.length) {
+        i++;
+        result[argDef.name] = argDef.type.toUpperCase() === 'INT' ? parseInt(argParts[i]) : argParts[i];
+        argIndex++;
+        continue;
+      }
+    }
+    if (argDef.type.toUpperCase() === 'INT') {
+      result[argDef.name] = parseInt(part);
+    } else if (argDef.type.toUpperCase() === 'FILE') {
+      result[argDef.name] = part;
+    } else {
+      if (argIndex === args.length - 1 && argDef.type.toUpperCase() === 'STRING') {
+        result[argDef.name] = argParts.slice(i).join(' ');
+        break;
+      }
+      result[argDef.name] = part;
+    }
+    argIndex++;
+  }
+  args.forEach(arg => {
+    if (!(arg.name in result) && arg.defaultValue !== undefined) {
+      result[arg.name] = arg.defaultValue;
+    }
+  });
+  return result;
+};
+
+// --- Command Processing Logic (Extracted to avoid TDZ) ---
+const _executeCommandLogic = async (agentId, cmdline, agents, axEngine, reloadScripts, addConsoleLine, parseCommandArgs, unserializeParams, BUILTIN_COMMANDS) => {
+  const agent = agents.find(a => a.a_id === agentId);
+  if (!agent || !axEngine) return null;
+
+  const parts = unserializeParams(cmdline.trim());
+  if (parts.length === 0) return null;
+
+  const commandName = parts[0].toLowerCase();
+  
+  if (commandName === 'reload') {
+    addConsoleLine(agentId, { type: 'output', content: '[*] Reloading Extension-Kit scripts...', msgType: 0 });
+    try {
+      await reloadScripts();
+      const allCmds = axEngine.getAllCommands(agent.a_name);
+      addConsoleLine(agentId, { type: 'output', content: `[+] Successfully reloaded ${allCmds.size} commands`, msgType: 0 });
+    } catch (err) {
+      addConsoleLine(agentId, { type: 'output', content: `[-] Reload failed: ${err.message}`, msgType: 2 });
+    }
+    return { name: 'reload' };
+  }
+  
+  if (commandName === 'help') {
+    const allCommands = axEngine.getAllCommands(agent.a_name);
+    const commandGroups = axEngine.getCommandGroups?.() || [];
+    let helpText = '';
+    
+    if (parts.length === 1) {
+      // help - show all commands grouped (matches Qt client)
+      helpText = '\n  Command                       Description\n  -------                       -----------\n';
+      // Built-in commands first
+      Object.entries(BUILTIN_COMMANDS).forEach(([name, def]) => {
+        if (!allCommands.has(name)) {
+          const padding = ' '.repeat(Math.max(1, 30 - name.length));
+          helpText += `  ${name}${def.subcommands?.length > 0 ? '*' : ''}${padding}${def.description || '(built-in)'}\n`;
+        }
+      });
+      const reloadPadding = ' '.repeat(Math.max(1, 30 - 'reload'.length));
+      helpText += `  reload${reloadPadding}Reload Extension-Kit scripts\n`;
+      
+      // Extension-Kit commands by group
+      commandGroups.forEach(group => {
+        helpText += `\n  Group - ${group.groupName}\n  =====================================\n`;
+        group.commands.filter(cmd => cmd && cmd.name).forEach(cmd => {
+          if (cmd.subcommands?.length > 0) {
+            cmd.subcommands.forEach(sub => {
+              const fullName = `${cmd.name} ${sub.name}`;
+              const padding = ' '.repeat(Math.max(1, 30 - fullName.length));
+              helpText += `  ${fullName}${padding}${sub.description || ''}\n`;
+            });
+          } else {
+            const padding = ' '.repeat(Math.max(1, 30 - cmd.name.length));
+            helpText += `  ${cmd.name}${padding}${cmd.description || ''}\n`;
+          }
+        });
+      });
+    } else {
+      // help <command> or help <command> <subcommand>
+      const helpCmdName = parts[1];
+      let targetCmd = allCommands.get(helpCmdName) || BUILTIN_COMMANDS[helpCmdName];
+      
+      if (!targetCmd) {
+        addConsoleLine(agentId, { type: 'output', content: `[-] Unknown command: ${helpCmdName}`, msgType: 2 });
+        return { name: 'help' };
+      }
+      
+      if (parts.length === 2) {
+        // help <command>
+        helpText = `\n  Command               : ${targetCmd.name}\n`;
+        if (targetCmd.description) helpText += `  Description           : ${targetCmd.description}\n`;
+        if (targetCmd.example) helpText += `  Example               : ${targetCmd.example}\n`;
+        
+        if (targetCmd.subcommands?.length > 0) {
+          helpText += '\n  SubCommand                Description\n  ----------                -----------\n';
+          targetCmd.subcommands.forEach(sub => {
+            const padding = ' '.repeat(Math.max(1, 20 - (sub.name?.length || 0)));
+            helpText += `  ${sub.name}${padding}      ${sub.description || ''}\n`;
+          });
+        } else if (targetCmd.args?.length > 0) {
+          let usageStr = targetCmd.name;
+          targetCmd.args.forEach(arg => {
+            const bracket = (arg.required && !arg.defaultUsed) ? ['<', '>'] : ['[', ']'];
+            const argStr = arg.mark ? (arg.name ? `${arg.mark} ${arg.name}` : arg.mark) : arg.name;
+            usageStr += ` ${bracket[0]}${argStr}${bracket[1]}`;
+          });
+          helpText += `  Usage                 : ${usageStr}\n\n  Arguments:\n`;
+          targetCmd.args.forEach(arg => {
+            const bracket = (arg.required && !arg.defaultUsed) ? ['<', '>'] : ['[', ']'];
+            const argStr = arg.mark ? (arg.name ? `${arg.mark} ${arg.name}` : arg.mark) : arg.name;
+            const fullArg = `${bracket[0]}${argStr}${bracket[1]}`;
+            const padding = ' '.repeat(Math.max(1, 20 - fullArg.length));
+            const defStr = arg.defaultUsed ? ` (default: '${arg.defaultValue}'). ` : ' ';
+            helpText += `    ${fullArg}${padding}  : ${(arg.type + '.').padEnd(9)}${defStr}${arg.description || ''}\n`;
+          });
+        }
+      } else {
+        // help <command> <subcommand>
+        const subCmdName = parts[2];
+        const subCmd = targetCmd.subcommands?.find(s => s.name === subCmdName);
+        if (!subCmd) {
+          addConsoleLine(agentId, { type: 'output', content: `[-] Unknown subcommand: ${subCmdName}`, msgType: 2 });
+          return { name: 'help' };
+        }
+        helpText = `\n  Command               : ${targetCmd.name} ${subCmd.name}\n`;
+        if (subCmd.description) helpText += `  Description           : ${subCmd.description}\n`;
+        if (subCmd.example) helpText += `  Example               : ${subCmd.example}\n`;
+        if (subCmd.args?.length > 0) {
+          let usageStr = `${targetCmd.name} ${subCmd.name}`;
+          subCmd.args.forEach(arg => {
+            const bracket = (arg.required && !arg.defaultUsed) ? ['<', '>'] : ['[', ']'];
+            const argStr = arg.mark ? (arg.name ? `${arg.mark} ${arg.name}` : arg.mark) : arg.name;
+            usageStr += ` ${bracket[0]}${argStr}${bracket[1]}`;
+          });
+          helpText += `  Usage                 : ${usageStr}\n\n  Arguments:\n`;
+          subCmd.args.forEach(arg => {
+            const bracket = (arg.required && !arg.defaultUsed) ? ['<', '>'] : ['[', ']'];
+            const argStr = arg.mark ? (arg.name ? `${arg.mark} ${arg.name}` : arg.mark) : arg.name;
+            const fullArg = `${bracket[0]}${argStr}${bracket[1]}`;
+            const padding = ' '.repeat(Math.max(1, 20 - fullArg.length));
+            const defStr = arg.defaultUsed ? ` (default: '${arg.defaultValue}'). ` : ' ';
+            helpText += `    ${fullArg}${padding}  : ${(arg.type + '.').padEnd(9)}${defStr}${arg.description || ''}\n`;
+          });
+        }
+      }
+    }
+    addConsoleLine(agentId, { type: 'output', content: helpText, msgType: 0 });
+    return { name: 'help' };
+  }
+  
+  let engineCommand = axEngine.getAgentCommand(agent.a_name, commandName);
+  if (!engineCommand) engineCommand = axEngine.getCommand(commandName);
+  if (!engineCommand) {
+    const builtinDef = BUILTIN_COMMANDS[commandName];
+    if (builtinDef) engineCommand = builtinDef;
+  }
+  
+  // For commands with subcommands (e.g., "token steal"), verify subcommand exists
+  let subCmd = null;
+  if (engineCommand && engineCommand.subcommands?.length > 0 && parts.length > 1) {
+    const subName = parts[1];
+    subCmd = engineCommand.subcommands.find(s => s.name === subName);
+    if (!subCmd) {
+      addConsoleLine(agentId, { type: 'output', content: `[-] Unknown subcommand: ${commandName} ${subName}`, msgType: 2 });
+      return null;
+    }
+  }
+  
+  // Error command prevention: if command not found, show error and don't send to server
+  if (!engineCommand) {
+    addConsoleLine(agentId, { type: 'output', content: `[-] Command not found: ${commandName}`, msgType: 2 });
+    return null;
+  }
+
+  const commandData = { command: engineCommand?.name || commandName };
+
+  if (engineCommand && engineCommand.name) {
+    if (engineCommand.name && engineCommand.name !== commandName) {
+      commandData.command = engineCommand.name;
+    }
+    
+    // Parse arguments BEFORE calling pre_hook so parsed_json contains the args
+    const hasSubcommands = (engineCommand.subcommands && engineCommand.subcommands.length > 0);
+    if (hasSubcommands && parts.length > 1) {
+      const subcommandName = parts[1];
+      const subcommandList = engineCommand.subcommands || [];
+      const subcommand = Array.isArray(subcommandList) && typeof subcommandList[0] === 'string'
+        ? subcommandList.includes(subcommandName) ? { name: subcommandName } : null
+        : subcommandList.find(sc => sc.name === subcommandName);
+      
+      if (subcommand) {
+        commandData.subcommand = subcommandName;
+        if (subcommand.args) {
+          const parsedArgs = parseCommandArgs(subcommand, parts.slice(2));
+          Object.assign(commandData, parsedArgs);
+        } else if (parts.length > 2) {
+          commandData.args = parts.slice(2).join(' ');
+          parts.slice(2).forEach((arg, idx) => {
+            commandData[`arg${idx}`] = arg;
+          });
+        }
+      } else {
+        const parsedArgs = parseCommandArgs(engineCommand, parts.slice(1));
+        Object.assign(commandData, parsedArgs);
+      }
+    } else if (engineCommand.args && engineCommand.args.length > 0) {
+      const parsedArgs = parseCommandArgs(engineCommand, parts.slice(1));
+      Object.assign(commandData, parsedArgs);
+    }
+    
+    // Now call pre_hook with parsed commandData
+    if (engineCommand.is_pre_hook && typeof engineCommand.pre_hook === 'function') {
+      try {
+        const hookResult = engineCommand.pre_hook(agentId, cmdline, commandData, ...parts.slice(1));
+        if (typeof hookResult === 'string' && hookResult !== "") {
+          addConsoleLine(agentId, { type: 'output', content: `[-] Error: ${hookResult}`, msgType: 2 });
+        }
+        // pre_hook handles command execution via ax.execute_alias, don't send original command
+        return engineCommand;
+      } catch (e) {
+        console.error('[AgentContext] Pre-hook execution failed:', e);
+        addConsoleLine(agentId, { type: 'output', content: `[-] Script Error: ${e.message}`, msgType: 2 });
+        return engineCommand;
+      }
+    }
+  } else {
+    if (parts.length > 1) {
+      commandData.subcommand = parts[1];
+      if (parts.length > 2) commandData.args = parts.slice(2).join(' ');
+    }
+  }
+
+  try {
+    const dataJson = JSON.stringify(commandData);
+    const isUICommand = commandName === 'upload' || commandName === 'download';
+    const response = await agentApi.executeCommand({
+      name: agent.a_name,
+      id: agent.a_id,
+      ui: isUICommand,
+      cmdline: cmdline,
+      data: dataJson,
+      ax_hook_id: "",
+      ax_handler_id: ""
+    });
+    if (response.data && !response.data.ok) {
+      addConsoleLine(agentId, {
+        type: 'output',
+        content: `[-] Error: ${response.data.message || 'Command rejected by server'}`,
+        msgType: 2
+      });
+    }
+    return engineCommand || { name: commandName };
+  } catch (err) {
+    console.error('[AgentContext] Command execution failed:', err);
+    addConsoleLine(agentId, {
+      type: 'output',
+      content: `[-] Error: ${err.response?.data?.message || err.message || 'Command failed to send'}`,
+      msgType: 2
+    });
+    return engineCommand || { name: commandName };
+  }
+};
+
 export const AgentProvider = ({ children }) => {
+  // Buffer limit constant (defined first for use in addConsoleLine)
+  const CONSOLE_BUFFER_LIMIT = 1000;
+  
+  // Console history state (must be defined before addConsoleLine)
+  const [consoleHistory, setConsoleHistory] = useState({});
+  
+  // Define addConsoleLine early to avoid TDZ issues
+  const addConsoleLine = useCallback((agentId, line) => {
+    setConsoleHistory(prev => {
+      if (line.type === 'clear') {
+        return { ...prev, [agentId]: [] };
+      }
+      const current = prev[agentId] || [];
+      const newHistory = [...current, line];
+      return {
+        ...prev,
+        [agentId]: newHistory.slice(-CONSOLE_BUFFER_LIMIT)
+      };
+    });
+  }, []);
+
+  // Use useCallback to wrap the external helpers
+  const unserializeParams = useCallback(_unserializeParams, []);
+  const parseCommandArgs = useCallback(_parseCommandArgs, []);
+
   const [agents, setAgents] = useState([]);
+  // ... rest of the states
+  const [axEngine] = useState(() => createAxEngine());
   const [listeners, setListeners] = useState([]);
   const [tasks, setTasks] = useState({}); // { taskId: taskData }
   const [logs, setLogs] = useState([]);
@@ -45,10 +402,7 @@ export const AgentProvider = ({ children }) => {
     localStorage.setItem('adaptix_activeTabId', activeTabId);
   }, [activeTabId]);
   const [isDockExpanded, setIsDockExpanded] = useState(true);
-  const [consoleHistory, setConsoleHistory] = useState({}); // { agentId: [lines] }
-  
-  // Buffer limits to prevent UI freezing on large outputs
-  const CONSOLE_BUFFER_LIMIT = 1000;
+  // Note: consoleHistory is defined at top of component to avoid TDZ
   const LOGS_BUFFER_LIMIT = 500;
   const CHAT_BUFFER_LIMIT = 200;
 
@@ -64,9 +418,21 @@ export const AgentProvider = ({ children }) => {
   const chatQueueRef = useRef([]);
   const { addListener } = useSocket();
 
+  // Use a ref to track registered agents and their script loading status
+  const loadedAgentScriptsRef = useRef(new Set());
+  
+  // Use refs to store callbacks to avoid TDZ in useEffect
+  const processCommandRef = useRef(null);
+  const addConsoleLineRef = useRef(null);
+  const agentsRef = useRef([]);
+
   // --- Extension-Kit Engine Integration ---
   const reloadScripts = useCallback(async () => {
+    if (!axEngine) return;
     try {
+      // Clear tracking ref on global reload
+      loadedAgentScriptsRef.current.clear();
+      
       axEngine.loadedScripts.clear();
       axEngine.commands.clear();
       axEngine.plugins = [];
@@ -87,10 +453,17 @@ export const AgentProvider = ({ children }) => {
     } catch (err) {
       console.error('[AgentContext] Failed to reload scripts:', err);
     }
-  }, []);
+  }, [axEngine]);
 
   // Update engine stats whenever commands are updated
   useEffect(() => {
+    if (!axEngine) return;
+    
+    // Clear existing callbacks to prevent duplicate registration
+    axEngine.setOnCommandsUpdated(null);
+    axEngine.setOnExecuteCommand(null);
+    axEngine.setOnConsoleMessage(null);
+
     axEngine.setOnCommandsUpdated(() => {
       setAxStats({
         loadedScripts: axEngine.loadedScripts.size,
@@ -100,129 +473,139 @@ export const AgentProvider = ({ children }) => {
       setAxCommands(Array.from(axEngine.commands.values()));
       setAxPlugins(axEngine.plugins);
     });
-  }, []);
+
+    axEngine.setOnExecuteCommand(async (agentId, cmdline, commandData, message, hook) => {
+      // Debounce rapid executions
+      const now = Date.now();
+      const execKey = `${agentId}:${cmdline}:${JSON.stringify(commandData)}`;
+      
+      if (axEngine._lastExecKey === execKey && (now - axEngine._lastExecTime < 500)) {
+        console.log(`[AgentContext] Debounced duplicate command: ${cmdline}`);
+        return;
+      }
+      
+      axEngine._lastExecKey = execKey;
+      axEngine._lastExecTime = now;
+
+      // Check if commandData is a direct alias command (e.g., shell -> ps run)
+      if (commandData && typeof commandData === 'object' && commandData.__direct_cmdline) {
+        // Direct execution mode: Send aliased command directly without re-parsing
+        console.log(`[AgentContext] Direct alias execution: ${commandData.__direct_cmdline}`);
+        const agent = agentsRef.current.find(a => a.a_id === agentId);
+        if (!agent) return;
+        
+        try {
+          const response = await agentApi.executeCommand({
+            name: agent.a_name,
+            id: agent.a_id,
+            ui: false,
+            cmdline: commandData.__direct_cmdline,
+            data: "{}",
+            ax_hook_id: "",
+            ax_handler_id: ""
+          });
+          
+          // Add Task issued message to console
+          if (addConsoleLineRef.current && response?.data?.task_id) {
+            addConsoleLineRef.current(agentId, { 
+              type: 'task',
+              taskId: response.data.task_id,
+              cmdline: commandData.__original_cmdline || cmdline,
+              completed: false,
+              msgType: 5
+            });
+          }
+          
+          if (commandData.message && addConsoleLineRef.current) {
+            addConsoleLineRef.current(agentId, { type: 'output', content: `[*] ${commandData.message}`, msgType: 0 });
+          }
+        } catch (err) {
+          console.error('[AgentContext] Direct alias command failed:', err);
+          if (addConsoleLineRef.current) {
+            addConsoleLineRef.current(agentId, {
+              type: 'output',
+              content: `[-] Error: ${err.response?.data?.message || err.message}`,
+              msgType: 2
+            });
+          }
+        }
+      } else if (commandData && typeof commandData === 'object' && commandData.command === 'execute' && commandData.bof_path) {
+        // Notification Mode: Send bof_path + param_data directly to server
+        console.log(`[AgentContext] Notification mode BOF: ${commandData.bof_path}`);
+        const agent = agentsRef.current.find(a => a.a_id === agentId);
+        if (!agent) return;
+        
+        try {
+          const dataJson = JSON.stringify(commandData);
+          await agentApi.executeCommand({
+            name: agent.a_name,
+            id: agent.a_id,
+            ui: false,
+            cmdline: cmdline,
+            data: dataJson,
+            ax_hook_id: "",
+            ax_handler_id: ""
+          });
+          
+          if (message && addConsoleLineRef.current) {
+            addConsoleLineRef.current(agentId, { type: 'output', content: `[*] ${message}`, msgType: 0 });
+          }
+        } catch (err) {
+          console.error('[AgentContext] Notification mode command failed:', err);
+          if (addConsoleLineRef.current) {
+            addConsoleLineRef.current(agentId, {
+              type: 'output',
+              content: `[-] Error: ${err.response?.data?.message || err.message}`,
+              msgType: 2
+            });
+          }
+        }
+      } else {
+        // Traditional mode: Use ref to access processCommand (avoids TDZ)
+        console.log(`[AgentContext] Executing extension command: ${cmdline}`);
+        if (processCommandRef.current) {
+          processCommandRef.current(agentId, typeof commandData === 'string' ? commandData : cmdline);
+        }
+      }
+    });
+
+    axEngine.setOnConsoleMessage((agentId, message, type, clearText) => {
+      addConsoleLine(agentId, {
+        type: 'output',
+        content: message,
+        msgType: type,
+        clearText: clearText
+      });
+    });
+
+    return () => {
+      if (axEngine) {
+        axEngine.setOnCommandsUpdated(null);
+        axEngine.setOnExecuteCommand(null);
+        axEngine.setOnConsoleMessage(null);
+      }
+    };
+  }, [axEngine]);
 
   useEffect(() => {
-    if (!axInitialized.current) {
+    if (!axInitialized.current && axEngine) {
       axInitialized.current = true;
-      reloadScripts();
+      // Using a slightly longer delay to ensure complete module settlement
+      const timer = setTimeout(() => {
+        axEngine.setScriptApi(scriptApi);
+        reloadScripts();
+      }, 500);
+      return () => clearTimeout(timer);
     }
-  }, [reloadScripts]);
+  }, [reloadScripts, axEngine, scriptApi]);
 
   // Update engine with current agents for script context
   useEffect(() => {
-    axEngine.setAgents(agents.reduce((acc, a) => ({ ...acc, [a.a_id]: a }), {}));
-  }, [agents]);
-
-  // Parse command arguments based on command definition from axEngine
-  const parseCommandArgs = (cmdDef, argParts, isSubcommand = false) => {
-    const result = {};
-    if (!cmdDef || !cmdDef.args) return result;
-    
-    let argIndex = 0;
-    const args = cmdDef.args || [];
-    
-    for (let i = 0; i < argParts.length && argIndex < args.length; i++) {
-      const part = argParts[i];
-      const argDef = args[argIndex];
-      
-      // Check if it's a flag argument (starts with -)
-      if (part.startsWith('-') && argDef.mark) {
-        if (argDef.type.toUpperCase() === 'BOOL' && argDef.mark === part) {
-          result[argDef.mark] = true;
-          continue;
-        }
-        // Flag with value
-        if (argDef.mark === part && i + 1 < argParts.length) {
-          i++;
-          result[argDef.name] = argDef.type.toUpperCase() === 'INT' ? parseInt(argParts[i]) : argParts[i];
-          argIndex++;
-          continue;
-        }
-      }
-      
-      // Positional argument
-      if (argDef.type.toUpperCase() === 'INT') {
-        result[argDef.name] = parseInt(part);
-      } else if (argDef.type.toUpperCase() === 'FILE') {
-        // In Web, we just pass the path, file content is handled if needed
-        result[argDef.name] = part;
-      } else {
-        // For the last string argument, consume all remaining parts (wide args)
-        if (argIndex === args.length - 1 && argDef.type.toUpperCase() === 'STRING') {
-          result[argDef.name] = argParts.slice(i).join(' ');
-          break;
-        }
-        result[argDef.name] = part;
-      }
-      argIndex++;
+    if (axEngine) {
+      axEngine.setAgents(agents.reduce((acc, a) => ({ ...acc, [a.a_id]: a }), {}));
     }
-    
-    // Apply default values for missing optional args
-    args.forEach(arg => {
-      if (!(arg.name in result) && arg.defaultValue !== undefined) {
-        result[arg.name] = arg.defaultValue;
-      }
-    });
-    
-    return result;
-  };
+  }, [agents, axEngine]);
 
-  // Qt-compatible command line parser (unserializeParams)
-  const unserializeParams = (cmdline) => {
-    const tokens = [];
-    let token = '';
-    let inQuotes = false;
-    const len = cmdline.length;
-
-    for (let i = 0; i < len; ) {
-      const c = cmdline[i];
-
-      if (/\s/.test(c) && !inQuotes) {
-        if (token.length > 0) {
-          tokens.push(token);
-          token = '';
-        }
-        i++;
-        continue;
-      }
-
-      if (c === '"') {
-        inQuotes = !inQuotes;
-        i++;
-        continue;
-      }
-
-      if (c === '\\') {
-        let numBS = 0;
-        while (i < len && cmdline[i] === '\\') {
-          numBS++;
-          i++;
-        }
-        if (i < len && cmdline[i] === '"') {
-          token += '\\'.repeat(Math.floor(numBS / 2));
-          if (numBS % 2 === 0) {
-            inQuotes = !inQuotes;
-          } else {
-            token += '"';
-          }
-          i++;
-        } else {
-          token += '\\'.repeat(numBS);
-        }
-        continue;
-      }
-
-      token += c;
-      i++;
-    }
-
-    if (token.length > 0) {
-      tokens.push(token);
-    }
-
-    return tokens;
-  };
 
   // Built-in beacon commands that Web client may not have definitions for
   // Format: { argName: argType } where argType is 'string' or 'int'
@@ -279,187 +662,43 @@ export const AgentProvider = ({ children }) => {
         { name: 'stop', args: [{ name: 'rport', type: 'int' }], description: 'Stop reverse port forward' }
       ] 
     },
+    shell: { args: [{ name: 'command', type: 'string' }], description: 'Execute shell command' },
+    run: { args: [{ name: 'command', type: 'string' }], description: 'Run command without shell' },
+    powershell: { args: [{ name: 'command', type: 'string' }], description: 'Execute PowerShell command' },
+    execute: {
+      description: 'Execute various payloads',
+      subcommands: [
+        { name: 'bof', args: [{ name: 'bof', type: 'file' }, { name: 'args', type: 'string' }], description: 'Execute BOF' },
+        { name: 'assembly', args: [{ name: 'assembly', type: 'file' }, { name: 'args', type: 'string' }], description: 'Execute .NET assembly' },
+        { name: 'pe', args: [{ name: 'pe', type: 'file' }, { name: 'args', type: 'string' }], description: 'Execute PE' },
+        { name: 'dll', args: [{ name: 'dll', type: 'file' }, { name: 'export', type: 'string' }, { name: 'args', type: 'string' }], description: 'Execute DLL' },
+        { name: 'shellcode', args: [{ name: 'shellcode', type: 'file' }], description: 'Execute shellcode' }
+      ]
+    },
+    inject: {
+      description: 'Injection commands',
+      subcommands: [
+        { name: 'shellcode', args: [{ name: 'pid', type: 'int' }, { name: 'shellcode', type: 'file' }], description: 'Inject shellcode into process' },
+        { name: 'dll', args: [{ name: 'pid', type: 'int' }, { name: 'dll', type: 'file' }], description: 'Inject DLL into process' }
+      ]
+    },
   };
 
+  // --- Command Processing ---
   const processCommand = useCallback(async (agentId, cmdline) => {
-    const agent = agents.find(a => a.a_id === agentId);
-    if (!agent) return;
-
-    const parts = unserializeParams(cmdline.trim());
-    if (parts.length === 0) return;
-
-    const commandName = parts[0].toLowerCase();
-    
-    // Handle 'reload' command
-    if (commandName === 'reload') {
-      addConsoleLine(agentId, { type: 'output', content: '[*] Reloading Extension-Kit scripts...', msgType: 0 });
-      try {
-        await reloadScripts();
-        const allCmds = axEngine.getAllCommands(agent.a_name);
-        addConsoleLine(agentId, { type: 'output', content: `[+] Successfully reloaded ${allCmds.size} commands`, msgType: 0 });
-      } catch (err) {
-        addConsoleLine(agentId, { type: 'output', content: `[-] Reload failed: ${err.message}`, msgType: 2 });
-      }
-      return;
-    }
-    
-    // Handle 'help' command locally
-    if (commandName === 'help') {
-      const allCommands = axEngine.getAllCommands(agent.a_name);
-      let helpText = '\n  Command                       Description\n  -------                       -----------\n';
-      
-      // 1. Extension/Engine Commands
-      allCommands.forEach((cmd, name) => {
-        const padding = ' '.repeat(Math.max(1, 30 - name.length));
-        helpText += `  ${name}${cmd.subcommands?.length > 0 ? '*' : ''}${padding}${cmd.description || ''}\n`;
-      });
-      
-      // Add a reload command description
-      const reloadPadding = ' '.repeat(Math.max(1, 30 - 'reload'.length));
-      helpText += `  reload${reloadPadding}Reload Extension-Kit scripts\n`;
-      
-      // 2. Built-in Commands (if not overridden)
-      Object.entries(BUILTIN_COMMANDS).forEach(([name, def]) => {
-        if (!allCommands.has(name)) {
-          const padding = ' '.repeat(Math.max(1, 30 - name.length));
-          helpText += `  ${name}${def.subcommands?.length > 0 ? '*' : ''}${padding}${def.description || '(built-in)'}\n`;
-        }
-      });
-      
-      addConsoleLine(agentId, { type: 'output', content: helpText, msgType: 0 });
-      return;
-    }
-    
-    // First, try to get command from agent-specific definitions (loaded from ax_config.axs)
-    let engineCommand = axEngine.getAgentCommand(agent.a_name, commandName);
-    
-    // Fall back to extension commands
-    if (!engineCommand) {
-      engineCommand = axEngine.getCommand(commandName);
-    }
-
-    // Try multi-word command if not found (e.g. "token make")
-    if (!engineCommand && parts.length > 1) {
-      const fullCommandName = `${parts[0]} ${parts[1]}`;
-      engineCommand = axEngine.getCommand(fullCommandName);
-      if (engineCommand) {
-        // Shift parts to account for multi-word command
-        parts.splice(0, 1);
-        parts[0] = fullCommandName;
-      }
-    }
-
-    // If still no definition, check built-in commands as last resort
-    const builtinDef = BUILTIN_COMMANDS[commandName];
-    if (!engineCommand && builtinDef) {
-      engineCommand = builtinDef;
-    }
-
-    // Build the data object that the agent plugin expects
-    const commandData = { command: engineCommand?.name || commandName };
-
-    if (engineCommand) {
-      // 1. Process Pre-Hook if defined (Matches Qt's Commander::ProcessPreHook)
-      if (engineCommand.is_pre_hook && typeof engineCommand.pre_hook === 'function') {
-        try {
-          // Prepare args for the hook: agentId, cmdline, data, ...rest_args
-          const hookResult = engineCommand.pre_hook(agentId, cmdline, commandData, ...parts.slice(1));
-          
-          // If hook returns a string, it's an error message to display locally
-          if (typeof hookResult === 'string' && hookResult !== "") {
-            addConsoleLine(agentId, { type: 'output', content: `[-] Error: ${hookResult}`, msgType: 2 });
-            return;
-          }
-          // If hook returns null/undefined or empty string, continue execution
-        } catch (e) {
-          console.error('[AgentContext] Pre-hook execution failed:', e);
-          addConsoleLine(agentId, { type: 'output', content: `[-] Script Error: ${e.message}`, msgType: 2 });
-          return;
-        }
-      }
-
-      // Update command name if it was a multi-word or remapped command
-      if (engineCommand.name && engineCommand.name !== commandName) {
-        commandData.command = engineCommand.name;
-      }
-      
-      // Check for subcommands
-      const hasSubcommands = (engineCommand.subcommands && engineCommand.subcommands.length > 0) || 
-                             (Array.isArray(builtinDef?.subcommands));
-      
-      if (hasSubcommands && parts.length > 1) {
-        const subcommandName = parts[1];
-        const subcommandList = engineCommand.subcommands || builtinDef?.subcommands || [];
-        const subcommand = Array.isArray(subcommandList) && typeof subcommandList[0] === 'string'
-          ? subcommandList.includes(subcommandName) ? { name: subcommandName } : null
-          : subcommandList.find(sc => sc.name === subcommandName);
-        
-        if (subcommand) {
-          commandData.subcommand = subcommandName;
-          // Parse remaining args based on subcommand definition (if available)
-          if (subcommand.args) {
-            const parsedArgs = parseCommandArgs(subcommand, parts.slice(2));
-            Object.assign(commandData, parsedArgs);
-          } else if (parts.length > 2) {
-            // Simple parsing for subcommand args
-            commandData.args = parts.slice(2).join(' ');
-            parts.slice(2).forEach((arg, idx) => {
-              commandData[`arg${idx}`] = arg;
-            });
-          }
-        } else {
-          // Not a subcommand, might be an argument
-          const parsedArgs = parseCommandArgs(engineCommand, parts.slice(1));
-          Object.assign(commandData, parsedArgs);
-        }
-      } else if (engineCommand.args) {
-        // Parse arguments based on command definition
-        const parsedArgs = parseCommandArgs(engineCommand, parts.slice(1));
-        Object.assign(commandData, parsedArgs);
-      }
-    } else {
-      // No command definition found, use simple parsing
-      if (parts.length > 1) {
-        commandData.subcommand = parts[1];
-        if (parts.length > 2) {
-          commandData.args = parts.slice(2).join(' ');
-        }
-      }
-    }
-
-    try {
-      const dataJson = JSON.stringify(commandData);
-      
-      // Determine if it's a UI-interactive command based on metadata or specific names
-      const isUICommand = commandName === 'upload' || commandName === 'download';
-      
-      const response = await agentApi.executeCommand({
-        name: agent.a_name,
-        id: agent.a_id,
-        ui: isUICommand,
-        cmdline: cmdline,
-        data: dataJson,
-        ax_hook_id: "",
-        ax_handler_id: ""
-      });
-      // Check if server returned an error in the response
-      if (response.data && !response.data.ok) {
-        addConsoleLine(agentId, {
-          type: 'output',
-          content: `[-] Error: ${response.data.message || 'Command rejected by server'}`,
-          msgType: 2
-        });
-      }
-    } catch (err) {
-      console.error('[AgentContext] Command execution failed:', err);
-      console.error('[AgentContext] Error details:', err.response?.status, err.response?.data);
-      addConsoleLine(agentId, {
-        type: 'output',
-        content: `[-] Error: ${err.response?.data?.message || err.message || 'Command failed to send'}`,
-        msgType: 2
-      });
-    }
-  }, [agents]); // Note: addConsoleLine is stable and doesn't need to be in deps
+    // Late-bind the execution logic to ensure no TDZ issues with internal variables
+    const logic = _executeCommandLogic;
+    const helpers = {
+      parse: _parseCommandArgs,
+      unserialize: _unserializeParams
+    };
+    return logic(agentId, cmdline, agents, axEngine, reloadScripts, addConsoleLine, helpers.parse, helpers.unserialize, BUILTIN_COMMANDS);
+  }, [agents, axEngine, addConsoleLine, reloadScripts]);
+  
+  // Keep ref updated with latest processCommand
+  useEffect(() => {
+    processCommandRef.current = processCommand;
+  }, [processCommand]);
 
   // Batch processing for high-frequency updates
   useEffect(() => {
@@ -605,9 +844,13 @@ export const AgentProvider = ({ children }) => {
               ...prev,
               [packet.agent]: { ax: packet.ax, listeners: packet.listeners || [] }
             }));
-            // Load and execute agent's ax_config.axs to register commands
-            if (packet.ax && packet.listeners) {
-              axEngine.loadAgentScript(packet.agent, packet.ax, packet.listeners);
+            
+            // PREVENT DUPLICATE EXECUTION: Check ref before loading agent script
+            if (packet.ax && packet.listeners && axEngine) {
+              if (!loadedAgentScriptsRef.current.has(packet.agent)) {
+                loadedAgentScriptsRef.current.add(packet.agent);
+                axEngine.loadAgentScript(packet.agent, packet.ax, packet.listeners);
+              }
             }
           }
           break;
@@ -978,19 +1221,10 @@ export const AgentProvider = ({ children }) => {
     }
   };
 
-  const addConsoleLine = (agentId, line) => {
-    setConsoleHistory(prev => {
-      if (line.type === 'clear') {
-        return { ...prev, [agentId]: [] };
-      }
-      const current = prev[agentId] || [];
-      const newHistory = [...current, line];
-      return {
-        ...prev,
-        [agentId]: newHistory.slice(-CONSOLE_BUFFER_LIMIT)
-      };
-    });
-  };
+  // Keep refs updated with latest values
+  useEffect(() => {
+    agentsRef.current = agents;
+  }, [agents]);
 
   return (
     <AgentContext.Provider value={{ 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, X, ChevronUp, ChevronDown, RotateCcw, History, Code2 } from 'lucide-react';
+import { Search, X, ChevronUp, ChevronDown, RotateCcw, History, Code2, ChevronRight } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useAgents } from '../../context/AgentContext';
 

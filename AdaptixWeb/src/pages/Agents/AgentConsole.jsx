@@ -21,7 +21,7 @@ import {
 import { cn } from '../../utils/cn';
 
 const AgentConsole = ({ agent: initialAgent }) => {
-  const { agents, setActiveSubTab, consoleHistory, addConsoleLine, agentConfigs, processCommand } = useAgents();
+  const { agents, setActiveSubTab, consoleHistory, addConsoleLine, agentConfigs, processCommand, axEngine } = useAgents();
   
   // Merge live agent data (from Context) with UI state (from openTabs/props)
   // This ensures 'Info' tab shows real-time data while preserving UI state like activeSubTab
@@ -37,14 +37,38 @@ const AgentConsole = ({ agent: initialAgent }) => {
   const [searchIndex, setSearchIndex] = useState(0);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const searchInputRef = useRef(null);
+  const suggestionsRef = useRef(null);
 
-  // Get available commands for this agent type from metadata
-  const availableCommands = agentConfigs[agent.a_name]?.commands || [
-    'help', 'shell', 'upload', 'download', 'execute', 'exit', 'sleep', 'jitter', 'pwd', 'ls', 'cd', 'whoami', 'ps', 'kill'
-  ];
+  // Get available commands for this agent type from axEngine (dynamic autocomplete)
+  const availableCommands = React.useMemo(() => {
+    if (axEngine?.getCommandList) {
+      return axEngine.getCommandList(agent.a_name);
+    }
+    return agentConfigs[agent.a_name]?.commands || [
+      'help', 'shell', 'upload', 'download', 'execute', 'exit', 'sleep', 'jitter', 'pwd', 'ls', 'cd', 'whoami', 'ps', 'kill'
+    ];
+  }, [axEngine, agent.a_name, agentConfigs]);
+
+  // Update suggestions when input changes (Qt client style)
+  useEffect(() => {
+    const currentInput = inputValue.trim();
+    if (!currentInput) {
+      setSuggestions([]);
+      setSelectedSuggestionIndex(0);
+      return;
+    }
+    
+    const matches = availableCommands.filter(cmd => 
+      cmd.toLowerCase().startsWith(currentInput.toLowerCase())
+    );
+    setSuggestions(matches);
+    setSelectedSuggestionIndex(0);
+  }, [inputValue, availableCommands]);
 
   // Message type colors (aligned with Qt ConsoleWidget.cpp)
   const getMsgPrefix = (msgType) => {
@@ -100,37 +124,42 @@ const AgentConsole = ({ agent: initialAgent }) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
     
-    const cmd = inputValue.trim();
-    if (cmd.toLowerCase() === 'clear') {
+    const cmdline = inputValue.trim();
+    const parts = cmdline.split(/\s+/);
+    const cmdName = parts[0].toLowerCase();
+
+    if (cmdName === 'clear') {
       addConsoleLine(agent.a_id, { type: 'clear' });
       setInputValue('');
       return;
     }
 
     setInputValue('');
-    setCommandHistory(prev => [cmd, ...prev].slice(0, 50));
+    setCommandHistory(prev => [cmdline, ...prev].slice(0, 50));
     setCommandHistoryIndex(-1);
 
     // Add locally to history immediately
-    addConsoleLine(agent.a_id, { type: 'input', content: cmd, time: Math.floor(Date.now() / 1000) });
+    addConsoleLine(agent.a_id, { type: 'input', content: cmdline, time: Math.floor(Date.now() / 1000) });
 
     try {
-      // 1. First, check if processCommand exists in context (Extension-Kit logic)
-      if (typeof processCommand === 'function') {
-         await processCommand(agent.a_id, cmd);
-      } 
-      // 2. If for some reason context is not ready, fallback to direct API
-      else {
-        await agentApi.executeCommand({
-          name: agent.a_name,
-          id: agent.a_id,
-          ui: true,
-          cmdline: cmd,
-          data: "{}",
-          ax_hook_id: "",
-          ax_handler_id: ""
-        });
+      // 1. Check if it's an Extension Command (registered in axEngine)
+      const axCommand = typeof processCommand === 'function' ? await processCommand(agent.a_id, cmdline, true) : null;
+      
+      // 2. If it's an Extension Command, processCommand already handled the hook/alias logic
+      if (axCommand) {
+        return;
       }
+
+      // 3. Fallback to standard/built-in commands via direct API
+      await agentApi.executeCommand({
+        name: agent.a_name,
+        id: agent.a_id,
+        ui: true,
+        cmdline: cmdline,
+        data: "{}",
+        ax_hook_id: "",
+        ax_handler_id: ""
+      });
     } catch (err) {
       console.error('[AgentConsole] Command execution failed:', err);
       addConsoleLine(agent.a_id, { 
@@ -142,39 +171,54 @@ const AgentConsole = ({ agent: initialAgent }) => {
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (historyIndex < commandHistory.length - 1) {
-        const nextIndex = historyIndex + 1;
-        setCommandHistoryIndex(nextIndex);
-        setInputValue(commandHistory[nextIndex]);
+    // Handle suggestion navigation
+    if (suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSuggestionIndex(prev => (prev + 1) % suggestions.length);
+        return;
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSuggestionIndex(prev => (prev - 1 + suggestions.length) % suggestions.length);
+        return;
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        if (suggestions.length > 0) {
+          e.preventDefault();
+          setInputValue(suggestions[selectedSuggestionIndex] + ' ');
+          setSuggestions([]);
+          return;
+        }
+      } else if (e.key === 'Escape') {
+        setSuggestions([]);
+        return;
       }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (historyIndex > 0) {
-        const nextIndex = historyIndex - 1;
-        setCommandHistoryIndex(nextIndex);
-        setInputValue(commandHistory[nextIndex]);
-      } else if (historyIndex === 0) {
-        setCommandHistoryIndex(-1);
-        setInputValue('');
+    }
+    
+    // Command history navigation (only when no suggestions)
+    if (suggestions.length === 0) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (historyIndex < commandHistory.length - 1) {
+          const nextIndex = historyIndex + 1;
+          setCommandHistoryIndex(nextIndex);
+          setInputValue(commandHistory[nextIndex]);
+        }
+        return;
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (historyIndex > 0) {
+          const nextIndex = historyIndex - 1;
+          setCommandHistoryIndex(nextIndex);
+          setInputValue(commandHistory[nextIndex]);
+        } else if (historyIndex === 0) {
+          setCommandHistoryIndex(-1);
+          setInputValue('');
+        }
+        return;
       }
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      const currentInput = inputValue.trim().toLowerCase();
-      if (!currentInput) return;
-
-      const matches = availableCommands.filter(cmd => cmd.toLowerCase().startsWith(currentInput));
-      if (matches.length === 1) {
-        setInputValue(matches[0] + ' ');
-      } else if (matches.length > 1) {
-        // Show possible matches in console
-        addConsoleLine(agent.a_id, { 
-          type: 'info', 
-          content: `Possibilities: ${matches.join(', ')}` 
-        });
-      }
-    } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    }
+    
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
       e.preventDefault();
       setIsSearchVisible(prev => !prev);
       setTimeout(() => searchInputRef.current?.focus(), 50);
@@ -312,27 +356,59 @@ const AgentConsole = ({ agent: initialAgent }) => {
               })}
             </div>
             
-            <form onSubmit={handleSubmit} className="shrink-0 p-3 glass-card-sm border-t border-theme-glass-light flex items-center space-x-3">
-              <div className="flex items-center space-x-2 ml-2">
-                <span className="text-theme-accent font-bold text-[11px] uppercase tracking-wider">command</span>
-                <ChevronRight size={14} className="text-theme-muted" />
-              </div>
-              <input
-                ref={inputRef}
-                type="text"
-                autoFocus
-                className="flex-1 glass-input px-4 py-2 text-theme-primary font-mono text-[13px] placeholder:text-theme-muted"
-                placeholder="Enter command..."
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-              />
-              <div className="flex items-center space-x-2 text-[10px] font-medium text-theme-muted uppercase pr-2">
-                <span className="hidden md:inline">Ctrl+H History</span>
-                <div className="w-px h-4 bg-theme-glass-light mx-1 hidden md:block" />
-                <button type="submit" className="glass-btn p-2 text-theme-muted hover:text-theme-accent transition-all">
-                  <Send size={16} />
-                </button>
+            <form onSubmit={handleSubmit} className="shrink-0 p-3 glass-card-sm border-t border-theme-glass-light">
+              <div className="relative">
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2 ml-2">
+                    <span className="text-theme-accent font-bold text-[11px] uppercase tracking-wider">command</span>
+                    <ChevronRight size={14} className="text-theme-muted" />
+                  </div>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    autoFocus
+                    autoComplete="off"
+                    className="flex-1 glass-input px-4 py-2 text-theme-primary font-mono text-[13px] placeholder:text-theme-muted"
+                    placeholder="Enter command..."
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                  />
+                  <div className="flex items-center space-x-2 text-[10px] font-medium text-theme-muted uppercase pr-2">
+                    <span className="hidden md:inline">Ctrl+H History</span>
+                    <div className="w-px h-4 bg-theme-glass-light mx-1 hidden md:block" />
+                    <button type="submit" className="glass-btn p-2 text-theme-muted hover:text-theme-accent transition-all">
+                      <Send size={16} />
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Command Suggestions Popup (Qt client style) */}
+                {suggestions.length > 0 && (
+                  <div 
+                    ref={suggestionsRef}
+                    className="absolute bottom-full left-0 mb-2 w-full max-w-md bg-theme-surface/95 backdrop-blur-md border border-theme-glass-light shadow-2xl rounded-lg max-h-64 overflow-y-auto custom-scrollbar z-50"
+                  >
+                    {suggestions.map((cmd, idx) => (
+                      <div
+                        key={idx}
+                        className={cn(
+                          "px-4 py-2 cursor-pointer font-mono text-[12px] transition-colors border-b border-theme-glass-light last:border-b-0",
+                          idx === selectedSuggestionIndex
+                            ? "bg-theme-accent/20 text-theme-accent font-bold"
+                            : "text-theme-primary hover:bg-theme-hover"
+                        )}
+                        onClick={() => {
+                          setInputValue(cmd + ' ');
+                          setSuggestions([]);
+                          inputRef.current?.focus();
+                        }}
+                      >
+                        {cmd}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </form>
           </div>

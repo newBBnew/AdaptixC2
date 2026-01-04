@@ -22,6 +22,16 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  build: {
+    minify: 'terser',
+    terserOptions: {
+      mangle: false,  // Disable variable name mangling to prevent TDZ issues
+      compress: {
+        keep_fnames: true,
+        keep_classnames: true,
+      },
+    },
+  },
   server: {
     proxy: {
       '/api': {
