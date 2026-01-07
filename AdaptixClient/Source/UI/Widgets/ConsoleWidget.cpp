@@ -145,9 +145,15 @@ void ConsoleWidget::findAndHighlightAll(const QString &pattern)
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground((isDarkIce || isGlass) ? QColor(0, 240, 255, 100) : Qt::blue);
-    baseFmt.setForeground(Qt::white);
+    if (isDarkIce || isGlass || isHackerTech) {
+        baseFmt.setBackground(QColor(0, 240, 255, 100));
+        baseFmt.setForeground(Qt::white);
+    } else {
+        baseFmt.setBackground(Qt::blue);
+        baseFmt.setForeground(Qt::white);
+    }
 
     while (true) {
         auto found = OutputTextEdit->document()->find(pattern, cursor);
@@ -201,9 +207,15 @@ void ConsoleWidget::AddToHistory(const QString &command) { kphInputLineEdit->Add
 
 void ConsoleWidget::SetInput(const QString &command) { InputLineEdit->setText(command); }
 
-void ConsoleWidget::Clear() { OutputTextEdit->clear(); }
+void ConsoleWidget::Clear()
+{
+    OutputTextEdit->clear();
+}
 
-QString ConsoleWidget::GetOutput() const { return OutputTextEdit->toPlainText(); }
+QString ConsoleWidget::GetOutput() const
+{
+    return OutputTextEdit->toPlainText();
+}
 
 void ConsoleWidget::ConsoleOutputMessage(const qint64 timestamp, const QString &taskId, const int type, const QString &message, const QString &text, const bool completed)
 {
@@ -213,16 +225,17 @@ void ConsoleWidget::ConsoleOutputMessage(const qint64 timestamp, const QString &
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
-    QColor timeColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
-    QColor dividerColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBorder) : QColor(COLOR_Gray);
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
+    QColor timeColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue).darker(150) : (isHackerTech ? QColor(COLOR_IceBlue).darker(170) : QColor(COLOR_SaturGray));
+    QColor dividerColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBorder) : (isHackerTech ? QColor("#142033") : QColor(COLOR_Gray));
 
-    if( !message.isEmpty() ) {
+    if (!message.isEmpty()) {
 
-        if ( !promptTime.isEmpty() )
+        if (!promptTime.isEmpty())
             OutputTextEdit->appendColor("[" + promptTime + "] ", timeColor);
 
         if (type == CONSOLE_OUT_INFO || type == CONSOLE_OUT_LOCAL_INFO)
-            OutputTextEdit->appendColor("[*] ", isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_BabyBlue));
+            OutputTextEdit->appendColor("[*] ", (isDarkIce || isGlass || isHackerTech) ? QColor(COLOR_IceBlue) : QColor(COLOR_BabyBlue));
         else if (type == CONSOLE_OUT_SUCCESS || type == CONSOLE_OUT_LOCAL_SUCCESS)
             OutputTextEdit->appendColor("[+] ", QColor(COLOR_Yellow));
         else if (type == CONSOLE_OUT_ERROR || type == CONSOLE_OUT_LOCAL_ERROR)
@@ -231,17 +244,17 @@ void ConsoleWidget::ConsoleOutputMessage(const qint64 timestamp, const QString &
             OutputTextEdit->appendPlain(" ");
 
         QString printMessage = TrimmedEnds(message);
-        if ( text.isEmpty() || type == CONSOLE_OUT_LOCAL_INFO || type == CONSOLE_OUT_LOCAL_SUCCESS || type == CONSOLE_OUT_LOCAL_ERROR || type == CONSOLE_OUT_SUCCESS || type == CONSOLE_OUT_ERROR)
+        if (text.isEmpty() || type == CONSOLE_OUT_LOCAL_INFO || type == CONSOLE_OUT_LOCAL_SUCCESS || type == CONSOLE_OUT_LOCAL_ERROR || type == CONSOLE_OUT_SUCCESS || type == CONSOLE_OUT_ERROR)
             printMessage += "\n";
         OutputTextEdit->appendPlain(printMessage);
     }
 
-    if ( !text.isEmpty() )
-        OutputTextEdit->appendPlain( TrimmedEnds(text) + "\n");
+    if (!text.isEmpty())
+        OutputTextEdit->appendPlain(TrimmedEnds(text) + "\n");
 
     if (completed) {
         QString deleter = "\n+-------------------------------------------------------------------------------------+\n";
-        if ( !taskId.isEmpty() )
+        if (!taskId.isEmpty())
             deleter = QString("\n+--- Task [%1] closed ----------------------------------------------------------+\n").arg(taskId);
 
         OutputTextEdit->appendColor(deleter, dividerColor);
@@ -256,8 +269,9 @@ void ConsoleWidget::ConsoleOutputPrompt(const qint64 timestamp, const QString &t
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
-    QColor timeColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
-    QColor accentColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_Gray);
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
+    QColor timeColor = (isDarkIce || isGlass || isHackerTech) ? QColor(COLOR_IceBlue).darker(150) : QColor(COLOR_SaturGray);
+    QColor accentColor = (isDarkIce || isGlass || isHackerTech) ? QColor(COLOR_IceBlue) : QColor(COLOR_Gray);
 
     if ( !commandLine.isEmpty() ) {
         OutputTextEdit->appendPlain("\n");

@@ -107,14 +107,15 @@ void ChatWidget::AddChatMessage(const qint64 time, const QString &username, cons
 {
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
     chatTextEdit->appendColor(UnixTimestampGlobalToStringLocal(time), QColor(COLOR_Gray));
     chatTextEdit->appendPlain(" [");
     if (username == adaptixWidget->GetProfile()->GetUsername())
-        chatTextEdit->appendColor(username, (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
+        chatTextEdit->appendColor(username, (isDarkIce || isGlass || isHackerTech) ? QColor(COLOR_IceBlue) : QColor(COLOR_NeonGreen));
     else
-        chatTextEdit->appendColor(username, isDarkIce ? QColor("#00C2FF") : QColor(COLOR_KellyGreen));
+        chatTextEdit->appendColor(username, isDarkIce ? QColor("#00C2FF") : (isHackerTech ? QColor("#00F0FF") : QColor(COLOR_KellyGreen)));
     chatTextEdit->appendPlain("] :: ");
-    chatTextEdit->appendColor(message, isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
+    chatTextEdit->appendColor(message, isDarkIce ? QColor(COLOR_IceBlue) : (isHackerTech ? QColor("#B6FFCC") : QColor(COLOR_ConsoleWhite)));
     chatTextEdit->appendPlain("\n");
 }
 
@@ -128,9 +129,15 @@ void ChatWidget::findAndHighlightAll(const QString &pattern)
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground((isDarkIce || isGlass) ? QColor(0, 240, 255, 100) : Qt::blue);
-    baseFmt.setForeground(Qt::white);
+    if (isDarkIce || isGlass || isHackerTech) {
+        baseFmt.setBackground(QColor(0, 240, 255, 100));
+        baseFmt.setForeground(Qt::white);
+    } else {
+        baseFmt.setBackground(Qt::blue);
+        baseFmt.setForeground(Qt::white);
+    }
 
     while (true) {
         auto found = chatTextEdit->document()->find(pattern, cursor);

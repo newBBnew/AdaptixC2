@@ -185,11 +185,12 @@ void BrowserFilesWidget::SetDisksWin(const qint64 time, const int msgType, const
     QString status;
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
     
     if( msgType == CONSOLE_OUT_LOCAL_ERROR || msgType == CONSOLE_OUT_ERROR ) {
         status = TextColorHtml(message, COLOR_ChiliPepper) + " >> " + sTime;
     } else {
-        status = TextColorHtml(message, (isDarkIce || isGlass) ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
+        status = TextColorHtml(message, (isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
     }
     statusLabel->setText(status);
 
@@ -220,12 +221,13 @@ void BrowserFilesWidget::AddFiles(const qint64 time, const int msgType, const QS
     QString status;
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
     if( msgType == CONSOLE_OUT_LOCAL_ERROR || msgType == CONSOLE_OUT_ERROR ) {
         status = TextColorHtml(message, COLOR_ChiliPepper) + " >> " + sTime;
         statusLabel->setText(status);
         return;
     }
-    status = TextColorHtml(message, (isDarkIce || isGlass) ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
+    status = TextColorHtml(message, (isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
     statusLabel->setText(status);
 
     QString fPath = "";
@@ -259,12 +261,13 @@ void BrowserFilesWidget::SetStatus(const qint64 time, const int msgType, const Q
     QString status;
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
     
     if( msgType == CONSOLE_OUT_LOCAL_ERROR || msgType == CONSOLE_OUT_ERROR ) {
         status = TextColorHtml(message, COLOR_ChiliPepper) + " >> " + sTime;
         statusLabel->setText(status);
     } else {
-        status = TextColorHtml(message, (isDarkIce || isGlass) ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
+        status = TextColorHtml(message, (isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen) + " >> " + sTime;
         statusLabel->setText(status);
     }
 }

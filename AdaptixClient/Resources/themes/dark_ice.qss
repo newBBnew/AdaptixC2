@@ -42,6 +42,11 @@ QTabBar::tab:selected {
     font-weight: bold;
 }
 
+QHeaderView::section:hover {
+    color: #E2E8F0;
+    border-bottom: 1px solid #00C2FF;
+}
+
 /* Fix for character cutoff: ensure text has room */
 QTabBar {
     qproperty-drawBase: 0;
@@ -131,6 +136,7 @@ QSplitter::handle:hover {
 QTabBar::tab:hover:!selected {
     background-color: #1E293B;
     color: #E2E8F0;
+    border: 1px solid #00C2FF;
 }
 
 QSplitter::handle {
@@ -207,6 +213,7 @@ QLineEdit {
 
 QLineEdit:focus {
     border: 1px solid #00F0FF;
+    background-color: #0B1220;
 }
 
 QTableWidget, QTableView, QTreeWidget, QListWidget, QTextEdit, QPlainTextEdit {
@@ -236,6 +243,11 @@ QTableWidget::item:selected, QTableView::item:selected, QTreeWidget::item:select
     color: #00F0FF;
     outline: none;
     border-left: 3px solid #00F0FF;
+}
+
+QTableView::item:hover, QTreeWidget::item:hover, QListWidget::item:hover {
+    background-color: #0F172A;
+    color: #E2E8F0;
 }
 
 CardListWidget {
@@ -305,12 +317,18 @@ QScrollBar:vertical {
 
 QScrollBar::handle:vertical {
     background: #1E293B;
+    border: 1px solid #0F172A;
     min-height: 20px;
     border-radius: 5px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #00F0FF;
+    background: qlineargradient(
+        x1: 0, y1: 0, x2: 0, y2: 1,
+        stop: 0 #00F0FF,
+        stop: 1 #00C2FF
+    );
+    border: 1px solid #00F0FF;
 }
 
 QComboBox {
@@ -319,6 +337,10 @@ QComboBox {
     border: 1px solid #1E293B;
     border-radius: 4px;
     padding: 4px;
+}
+
+QComboBox:focus {
+    border: 1px solid #00F0FF;
 }
 
 QComboBox::drop-down {

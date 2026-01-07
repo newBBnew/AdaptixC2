@@ -119,9 +119,15 @@ void AxConsoleWidget::findAndHighlightAll(const QString &pattern)
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
     QTextCharFormat baseFmt;
-    baseFmt.setBackground((isDarkIce || isGlass) ? QColor(0, 240, 255, 100) : Qt::blue);
-    baseFmt.setForeground(Qt::white);
+    if (isDarkIce || isGlass || isHackerTech) {
+        baseFmt.setBackground(QColor(0, 240, 255, 100));
+        baseFmt.setForeground(Qt::white);
+    } else {
+        baseFmt.setBackground(Qt::blue);
+        baseFmt.setForeground(Qt::white);
+    }
 
     while (true) {
         auto found = OutputTextEdit->document()->find(pattern, cursor);
@@ -170,7 +176,8 @@ void AxConsoleWidget::AddToHistory(const QString &command) { kphInputLineEdit->A
 void AxConsoleWidget::PrintMessage(const QString &message) {
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
-    OutputTextEdit->appendColor(message + "\n", (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
+    OutputTextEdit->appendColor(message + "\n", (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : (isHackerTech ? QColor("#B6FFCC") : QColor(COLOR_ConsoleWhite)));
 }
 
 void AxConsoleWidget::PrintError(const QString &message) {
@@ -191,7 +198,8 @@ void AxConsoleWidget::processInput()
 
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
-    QColor accentColor = (isDarkIce || isGlass) ? QColor(COLOR_IceBlue) : QColor(COLOR_LightGray);
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
+    QColor accentColor = (isDarkIce || isGlass || isHackerTech) ? QColor(COLOR_IceBlue) : QColor(COLOR_LightGray);
     QColor textColor = isDarkIce ? QColor(COLOR_White) : QColor(COLOR_White);
 
     OutputTextEdit->appendColorUnderline("ax script", accentColor);
@@ -206,7 +214,7 @@ void AxConsoleWidget::processInput()
     else if (!result.isUndefined()) {
         QString message = result.toString();
         if (!message.isEmpty())
-            OutputTextEdit->appendColor(message + "\n", isDarkIce ? QColor(COLOR_IceBlue) : QColor(COLOR_ConsoleWhite));
+            OutputTextEdit->appendColor(message + "\n", isDarkIce ? QColor(COLOR_IceBlue) : (isHackerTech ? QColor("#B6FFCC") : QColor(COLOR_ConsoleWhite)));
     }
 }
 

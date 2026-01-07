@@ -166,12 +166,24 @@ AdaptixWidget::~AdaptixWidget() = default;
 
 void AdaptixWidget::createUI()
 {
-    listenersButton = new QPushButton( QIcon(":/icons/listeners"), "", this );
+    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
+    auto themedIcon = [isDarkIce, isGlass, isHackerTech](const QString& path) {
+        QIcon icon(path);
+        if (isDarkIce || isGlass)
+            icon = RecolorIcon(icon, COLOR_IceBlue);
+        else if (isHackerTech)
+            icon = RecolorIcon(icon, COLOR_IceBlue);
+        return icon;
+    };
+
+    listenersButton = new QPushButton( themedIcon(":/icons/listeners"), "", this );
     listenersButton->setIconSize( QSize( 24,24 ));
     listenersButton->setFixedSize(37, 28);
     listenersButton->setToolTip("Listeners & Sites");
 
-    logsButton = new QPushButton(QIcon(":/icons/logs"), "", this );
+    logsButton = new QPushButton(themedIcon(":/icons/logs"), "", this );
     logsButton->setIconSize( QSize( 24,24 ));
     logsButton->setFixedSize(37, 28);
     logsButton->setToolTip("Logs");
@@ -180,17 +192,17 @@ void AdaptixWidget::createUI()
     line_1->setFrameShape(QFrame::VLine);
     line_1->setMinimumHeight(25);
 
-    chatButton = new QPushButton(QIcon(":/icons/chat"), "", this );
+    chatButton = new QPushButton(themedIcon(":/icons/chat"), "", this );
     chatButton->setIconSize( QSize( 24,24 ));
     chatButton->setFixedSize(37, 28);
     chatButton->setToolTip("Chat");
 
-    sessionsButton = new QPushButton( QIcon(":/icons/format_list"), "", this );
+    sessionsButton = new QPushButton( themedIcon(":/icons/format_list"), "", this );
     sessionsButton->setIconSize( QSize( 24,24 ));
     sessionsButton->setFixedSize(37, 28);
     sessionsButton->setToolTip("Session table");
 
-    graphButton = new QPushButton( QIcon(":/icons/graph"), "", this );
+    graphButton = new QPushButton( themedIcon(":/icons/graph"), "", this );
     graphButton->setIconSize( QSize( 24,24 ));
     graphButton->setFixedSize(37, 28);
     graphButton->setToolTip("Session graph");
@@ -199,17 +211,17 @@ void AdaptixWidget::createUI()
     line_2->setFrameShape(QFrame::VLine);
     line_2->setMinimumHeight(25);
 
-    tasksButton = new QPushButton(QIcon(":/icons/job"), "", this );
+    tasksButton = new QPushButton(themedIcon(":/icons/job"), "", this );
     tasksButton->setIconSize(QSize(24, 24 ));
     tasksButton->setFixedSize(37, 28);
     tasksButton->setToolTip("Jobs & Tasks");
 
-    tunnelButton = new QPushButton( QIcon(":/icons/vpn"), "", this );
+    tunnelButton = new QPushButton( themedIcon(":/icons/vpn"), "", this );
     tunnelButton->setIconSize( QSize( 24,24 ));
     tunnelButton->setFixedSize(37, 28);
     tunnelButton->setToolTip("Tunnels table");
 
-    deliveryButton = new QPushButton( QIcon(":/icons/storage"), "", this );
+    deliveryButton = new QPushButton( themedIcon(":/icons/storage"), "", this );
     deliveryButton->setIconSize( QSize( 24,24 ));
     deliveryButton->setFixedSize(37, 28);
     deliveryButton->setToolTip("File Delivery");
@@ -218,27 +230,27 @@ void AdaptixWidget::createUI()
     line_3->setFrameShape(QFrame::VLine);
     line_3->setMinimumHeight(25);
 
-    downloadsButton = new QPushButton( QIcon(":/icons/downloads"), "", this );
+    downloadsButton = new QPushButton( themedIcon(":/icons/downloads"), "", this );
     downloadsButton->setIconSize( QSize( 24,24 ));
     downloadsButton->setFixedSize(37, 28);
     downloadsButton->setToolTip("Downloads");
 
-    targetsButton = new QPushButton( QIcon(":/icons/devices"), "", this );
+    targetsButton = new QPushButton( themedIcon(":/icons/devices"), "", this );
     targetsButton->setIconSize( QSize( 24,24 ));
     targetsButton->setFixedSize(37, 28);
     targetsButton->setToolTip("Targets table");
 
-    credsButton = new QPushButton( QIcon(":/icons/key"), "", this );
+    credsButton = new QPushButton( themedIcon(":/icons/key"), "", this );
     credsButton->setIconSize( QSize( 24,24 ));
     credsButton->setFixedSize(37, 28);
     credsButton->setToolTip("Credentials");
 
-    screensButton = new QPushButton( QIcon(":/icons/picture"), "", this );
+    screensButton = new QPushButton( themedIcon(":/icons/picture"), "", this );
     screensButton->setIconSize( QSize( 24,24 ));
     screensButton->setFixedSize(37, 28);
     screensButton->setToolTip("Screens");
 
-    keysButton = new QPushButton( QIcon(":/icons/keyboard"), "", this );
+    keysButton = new QPushButton( themedIcon(":/icons/keyboard"), "", this );
     keysButton->setIconSize( QSize( 24,24 ));
     keysButton->setFixedSize(37, 28);
     keysButton->setToolTip("Keystrokes");
@@ -247,13 +259,11 @@ void AdaptixWidget::createUI()
     line_4->setFrameShape(QFrame::VLine);
     line_4->setMinimumHeight(25);
 
-    reconnectButton = new QPushButton(QIcon(":/icons/link"), "");
+    reconnectButton = new QPushButton(themedIcon(":/icons/link"), "");
     reconnectButton->setIconSize( QSize( 24,24 ));
     reconnectButton->setFixedSize(37, 28);
     reconnectButton->setToolTip("Reconnect to C2");
-    bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
-    bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
-    QIcon onReconnectButton = RecolorIcon(reconnectButton->icon(), (isDarkIce || isGlass) ? COLOR_IceBlue : COLOR_NeonGreen);
+    QIcon onReconnectButton = RecolorIcon(reconnectButton->icon(), (isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen);
     reconnectButton->setIcon(onReconnectButton);
 
     horizontalSpacer1 = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
@@ -986,7 +996,8 @@ void AdaptixWidget::OnReconnect()
 
                     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
                     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
-                    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/link"), (isDarkIce || isGlass) ? COLOR_IceBlue : COLOR_NeonGreen);
+                    bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
+                    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/link"), (isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen);
                     reconnectButton->setIcon(onReconnectButton);
                 }
 

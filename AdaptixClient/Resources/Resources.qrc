@@ -35,10 +35,15 @@
         <file alias="Dark_Ice">themes/dark_ice.qss</file>
         <file alias="Glass_Morph">themes/glass_morphism.qss</file>
         <file alias="Light">themes/ax-light.qss</file>
+        <file alias="Hacker_Tech">themes/hacker_tech.qss</file>
         <file alias="Dark_Old">themes/dark.qss</file>
         <file alias="Dracula">themes/dracula.qss</file>
         <file alias="Fallout">themes/fallout.qss</file>
         <file alias="Light_Arc">themes/light_arc.qss</file>
+    </qresource>
+
+    <qresource prefix="/textures">
+        <file alias="noise_ice.xpm">textures/noise_ice.xpm</file>
     </qresource>
 
     <qresource prefix="/icons">
