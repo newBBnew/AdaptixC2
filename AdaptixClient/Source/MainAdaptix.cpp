@@ -10,6 +10,8 @@
 #include <Utils/TitleBarStyle.h>
 #include <MainAdaptix.h>
 
+#include <QtMath>
+
 #include <kddockwidgets/Config.h>
 
 MainAdaptix::MainAdaptix()
@@ -184,7 +186,7 @@ AuthProfile* MainAdaptix::Login()
     return authProfile;
 }
 
-void MainAdaptix::SetApplicationTheme() const
+void MainAdaptix::SetApplicationTheme()
 {
     QGuiApplication::setWindowIcon( QIcon( ":/LogoLin" ) );
 
@@ -213,8 +215,59 @@ void MainAdaptix::SetApplicationTheme() const
     QString appTheme = ":/themes/" + settings->data.MainTheme;
     bool result = false;
     QString style = ReadFileString(appTheme, &result);
-    if (result) {
-        QApplication *app = qobject_cast<QApplication*>(QCoreApplication::instance());
-        app->setStyleSheet(style);
+
+    QApplication *app = qobject_cast<QApplication*>(QCoreApplication::instance());
+    if (!result || !app)
+        return;
+
+    if (settings->data.MainTheme == "Breathing_Tech") {
+        breathingThemeTemplate = style;
+
+        auto applyBreathing = [this]() {
+            if (settings->data.MainTheme != "Breathing_Tech") {
+                if (breathingThemeTimer)
+                    breathingThemeTimer->stop();
+                return;
+            }
+
+            breathingThemePhase += 0.10;
+            const qreal t = (qSin(breathingThemePhase) + 1.0) * 0.5;
+
+            const QColor c1("#00F0FF");
+            const QColor c2("#2BD9A7");
+
+            const int r = qRound(c1.red() + (c2.red() - c1.red()) * t);
+            const int g = qRound(c1.green() + (c2.green() - c1.green()) * t);
+            const int b = qRound(c1.blue() + (c2.blue() - c1.blue()) * t);
+            const QColor accent(r, g, b);
+
+            const QString accentStr = accent.name(QColor::HexRgb);
+            const QString accentSoft = QString("rgba(%1,%2,%3,%4)").arg(r).arg(g).arg(b).arg(70);
+
+            QString s = breathingThemeTemplate;
+            s.replace("__ACCENT__", accentStr);
+            s.replace("__ACCENT_SOFT__", accentSoft);
+
+            QApplication *app = qobject_cast<QApplication*>(QCoreApplication::instance());
+            if (app)
+                app->setStyleSheet(s);
+        };
+
+        if (!breathingThemeTimer) {
+            breathingThemeTimer = new QTimer(app);
+            breathingThemeTimer->setInterval(60);
+            connect(breathingThemeTimer, &QTimer::timeout, app, applyBreathing);
+        }
+
+        if (!breathingThemeTimer->isActive())
+            breathingThemeTimer->start();
+
+        applyBreathing();
+        return;
     }
+
+    if (breathingThemeTimer)
+        breathingThemeTimer->stop();
+
+    app->setStyleSheet(style);
 }

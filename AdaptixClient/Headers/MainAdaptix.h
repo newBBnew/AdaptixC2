@@ -17,6 +17,10 @@ public:
     Extender* extender = nullptr;
     Settings* settings = nullptr;
 
+    QTimer*  breathingThemeTimer = nullptr;
+    QString  breathingThemeTemplate;
+    qreal    breathingThemePhase = 0.0;
+
     explicit MainAdaptix();
     ~MainAdaptix() override;
 
@@ -24,7 +28,7 @@ public:
 
     void Start() const;
     void NewProject() const;
-    void SetApplicationTheme() const;
+    void SetApplicationTheme();
 
     static AuthProfile* Login();
 };

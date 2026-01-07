@@ -85,6 +85,7 @@ void DialogSettings::createUI()
     themeCombo->addItem("Dark_Ice");
     themeCombo->addItem("Glass_Morph");
     themeCombo->addItem("Hacker_Tech");
+    themeCombo->addItem("Breathing_Tech");
     themeCombo->addItem("Light");
     themeCombo->addItem("Dracula");
     themeCombo->addItem("Fallout");
@@ -365,13 +366,7 @@ void DialogSettings::onApply() const
     if(settings->data.MainTheme != themeCombo->currentText()) {
         settings->data.MainTheme = themeCombo->currentText();
 
-        QString appTheme = ":/themes/" + settings->data.MainTheme;
-        bool result = false;
-        QString style = ReadFileString(appTheme, &result);
-        if (result) {
-            QApplication *app = qobject_cast<QApplication*>(QCoreApplication::instance());
-            app->setStyleSheet(style);
-        }
+        settings->getMainAdaptix()->SetApplicationTheme();
 
         TitleBarStyle::applyForTheme(settings->getMainAdaptix()->mainUI, settings->data.MainTheme);
     }
