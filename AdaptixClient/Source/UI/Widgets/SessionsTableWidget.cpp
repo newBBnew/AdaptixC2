@@ -58,6 +58,27 @@ SessionsTableWidget::SessionsTableWidget( AdaptixWidget* w ) : DockTab("Sessions
             tableView->viewport()->update();
         }
     });
+
+    this->autoResizeColumnsTimer = new QTimer(this);
+    this->autoResizeColumnsTimer->setSingleShot(true);
+    this->autoResizeColumnsTimer->setInterval(250);
+    connect(this->autoResizeColumnsTimer, &QTimer::timeout, this, [this]() {
+        // Skip if user has saved custom widths
+        for (int i = 0; i < SC_ColumnCount; i++) {
+            if (GlobalClient->settings->data.SessionsColumnWidths[i] > 0)
+                return;
+        }
+
+        if (!tableView)
+            return;
+
+        // In ResizeToContents mode we rely on UpdateColumnsSize() to capture widths and
+        // switch back to Interactive. Here we force the resize calculation once.
+        autoResizeInProgress = true;
+        tableView->resizeColumnsToContents();
+        this->UpdateColumnsSize();
+        autoResizeInProgress = false;
+    });
 }
 
 SessionsTableWidget::~SessionsTableWidget() = default;
@@ -116,6 +137,7 @@ void SessionsTableWidget::createUI()
     proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
 
     tableView = new QTableView( this );
+    columnStateReady = false;
     tableView->setModel(proxyModel);
     tableView->setContextMenuPolicy( Qt::CustomContextMenu );
     tableView->setAutoFillBackground( false );
@@ -123,6 +145,9 @@ void SessionsTableWidget::createUI()
     tableView->setSortingEnabled( true );
     tableView->setWordWrap( false );
     tableView->setCornerButtonEnabled( false );
+    tableView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    tableView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     tableView->setSelectionBehavior( QAbstractItemView::SelectRows );
     tableView->setFocusPolicy( Qt::NoFocus );
     tableView->setAlternatingRowColors( true );
@@ -145,8 +170,40 @@ void SessionsTableWidget::createUI()
     tableView->verticalHeader()->setVisible( false );
 
     // Connect signals for saving column state
-    connect(tableView->horizontalHeader(), &QHeaderView::sectionMoved, this, &SessionsTableWidget::SaveColumnOrder);
-    connect(tableView->horizontalHeader(), &QHeaderView::sectionResized, this, &SessionsTableWidget::SaveColumnWidths);
+    connect(tableView->horizontalHeader(), &QHeaderView::sectionMoved, this, [this](int, int) {
+        if (!columnStateReady)
+            return;
+        this->SaveColumnOrder();
+    });
+    connect(tableView->horizontalHeader(), &QHeaderView::sectionResized, this, [this](int, int oldSize, int newSize) {
+        if (autoResizeInProgress)
+            return;
+        if (!columnStateReady)
+            return;
+
+        // Prevent persisting bogus values (e.g. when widget is collapsing during teardown)
+        if (!tableView)
+            return;
+        if (newSize <= 10 || oldSize <= 0)
+            return;
+
+        this->SaveColumnWidths();
+    });
+
+    // Header context menu (auto-fit by cell contents)
+    auto* header = tableView->horizontalHeader();
+    header->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(header, &QWidget::customContextMenuRequested, this, [this, header](const QPoint &pos) {
+        const int logical = header->logicalIndexAt(pos);
+        if (logical < 0 || logical >= SC_ColumnCount)
+            return;
+
+        QMenu menu(this);
+        QAction* actAutoFit = menu.addAction("Auto fit this column");
+        QAction* chosen = menu.exec(header->mapToGlobal(pos));
+        if (chosen == actAutoFit)
+            this->AutoFitColumnToContents(logical);
+    });
 
     proxyModel->sort(-1);
 
@@ -154,6 +211,9 @@ void SessionsTableWidget::createUI()
 
     this->UpdateColumnsVisible();
     this->RestoreColumnState();
+    QTimer::singleShot(0, this, [this]() {
+        columnStateReady = true;
+    });
 
     mainGridLayout = new QGridLayout( this );
     mainGridLayout->setContentsMargins( 0, 0,  0, 0);
@@ -164,9 +224,10 @@ void SessionsTableWidget::createUI()
 void SessionsTableWidget::start() const
 {
     this->refreshTimer->start(1000);
+    this->autoResizeColumnsTimer->start(250); // Start the auto-resize timer
 }
 
-void SessionsTableWidget::AddAgentItem( Agent* newAgent ) const
+void SessionsTableWidget::AddAgentItem(Agent* newAgent) const
 {
     if ( adaptixWidget->AgentsMap.contains(newAgent->data.Id) )
         return;
@@ -176,7 +237,7 @@ void SessionsTableWidget::AddAgentItem( Agent* newAgent ) const
     agentsModel->add(newAgent->data.Id);
 
     if (adaptixWidget->IsSynchronized())
-        this->UpdateColumnsSize();
+        this->ScheduleAutoResizeColumns();
 }
 
 void SessionsTableWidget::UpdateAgentItem(const AgentData &oldDatam, const Agent* agent) const
@@ -184,7 +245,58 @@ void SessionsTableWidget::UpdateAgentItem(const AgentData &oldDatam, const Agent
     agentsModel->update(agent->data.Id);
 
     if (oldDatam.Username != agent->data.Username || oldDatam.Impersonated != agent->data.Impersonated )
-        this->UpdateColumnsSize();
+        this->ScheduleAutoResizeColumns();
+}
+
+void SessionsTableWidget::ScheduleAutoResizeColumns() const
+{
+    // If user has saved custom widths, do not auto-resize.
+    for (int i = 0; i < SC_ColumnCount; i++) {
+        if (GlobalClient->settings->data.SessionsColumnWidths[i] > 0)
+            return;
+    }
+
+    if (autoResizeColumnsTimer)
+        autoResizeColumnsTimer->start();
+}
+
+void SessionsTableWidget::AutoFitColumnToContents(const int logicalIndex) const
+{
+    if (!tableView || !proxyModel)
+        return;
+
+    if (logicalIndex < 0 || logicalIndex >= SC_ColumnCount)
+        return;
+
+    if (tableView->isColumnHidden(logicalIndex))
+        return;
+
+    const int rowCount = proxyModel->rowCount();
+    int maxWidth = 0;
+
+    // Measure cell contents only (ignore header text width)
+    for (int row = 0; row < rowCount; row++) {
+        const QModelIndex idx = proxyModel->index(row, logicalIndex);
+        if (!idx.isValid())
+            continue;
+        const QSize hint = tableView->sizeHintForIndex(idx);
+        maxWidth = qMax(maxWidth, hint.width());
+    }
+
+    // Padding for cell margins / delegate
+    maxWidth += 24;
+    if (maxWidth < 50)
+        maxWidth = 50;
+
+    auto* header = tableView->horizontalHeader();
+    header->setSectionResizeMode(logicalIndex, QHeaderView::Interactive);
+
+    autoResizeInProgress = true;
+    tableView->setColumnWidth(logicalIndex, maxWidth);
+    autoResizeInProgress = false;
+
+    // Persist this width (and the rest) to DB
+    this->SaveColumnWidths();
 }
 
 void SessionsTableWidget::RemoveAgentItem(const QString &agentId) const
@@ -794,7 +906,9 @@ void SessionsTableWidget::SaveColumnOrder() const
 void SessionsTableWidget::SaveColumnWidths() const
 {
     for (int i = 0; i < SC_ColumnCount; i++) {
-        GlobalClient->settings->data.SessionsColumnWidths[i] = tableView->columnWidth(i);
+        const int w = tableView->columnWidth(i);
+        if (w > 0)
+            GlobalClient->settings->data.SessionsColumnWidths[i] = w;
     }
 
     GlobalClient->settings->SaveToDB();

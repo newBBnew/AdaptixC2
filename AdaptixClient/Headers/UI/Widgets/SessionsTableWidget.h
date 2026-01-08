@@ -402,6 +402,10 @@ Q_OBJECT
     QMenu*        menuSessions   = nullptr;
     QShortcut*    shortcutSearch = nullptr;
 
+    mutable QTimer* autoResizeColumnsTimer = nullptr;
+    mutable bool    autoResizeInProgress   = false;
+    mutable bool    columnStateReady       = false;
+
     AgentsTableModel*       agentsModel = nullptr;
     AgentsFilterProxyModel* proxyModel  = nullptr;
 
@@ -414,6 +418,9 @@ Q_OBJECT
     ClickableLabel* hideButton      = nullptr;
 
     void createUI();
+
+    void ScheduleAutoResizeColumns() const;
+    void AutoFitColumnToContents(const int logicalIndex) const;
 
 public:
     QTimer* refreshTimer = nullptr;

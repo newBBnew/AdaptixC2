@@ -188,19 +188,23 @@ AuthProfile* MainAdaptix::Login()
 
 void MainAdaptix::SetApplicationTheme()
 {
+    static bool kddwInitialized = false;
+    if (!kddwInitialized) {
+        KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtWidgets);
+        KDDockWidgets::Config::self().setSeparatorThickness(5);
+
+        auto flags = KDDockWidgets::Config::self().flags();
+        flags |= KDDockWidgets::Config::Flag_HideTitleBarWhenTabsVisible;
+        flags |= KDDockWidgets::Config::Flag_TabsHaveCloseButton;
+        flags |= KDDockWidgets::Config::Flag_ShowButtonsOnTabBarIfTitleBarHidden;
+        flags |= KDDockWidgets::Config::Flag_AllowSwitchingTabsViaMenu;
+        flags |= KDDockWidgets::Config::Flag_AllowReorderTabs;
+        flags |= KDDockWidgets::Config::Flag_DoubleClickMaximizes;
+        KDDockWidgets::Config::self().setFlags(flags);
+        kddwInitialized = true;
+    }
+
     QGuiApplication::setWindowIcon( QIcon( ":/LogoLin" ) );
-
-    KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtWidgets);
-    KDDockWidgets::Config::self().setSeparatorThickness(5);
-
-    auto flags = KDDockWidgets::Config::self().flags();
-    flags |= KDDockWidgets::Config::Flag_HideTitleBarWhenTabsVisible;
-    flags |= KDDockWidgets::Config::Flag_TabsHaveCloseButton;
-    flags |= KDDockWidgets::Config::Flag_ShowButtonsOnTabBarIfTitleBarHidden;
-    flags |= KDDockWidgets::Config::Flag_AllowSwitchingTabsViaMenu;
-    flags |= KDDockWidgets::Config::Flag_AllowReorderTabs;
-    flags |= KDDockWidgets::Config::Flag_DoubleClickMaximizes;
-    KDDockWidgets::Config::self().setFlags(flags);
 
     FontManager::instance().initialize();
 
@@ -222,6 +226,9 @@ void MainAdaptix::SetApplicationTheme()
 
     if (settings->data.MainTheme == "Breathing_Tech") {
         breathingThemeTemplate = style;
+        
+        // 立即应用 QSS 结构
+        app->setStyleSheet(style);
 
         auto applyBreathing = [this]() {
             if (settings->data.MainTheme != "Breathing_Tech") {
@@ -230,32 +237,69 @@ void MainAdaptix::SetApplicationTheme()
                 return;
             }
 
-            breathingThemePhase += 0.10;
+            breathingThemePhase += 0.035;
             const qreal t = (qSin(breathingThemePhase) + 1.0) * 0.5;
+            const qreal tPhaseOffset = (qSin(breathingThemePhase + 1.5708) + 1.0) * 0.5; // 相位超前 0.25 周期 (PI/2)
 
-            const QColor c1("#00F0FF");
-            const QColor c2("#2BD9A7");
+            // 1. 交互层强调色 (Highlight): 极简青蓝脉动
+            const QColor accent1("#00E5FF"); // 亮青
+            const QColor accent2("#0030FF"); // 深蓝
+            const QColor currentAccent(
+                qRound(accent1.red() + (accent2.red() - accent1.red()) * tPhaseOffset),
+                qRound(accent1.green() + (accent2.green() - accent1.green()) * tPhaseOffset),
+                qRound(accent1.blue() + (accent2.blue() - accent1.blue()) * tPhaseOffset)
+            );
 
-            const int r = qRound(c1.red() + (c2.red() - c1.red()) * t);
-            const int g = qRound(c1.green() + (c2.green() - c1.green()) * t);
-            const int b = qRound(c1.blue() + (c2.blue() - c1.blue()) * t);
-            const QColor accent(r, g, b);
-
-            const QString accentStr = accent.name(QColor::HexRgb);
-            const QString accentSoft = QString("rgba(%1,%2,%3,%4)").arg(r).arg(g).arg(b).arg(70);
-
-            QString s = breathingThemeTemplate;
-            s.replace("__ACCENT__", accentStr);
-            s.replace("__ACCENT_SOFT__", accentSoft);
+            // 2. 环境层背景同步呼吸：更深邃的灰黑基调
+            const int br = 10, bg = 12, bb = 16;
+            const int offset = qRound(6 * t);
+            const QColor currentWindow(br + offset, bg + offset, bb + offset + 1);
+            const QColor currentBase(br + offset - 2, bg + offset - 2, bb + offset);
 
             QApplication *app = qobject_cast<QApplication*>(QCoreApplication::instance());
-            if (app)
-                app->setStyleSheet(s);
+            if (app) {
+                QPalette pal = app->palette();
+                
+                // 全角色同步更新
+                pal.setColor(QPalette::All, QPalette::Window, currentWindow);
+                pal.setColor(QPalette::All, QPalette::WindowText, QColor("#E2E8F0"));
+                pal.setColor(QPalette::All, QPalette::Base, currentBase);
+                pal.setColor(QPalette::All, QPalette::AlternateBase, currentWindow.lighter(108));
+                pal.setColor(QPalette::All, QPalette::ToolTipBase, currentWindow);
+                pal.setColor(QPalette::All, QPalette::ToolTipText, QColor("#E2E8F0"));
+                pal.setColor(QPalette::All, QPalette::Text, QColor("#E2E8F0"));
+                pal.setColor(QPalette::All, QPalette::Button, currentWindow.lighter(112));
+                pal.setColor(QPalette::All, QPalette::ButtonText, QColor("#E2E8F0"));
+                pal.setColor(QPalette::All, QPalette::BrightText, Qt::white);
+                pal.setColor(QPalette::All, QPalette::Highlight, currentAccent);
+                pal.setColor(QPalette::All, QPalette::HighlightedText, Qt::white);
+                pal.setColor(QPalette::All, QPalette::Link, currentAccent);
+                pal.setColor(QPalette::All, QPalette::PlaceholderText, QColor("#64748B"));
+                
+                // 3D 效果角色
+                pal.setColor(QPalette::All, QPalette::Light, currentWindow.lighter(120));
+                pal.setColor(QPalette::All, QPalette::Midlight, currentWindow.lighter(110));
+                pal.setColor(QPalette::All, QPalette::Mid, QColor(31, 41, 55));
+                pal.setColor(QPalette::All, QPalette::Dark, currentWindow.darker(120));
+                pal.setColor(QPalette::All, QPalette::Shadow, Qt::black);
+
+                app->setPalette(pal);
+            }
         };
+
+        // 初始一次性全量 Polish
+        app->setStyleSheet(style);
+        QPalette initPal = app->palette();
+        // 确保初始状态也是正确的
+        initPal.setColor(QPalette::Window, QColor(13, 17, 23));
+        initPal.setColor(QPalette::Base, QColor(9, 13, 21));
+        initPal.setColor(QPalette::Text, QColor("#E2E8F0"));
+        app->setPalette(initPal);
 
         if (!breathingThemeTimer) {
             breathingThemeTimer = new QTimer(app);
             breathingThemeTimer->setInterval(60);
+            breathingThemeTimer->setTimerType(Qt::CoarseTimer);
             connect(breathingThemeTimer, &QTimer::timeout, app, applyBreathing);
         }
 
@@ -269,5 +313,7 @@ void MainAdaptix::SetApplicationTheme()
     if (breathingThemeTimer)
         breathingThemeTimer->stop();
 
+    // 切换到其他非呼吸主题时，恢复标准调色板或根据主题重新设置
+    app->setPalette(app->style()->standardPalette());
     app->setStyleSheet(style);
 }
