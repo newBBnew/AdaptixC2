@@ -84,6 +84,7 @@ void DialogSettings::createUI()
     themeCombo->addItem("Dark");
     themeCombo->addItem("Dark_Ice");
     themeCombo->addItem("Glass_Morph");
+    themeCombo->addItem("Menu_Glass");
     themeCombo->addItem("Hacker_Tech");
     themeCombo->addItem("Breathing_Tech");
     themeCombo->addItem("Light");
