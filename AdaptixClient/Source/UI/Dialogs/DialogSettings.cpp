@@ -281,6 +281,17 @@ void DialogSettings::createUI()
 
     tabblinkWidget->setLayout(tabblinkLayout);
 
+    aiWidget = new QWidget(this);
+    aiLayout = new QGridLayout(aiWidget);
+    
+    aiPromptLabel = new QLabel("AI System Prompt (Instructions for Resident Mode):", aiWidget);
+    aiPromptTextEdit = new QPlainTextEdit(aiWidget);
+    aiPromptTextEdit->setPlaceholderText("Enter the system instructions for the AI here...");
+    
+    aiLayout->addWidget(aiPromptLabel, 0, 0, 1, 1);
+    aiLayout->addWidget(aiPromptTextEdit, 1, 0, 1, 1);
+    aiWidget->setLayout(aiLayout);
+
     listSettings = new QListWidget(this);
     listSettings->setFixedWidth(150);
     listSettings->setSpacing(3);
@@ -288,6 +299,7 @@ void DialogSettings::createUI()
     listSettings->addItem("Sessions table");
     listSettings->addItem("Tasks table");
     listSettings->addItem("Blinking tabs");
+    listSettings->addItem("AI Assistant");
     listSettings->setCurrentRow(0);
 
     labelHeader = new QLabel(this);
