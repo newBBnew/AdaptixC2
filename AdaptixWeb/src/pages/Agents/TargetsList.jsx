@@ -21,7 +21,7 @@ import { useAgents } from '../../context/AgentContext';
 import ContextMenu from '../../components/ContextMenu';
 
 const TargetsList = () => {
-  const { targets, fetchAgents } = useAgents();
+  const { targets, fetchAgents, globalSearchQuery } = useAgents();
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
@@ -102,11 +102,12 @@ const TargetsList = () => {
     });
   };
 
-  const filteredTargets = targets.filter(t => 
-    Object.values(t).some(val => 
-      String(val).toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  );
+  const filteredTargets = targets.filter(t => {
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
+    return Object.values(t).some(val => 
+      String(val).toLowerCase().includes(query)
+    );
+  });
 
   return (
     <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setMenu(null)}>

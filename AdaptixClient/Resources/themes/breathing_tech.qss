@@ -180,13 +180,6 @@ QComboBox:focus {
     border: 1px solid palette(highlight);
 }
 
-QAbstractItemView#Completer {
-    background-color: palette(base);
-    border: 1px solid palette(highlight);
-    selection-background-color: palette(highlight);
-    selection-color: palette(highlighted-text);
-}
-
 #KDDWTitleBar {
     background-color: palette(window);
     color: palette(window-text);
@@ -326,4 +319,155 @@ QCheckBox::indicator:checked {
     background-color: rgba(255, 255, 255, 0.04);
     border: 1px solid palette(highlight);
     image: url(:/icons/check);
+}
+
+QRadioButton {
+    spacing: 8px;
+}
+
+QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+}
+
+QRadioButton::indicator:checked {
+    border: 1px solid palette(highlight);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+QToolButton {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    padding: 6px 10px;
+}
+
+QToolButton:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+QToolButton:pressed {
+    border: 1px solid palette(highlight);
+}
+
+QSpinBox,
+QDoubleSpinBox,
+QDateTimeEdit {
+    background-color: rgba(255, 255, 255, 0.04);
+    color: palette(text);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    padding: 6px 10px;
+}
+
+QSpinBox:focus,
+QDoubleSpinBox:focus,
+QDateTimeEdit:focus {
+    border: 1px solid palette(highlight);
+}
+
+QComboBox QAbstractItemView {
+    background-color: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+    outline: none;
+}
+
+QComboBox QAbstractItemView::item {
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
+QTableView,
+QTreeView,
+QListView,
+QTableWidget,
+QTreeWidget,
+QListWidget {
+    background-color: rgba(255, 255, 255, 0.03);
+    alternate-background-color: rgba(255, 255, 255, 0.02);
+    color: palette(text);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+}
+
+QTableView::item,
+QTreeView::item,
+QListView::item,
+QTableWidget::item,
+QTreeWidget::item,
+QListWidget::item {
+    padding: 6px 10px;
+    border: none;
+}
+
+QTableView::item:hover,
+QTreeView::item:hover,
+QListView::item:hover,
+QTableWidget::item:hover,
+QTreeWidget::item:hover,
+QListWidget::item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: palette(window-text);
+}
+
+QHeaderView::section:horizontal {
+    padding: 6px 10px;
+    border-radius: 0px;
+}
+
+QProgressBar {
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    color: palette(window-text);
+    text-align: center;
+    padding: 2px;
+}
+
+QProgressBar::chunk {
+    background-color: palette(highlight);
+    border-radius: 8px;
+}
+
+QSlider::groove:horizontal {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    width: 14px;
+    margin: -6px 0;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+QSlider::handle:horizontal:hover {
+    border: 1px solid palette(highlight);
+    background: rgba(255, 255, 255, 0.16);
+}
+
+QToolTip {
+    background-color: rgba(15, 23, 42, 0.88);
+    color: palette(window-text);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 6px 10px;
 }

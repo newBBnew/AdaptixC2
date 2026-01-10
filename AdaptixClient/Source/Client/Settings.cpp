@@ -55,6 +55,8 @@ void Settings::SetDefault()
         data.TasksTableColumns[i] = true;
 
     this->data.TabBlinkEnabled = true;
+
+    this->data.AISystemPrompt = "You are a tactical AI assistant integrated into AdaptixC2. Your goal is to assist operators with reconnaissance, analysis, and decision support. Be concise, professional, and focus on operational security.";
 }
 
 void Settings::LoadFromDB()
@@ -65,6 +67,7 @@ void Settings::LoadFromDB()
     mainAdaptix->storage->SelectSettingsGraph( &data );
     mainAdaptix->storage->SelectSettingsTasks( &data );
     mainAdaptix->storage->SelectSettingsTabBlink( &data );
+    mainAdaptix->storage->SelectSettingsAI( &data );
 }
 
 void Settings::SaveToDB() const
@@ -75,4 +78,5 @@ void Settings::SaveToDB() const
     mainAdaptix->storage->UpdateSettingsGraph( data );
     mainAdaptix->storage->UpdateSettingsTasks( data );
     mainAdaptix->storage->UpdateSettingsTabBlink( data );
+    mainAdaptix->storage->UpdateSettingsAI( data );
 }

@@ -18,6 +18,7 @@ try {
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/ui/',
   plugins: [
     react(),
     tailwindcss(),

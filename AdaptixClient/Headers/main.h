@@ -154,6 +154,12 @@
 #define TYPE_FILEDELIVERY_UPDATE 0x92
 #define TYPE_FILEDELIVERY_DELETE 0x93
 
+#define TYPE_TACTICAL_CATALOG_SYNC   0xA1
+#define TYPE_TACTICAL_WORKFLOW_SYNC  0xA2
+#define TYPE_TACTICAL_WORKFLOW_SAVE  0xA3
+#define TYPE_TACTICAL_RESULT_LINK    0xA4
+#define TYPE_TACTICAL_AI_SUGGESTION  0xA5
+
 //////////
 
 #define DOWNLOAD_STATE_RUNNING  0x1
@@ -217,6 +223,8 @@ typedef struct SettingsData {
 
     bool TabBlinkEnabled;
     QMap<QString, bool> BlinkWidgets;  // className -> enabled
+
+    QString AISystemPrompt;
 } SettingsData;
 
 typedef struct AxUI

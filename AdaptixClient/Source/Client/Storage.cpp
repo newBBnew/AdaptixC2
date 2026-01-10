@@ -457,6 +457,33 @@ void Storage::UpdateSettingsTabBlink(const SettingsData &settingsData)
         LogError("SettingsTablBlink not updated in database: %s\n", query.lastError().text().toStdString().c_str());
 }
 
+void Storage::SelectSettingsAI(SettingsData* settingsData)
+{
+    QSqlQuery query;
+    query.prepare("SELECT data FROM Settings WHERE key = 'SettingsAI' LIMIT 1;");
+    if (query.exec() && query.next()) {
+        QString       data = query.value("data").toString();
+        QJsonDocument doc  = QJsonDocument::fromJson(data.toUtf8());
+        QJsonObject   json = doc.object();
+
+        if (json.contains("systemPrompt"))
+            settingsData->AISystemPrompt = json["systemPrompt"].toString();
+    }
+}
+
+void Storage::UpdateSettingsAI(const SettingsData &settingsData)
+{
+    QJsonObject json;
+    json["systemPrompt"] = settingsData.AISystemPrompt;
+    QString data = QJsonDocument(json).toJson(QJsonDocument::Compact);
+
+    QSqlQuery query;
+    query.prepare("INSERT OR REPLACE INTO Settings (key, data) VALUES ('SettingsAI', :Data);");
+    query.bindValue(":Data", data);
+    if (!query.exec())
+        LogError("SettingsAI not updated in database: %s\n", query.lastError().text().toStdString().c_str());
+}
+
 
 
 /// LISTENER PROFILES

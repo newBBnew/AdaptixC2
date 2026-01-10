@@ -35,28 +35,55 @@ const CreateTunnelDialog = ({ isOpen, onClose, agentId, onCreated }) => {
   ];
 
   const handleCreate = async () => {
-    const payload = {
-      agent_id: agentId,
-      desc: description,
-      listen: endpoint === 'Teamserver',
-      type: type,
-      ...settings
-    };
-
     try {
-      await tunnelApi.list(); // Verification placeholder
-      // The server usually has specific endpoints for different tunnel types
-      // Based on tc_tunnels.go findings: /tunnel/start/lportfwd etc.
-      // But for now we use a generic payload structure matching DialogTunnel.cpp
-      
-      // Real implementation would call specific API methods
-      console.log('[Tunnel] Creating:', payload);
-      alert('Tunnel creation request sent to server');
-      onCreated?.();
-      onClose();
+      let response;
+      const commonData = {
+        agent_id: agentId,
+        listen: endpoint === 'Teamserver',
+        desc: description,
+      };
+
+      if (type === 'socks5') {
+        response = await tunnelApi.startSocks5({
+          ...commonData,
+          l_host: settings.l_host,
+          l_port: parseInt(settings.l_port),
+          use_auth: settings.use_auth,
+          username: settings.username,
+          password: settings.password
+        });
+      } else if (type === 'socks4') {
+        response = await tunnelApi.startSocks4({
+          ...commonData,
+          l_host: settings.l_host,
+          l_port: parseInt(settings.l_port)
+        });
+      } else if (type === 'lportfwd') {
+        response = await tunnelApi.startLportfwd({
+          ...commonData,
+          l_host: settings.l_host,
+          l_port: parseInt(settings.l_port),
+          t_host: settings.t_host,
+          t_port: parseInt(settings.t_port)
+        });
+      } else if (type === 'rportfwd') {
+        response = await tunnelApi.startRportfwd({
+          ...commonData,
+          port: parseInt(settings.l_port), // Reverse forward uses 'port' field for remote port in backend
+          t_host: settings.t_host,
+          t_port: parseInt(settings.t_port)
+        });
+      }
+
+      if (response?.data?.ok) {
+        onCreated?.();
+        onClose();
+      } else {
+        alert(response?.data?.message || 'Failed to create tunnel');
+      }
     } catch (err) {
       console.error('Failed to create tunnel:', err);
-      alert('Error creating tunnel');
+      alert(err.response?.data?.message || 'Error creating tunnel');
     }
   };
 

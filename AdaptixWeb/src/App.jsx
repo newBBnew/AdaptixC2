@@ -13,7 +13,7 @@ import './App.css'
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(
-    localStorage.getItem('isLoggedIn') === 'true'
+    localStorage.getItem('isLoggedIn') === 'true' && !!localStorage.getItem('adaptix_token')
   );
 
   const handleLoginSuccess = () => {
@@ -26,28 +26,37 @@ function App() {
     setIsAuthenticated(false);
   };
 
-  if (!isAuthenticated) {
-    return (
-      <ThemeProvider>
-        <LoginPage onLogin={handleLoginSuccess} />
-      </ThemeProvider>
-    );
-  }
-
   return (
     <ThemeProvider>
       <SocketProvider>
         <AgentProvider>
-          <Router>
-            <Layout onLogout={handleLogout}>
-              <Routes>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/control" element={<ControlPlatform />} />
-                <Route path="/tactical" element={<Tactical />} />
-                <Route path="/settings" element={<Settings />} />
-              </Routes>
-            </Layout>
+          <Router basename="/ui">
+            <Routes>
+              <Route path="/login" element={
+                !isAuthenticated ? (
+                  <LoginPage onLogin={handleLoginSuccess} />
+                ) : (
+                  <Navigate to="/dashboard" replace />
+                )
+              } />
+              
+              <Route path="/*" element={
+                isAuthenticated ? (
+                  <Layout onLogout={handleLogout}>
+                    <Routes>
+                      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                      <Route path="/dashboard" element={<Dashboard />} />
+                      <Route path="/control" element={<ControlPlatform />} />
+                      <Route path="/tactical" element={<Tactical />} />
+                      <Route path="/settings" element={<Settings />} />
+                      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                    </Routes>
+                  </Layout>
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              } />
+            </Routes>
           </Router>
         </AgentProvider>
       </SocketProvider>

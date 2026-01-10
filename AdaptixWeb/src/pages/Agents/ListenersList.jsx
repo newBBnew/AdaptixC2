@@ -18,7 +18,7 @@ import GenerateAgentDialog from './GenerateAgentDialog';
 import ContextMenu from '../../components/ContextMenu';
 
 const ListenersList = () => {
-  const { listeners, fetchAgents } = useAgents();
+  const { listeners, fetchAgents, globalSearchQuery } = useAgents();
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
@@ -26,6 +26,7 @@ const ListenersList = () => {
   
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
+  const [selectedListenerId, setSelectedListenerId] = useState(null);
   const [selectedListener, setSelectedListener] = useState(null);
   const [editData, setEditData] = useState(null);
 
@@ -62,6 +63,8 @@ const ListenersList = () => {
 
   const handleContextMenu = useCallback((e, listener) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent bubbling
+    setSelectedListenerId(listener.l_name); // Auto-select on right click
     setMenu({
       x: e.clientX,
       y: e.clientY,
@@ -76,17 +79,28 @@ const ListenersList = () => {
   }, [handleEdit, handleGenerate, handleStopListener]);
 
   const filteredListeners = useMemo(() => {
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
     return listeners.filter(l => 
       Object.values(l).some(val => 
-        String(val).toLowerCase().includes(searchQuery.toLowerCase())
+        String(val).toLowerCase().includes(query)
       )
     );
-  }, [listeners, searchQuery]);
+  }, [listeners, searchQuery, globalSearchQuery]);
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'Just now';
+    try {
+      const d = new Date(timestamp * 1000);
+      return isNaN(d.getTime()) ? 'Just now' : d.toLocaleString();
+    } catch (e) {
+      return 'Just now';
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setMenu(null)}>
+    <div className="flex flex-col h-full w-full overflow-hidden" onClick={() => setMenu(null)}>
       {/* 1. Header with Controls */}
-      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 glass-card-sm border-b border-theme-glass-light shrink-0 select-none">
         <div className="flex items-center space-x-3">
           <button 
             onClick={() => setIsSearchVisible(!isSearchVisible)}
@@ -127,7 +141,7 @@ const ListenersList = () => {
 
       {/* 2. Search Panel */}
       {isSearchVisible && (
-        <div className="flex items-center px-4 py-2 glass-card-sm border-b border-theme-glass-light shrink-0 animate-in slide-in-from-top-1 duration-200">
+        <div className="flex items-center px-4 py-2 glass-card-sm border-b border-theme-glass-light shrink-0 animate-in slide-in-from-top-1 duration-200 select-none">
           <div className="relative flex-1 max-w-md text-left">
             <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
             <input 
@@ -153,20 +167,21 @@ const ListenersList = () => {
       {/* 3. Table Area */}
       <div className="flex-1 overflow-auto custom-scrollbar glass-panel">
         <table className="glass-table min-w-[900px]">
-          <thead>
+          <thead className="select-none">
             <tr>
               <th className="w-48">Name</th>
-              <th className="w-32">Type</th>
-              <th className="w-24">Protocol</th>
-              <th className="w-48">Bind Endpoint</th>
-              <th className="w-48">Teamserver Date</th>
+              <th className="w-24">Type</th>
+              <th className="w-20">Proto</th>
+              <th className="w-40">Bind Endpoint</th>
+              <th className="w-48">Callback Address</th>
+              <th className="w-40">Start Time</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody className="text-[12px] font-medium">
             {filteredListeners.length === 0 ? (
               <tr>
-                <td colSpan="6" className="py-24 text-center border-none">
+                <td colSpan="7" className="py-24 text-center border-none select-none">
                   <div className="flex flex-col items-center space-y-4 opacity-20">
                     <Radio size={64} className="text-theme-muted" />
                     <p className="text-[10px] font-black uppercase tracking-[0.3em] text-theme-muted">No active listeners identified</p>
@@ -178,25 +193,36 @@ const ListenersList = () => {
                 <tr 
                   key={l.l_name} 
                   onContextMenu={(e) => handleContextMenu(e, l)}
+                  onClick={() => setSelectedListenerId(l.l_name)}
                   onDoubleClick={() => handleEdit(l)}
-                  className="transition-colors group h-10 cursor-default border-b border-theme-glass-light hover:bg-theme-glass"
+                  className={cn(
+                    "transition-colors group h-10 cursor-pointer border-b border-theme-glass-light",
+                    selectedListenerId === l.l_name 
+                      ? "bg-theme-accent/10 hover:bg-theme-accent/20" 
+                      : "hover:bg-theme-glass"
+                  )}
                 >
                   <td className="text-theme-accent font-black uppercase tracking-tight">{l.l_name}</td>
-                  <td className="text-theme-primary font-mono text-[11px] font-bold">{l.l_type}</td>
+                  <td className="text-theme-primary font-mono text-[11px] font-bold">{l.l_reg_name || l.l_type}</td>
                   <td className="text-theme-secondary font-mono text-[11px] uppercase font-bold">{l.l_protocol || 'TCP'}</td>
-                  <td className="text-theme-primary font-mono text-[11px] font-bold">{l.l_host_bind}:{l.l_port_bind}</td>
-                  <td className="text-theme-muted font-mono text-[11px]">{new Date(l.l_create_time * 1000).toLocaleString()}</td>
+                  <td className="text-theme-primary font-mono text-[11px] font-bold select-all">
+                    {l.l_bind_host ? `${l.l_bind_host}:${l.l_bind_port}` : '0.0.0.0:0'}
+                  </td>
+                  <td className="text-theme-accent-secondary font-mono text-[11px] font-bold select-all truncate max-w-[200px]" title={l.l_agent_addr}>
+                    {l.l_agent_addr || '---'}
+                  </td>
+                  <td className="text-theme-muted font-mono text-[11px]">{formatDate(l.l_create_time)}</td>
                   <td>
                     <div className="flex items-center space-x-2">
                       <div className={cn(
                         "w-2 h-2 rounded-full transition-all duration-300",
-                        l.l_active ? "bg-theme-success shadow-glow-sm animate-pulse" : "bg-theme-muted opacity-40"
+                         (l.l_status === 'active' || !l.l_status) ? "bg-theme-success shadow-glow-sm animate-pulse" : "bg-theme-muted opacity-40"
                       )} />
                       <span className={cn(
                         "text-[10px] font-black uppercase tracking-widest transition-colors",
-                        l.l_active ? "text-theme-accent" : "text-theme-muted"
+                         (l.l_status === 'active' || !l.l_status) ? "text-theme-accent" : "text-theme-muted"
                       )}>
-                        {l.l_active ? 'ACTIVE' : 'STOPPED'}
+                        {(l.l_status || 'ACTIVE').toUpperCase()}
                       </span>
                     </div>
                   </td>
@@ -208,7 +234,7 @@ const ListenersList = () => {
       </div>
 
       {/* 4. Footer Summary */}
-      <div className="px-3 py-1.5 glass-card-sm border-t border-theme-glass-light flex items-center justify-between text-[9px] font-black text-theme-muted uppercase tracking-[0.15em] shrink-0">
+      <div className="px-3 py-1.5 glass-card-sm border-t border-theme-glass-light flex items-center justify-between text-[9px] font-black text-theme-muted uppercase tracking-[0.15em] shrink-0 select-none">
         <div className="flex items-center space-x-6">
           <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light shadow-glow-sm">
             <span className="opacity-60">OPERATIONAL_LISTENERS:</span>
@@ -234,7 +260,7 @@ const ListenersList = () => {
         isOpen={isGenerateOpen}
         onClose={() => setIsGenerateOpen(false)}
         listenerName={selectedListener?.l_name}
-        listenerType={selectedListener?.l_type}
+        listenerType={selectedListener?.l_reg_name}
       />
 
       {/* Context Menu */}

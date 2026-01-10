@@ -1,6 +1,7 @@
 package server
 
 import (
+	"AdaptixServer/core/connector"
 	"time"
 
 	adaptix "github.com/Adaptix-Framework/axc2"
@@ -83,6 +84,10 @@ const (
 	TYPE_FILEDELIVERY_CREATE = 0x91
 	TYPE_FILEDELIVERY_UPDATE = 0x92
 	TYPE_FILEDELIVERY_DELETE = 0x93
+
+	TYPE_TACTICAL_CATALOG_SYNC  = 0xa1
+	TYPE_TACTICAL_WORKFLOW_SYNC = 0xa2
+	TYPE_TACTICAL_AI_SUGGESTION = 0xa5
 )
 
 func CreateSpEvent(event int, message string) SpEvent {
@@ -719,5 +724,49 @@ func CreateSpFileDeliveryDelete(fileId []string) SyncPackerFileDeliveryDelete {
 		SpType: TYPE_FILEDELIVERY_DELETE,
 
 		FileId: fileId,
+	}
+}
+
+/// TACTICAL
+
+type SyncPackerTacticalCatalog struct {
+	SpType     int                          `json:"type"`
+	Action     string                       `json:"action"`
+	Categories []connector.TacticalCategory `json:"categories"`
+}
+
+func CreateSpTacticalCatalogSync(categories []connector.TacticalCategory) SyncPackerTacticalCatalog {
+	return SyncPackerTacticalCatalog{
+		SpType:     TYPE_TACTICAL_CATALOG_SYNC,
+		Action:     "sync_all",
+		Categories: categories,
+	}
+}
+
+type SyncPackerTacticalWorkflow struct {
+	SpType       int                              `json:"type"`
+	Action       string                           `json:"action"` // "update", "clear"
+	Steps        []connector.TacticalWorkflowStep `json:"steps"`
+	TargetAgents string                           `json:"target_agents"`
+}
+
+func CreateSpTacticalWorkflowSync(action string, steps []connector.TacticalWorkflowStep, targets string) SyncPackerTacticalWorkflow {
+	return SyncPackerTacticalWorkflow{
+		SpType:       TYPE_TACTICAL_WORKFLOW_SYNC,
+		Action:       action,
+		Steps:        steps,
+		TargetAgents: targets,
+	}
+}
+
+type SyncPackerTacticalAiSuggestion struct {
+	SpType  int    `json:"type"`
+	Content string `json:"content"`
+}
+
+func CreateSpTacticalAiSuggestion(content string) SyncPackerTacticalAiSuggestion {
+	return SyncPackerTacticalAiSuggestion{
+		SpType:  TYPE_TACTICAL_AI_SUGGESTION,
+		Content: content,
 	}
 }

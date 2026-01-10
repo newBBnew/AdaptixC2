@@ -17,11 +17,15 @@ import {
   Menu,
   ChevronDown,
   Search,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Code2,
+  X
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { useAgents } from '../../context/AgentContext';
 
 const Toolbar = ({ onButtonClick, activeTabId }) => {
+  const { globalSearchQuery, setGlobalSearchQuery } = useAgents();
   const sections = [
     [
       { id: 'listeners', label: 'Listeners', icon: Radio, tooltip: 'Listeners & Sites' },
@@ -36,12 +40,14 @@ const Toolbar = ({ onButtonClick, activeTabId }) => {
     [
       { id: 'tunnels', label: 'Tunnels', icon: Shield, tooltip: 'Tunnels table' },
       { id: 'delivery', label: 'Delivery', icon: Database, tooltip: 'File Delivery' },
+      { id: 'pivots', label: 'Pivots', icon: Network, tooltip: 'Cascade Links' },
     ],
     [
       { id: 'downloads', label: 'Downloads', icon: Download, tooltip: 'Downloads' },
       { id: 'targets', label: 'Targets', icon: Target, tooltip: 'Targets table' },
       { id: 'creds', label: 'Credentials', icon: Key, tooltip: 'Credentials' },
       { id: 'screens', label: 'Screens', icon: Monitor, tooltip: 'Screens' },
+      { id: 'scripts', label: 'Scripts', icon: Code2, tooltip: 'Script Library' },
       { id: 'keys', label: 'Keystrokes', icon: Keyboard, tooltip: 'Keystrokes', hidden: true },
     ],
     [
@@ -110,9 +116,19 @@ const Toolbar = ({ onButtonClick, activeTabId }) => {
             <Search size={14} className="ml-3 text-theme-muted group-focus-within:text-theme-accent transition-colors" />
             <input 
               type="text" 
-              placeholder="Search..." 
-              className="bg-transparent border-none py-2 pl-2 pr-4 text-sm text-theme-primary outline-none w-48 transition-all placeholder:text-theme-muted"
+              placeholder="Global search..." 
+              value={globalSearchQuery}
+              onChange={(e) => setGlobalSearchQuery(e.target.value)}
+              className="bg-transparent border-none py-2 pl-2 pr-10 text-sm text-theme-primary outline-none w-48 focus:w-64 transition-all placeholder:text-theme-muted"
             />
+            {globalSearchQuery && (
+              <button 
+                onClick={() => setGlobalSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-danger transition-colors"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
           
           <div className="flex items-center space-x-2">

@@ -68,6 +68,8 @@ DialogSettings::DialogSettings(Settings* s)
     connect(listSettings, &QListWidget::currentRowChanged, this, &DialogSettings::onStackChange);
     connect(buttonApply,  &QPushButton::clicked,           this, &DialogSettings::onApply);
     connect(buttonClose,  &QPushButton::clicked,           this, &DialogSettings::onClose);
+
+    connect(aiPromptTextEdit, &QPlainTextEdit::textChanged, buttonApply, [this](){ buttonApply->setEnabled(true); });
 }
 
 void DialogSettings::createUI()
@@ -424,6 +426,8 @@ void DialogSettings::onApply() const
     for (auto it = m_tabblinkChecks.begin(); it != m_tabblinkChecks.end(); ++it)
         settings->data.BlinkWidgets[it.key()] = it.value()->isChecked();
 
+    settings->data.AISystemPrompt = aiPromptTextEdit->toPlainText();
+
     settings->SaveToDB();
 }
 
@@ -463,6 +467,8 @@ void DialogSettings::loadSettings()
             it.value()->setChecked(enabled);
         }
     }
+
+    aiPromptTextEdit->setPlainText(settings->data.AISystemPrompt);
 
     buttonApply->setEnabled(false);
 }

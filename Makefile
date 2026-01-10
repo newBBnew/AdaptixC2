@@ -1,4 +1,4 @@
-all: clean prepare server client extenders
+all: prepare server client extenders
 
 DIST_DIR := release
 
@@ -23,12 +23,8 @@ prepare:
 	fi
 
 clean:
-	@ if [ -d "$(DIST_DIR)" ]; then \
-		find $(DIST_DIR) -type f ! -name '*.pem' ! -name '*.key' ! -name '*.crt' ! -name 'profile.json' ! -name 'profile.json.back' -delete; \
-		rm -rf $(DIST_DIR)/extenders; \
-		rm -f $(DIST_DIR)/adaptixserver $(DIST_DIR)/AdaptixClient; \
-		echo "[+] Cleaned build artifacts (preserved certificates and profile.json)"; \
-	fi
+	@ rm -rf $(DIST_DIR)
+	@ echo "[+] Cleaned build artifacts"
 
 clean-all: clean
 	@ echo "[*] Cleaning all build artifacts..."
@@ -73,18 +69,12 @@ extenders: prepare
 
 server: prepare
 	@ echo "[*] Building adaptixserver..."
-	@ cd AdaptixServer && GOEXPERIMENT=jsonv2,greenteagc go build -buildvcs=false -ldflags="-s -w" -o adaptixserver > /dev/null 2>build_error.log || { echo "[ERROR] Failed to build AdaptixServer:"; cat build_error.log >&2; exit 1; }     # for static build use CGO_ENABLED=0
+	@ cd AdaptixServer && GOEXPERIMENT=jsonv2,greenteagc go build -buildvcs=false -ldflags="-s -w" -o adaptixserver > /dev/null 2>build_error.log || { echo "[ERROR] Failed to build AdaptixServer:"; cat build_error.log >&2; exit 1; }
 	@ mv AdaptixServer/adaptixserver ./$(DIST_DIR)/
-	@ if [ -f "$(DIST_DIR)/profile.json" ]; then \
-		cp $(DIST_DIR)/profile.json $(DIST_DIR)/profile.json.back; \
-		echo "[+] Backed up existing profile.json to profile.json.back"; \
-	fi
 	@ cp AdaptixServer/ssl_gen.sh AdaptixServer/profile.json AdaptixServer/404page.html ./$(DIST_DIR)/
 	@ echo "[+] done"
 
 server-ext: clean server extenders
-
-
 
 ### CLIENT ###
 
@@ -159,13 +149,13 @@ help:
 	@ echo "AdaptixC2 Build System"
 	@ echo ""
 	@ echo "Available targets:"
-	@ echo "  all              - Build everything (server, client, extenders)"
+	@ echo "  all              - Build core components (server, client, extenders)"
 	@ echo "  extenders        - Build only the extenders"
-	@ echo "  server-ext       - Build server and extenders (no client, ideal for VPS)"
+	@ echo "  server-ext       - Build server and extenders"
 	@ echo "  server           - Build only the server"
 	@ echo "  client-fast      - Build only the client in multithread mode (fast build)"
 	@ echo "  client           - Build only the client"
-	@ echo "  clean            - Remove dist directory"
+	@ echo "  clean            - Remove main build artifacts in release directory"
 	@ echo "  clean-all        - Remove all build artifacts"
 	@ echo ""
 	@ echo "Docker commands:"

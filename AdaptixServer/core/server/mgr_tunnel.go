@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 	"github.com/gorilla/websocket"
 )
 
@@ -279,8 +279,8 @@ func (tm *TunnelManager) GetChannelPipesByIdOnly(channelId int) (*io.PipeReader,
 	return entry.Channel.prSrv, entry.Channel.pwTun, nil
 }
 
-func (tm *TunnelManager) GetStats() TunnelStats {
-	return tm.stats
+func (tm *TunnelManager) GetStats() *TunnelStats {
+	return &tm.stats
 }
 
 func (tm *TunnelManager) ListTunnels() []adaptix.TunnelData {

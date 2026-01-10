@@ -58,37 +58,33 @@ const CreateTargetDialog = ({ isOpen, onClose, onSaved, editMode = false, initia
     }
 
     try {
-      const payload = {
-        targets: [formData]
+      const targetData = {
+        t_computer: formData.computer,
+        t_domain: formData.domain,
+        t_address: formData.address,
+        t_os: parseInt(formData.os),
+        t_os_desk: formData.os_desk,
+        t_tag: formData.tag,
+        t_info: formData.info,
+        t_alive: formData.alive
       };
-      
-      // Based on tc_targets.go, Edit uses "t_target_id" etc.
-      // But Create uses a "targets" array.
+
       if (editMode) {
-        // Edit API usually takes a single object with t_ prefix fields based on tc_targets.go
-        const editPayload = {
-          t_target_id: formData.target_id,
-          t_computer: formData.computer,
-          t_domain: formData.domain,
-          t_address: formData.address,
-          t_os: parseInt(formData.os),
-          t_os_desk: formData.os_desk,
-          t_tag: formData.tag,
-          t_info: formData.info,
-          t_alive: formData.alive
-        };
-        // We'll need to add an 'edit' method to dataApi if not present
-        await dataApi.editTarget?.(editPayload);
+        await dataApi.editTarget?.({
+          ...targetData,
+          t_target_id: formData.target_id
+        });
       } else {
-        // Create expects { "targets": [...] }
-        await dataApi.createTarget?.(payload);
+        await dataApi.createTarget?.({
+          targets: [targetData]
+        });
       }
       
       onSaved?.();
       onClose();
     } catch (err) {
       console.error('Failed to save target:', err);
-      alert('Error saving target data');
+      alert(err.response?.data?.message || 'Error saving target data');
     }
   };
 

@@ -68,6 +68,11 @@ Q_OBJECT
     QGridLayout* tabblinkGroupLayout     = nullptr;
     QMap<QString, QCheckBox*> m_tabblinkChecks;  // className -> checkbox
 
+    QWidget*        aiWidget         = nullptr;
+    QGridLayout*    aiLayout         = nullptr;
+    QLabel*         aiPromptLabel    = nullptr;
+    QPlainTextEdit* aiPromptTextEdit = nullptr;
+
     void createUI();
     void loadSettings();
 

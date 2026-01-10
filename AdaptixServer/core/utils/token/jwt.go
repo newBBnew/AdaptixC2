@@ -77,15 +77,6 @@ func GenerateRefreshToken(username string, version string) (string, error) {
 func ValidateAccessToken() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		tokenString := ctx.GetHeader("Authorization")
-
-		// Support token from query parameter for WebSocket connections
-		if tokenString == "" {
-			tokenString = ctx.Query("token")
-			if tokenString != "" {
-				tokenString = "Bearer " + tokenString
-			}
-		}
-
 		if tokenString == "" {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "authorization token required", "ok": false})
 			return

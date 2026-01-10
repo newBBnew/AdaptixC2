@@ -20,6 +20,7 @@
 #include <UI/Widgets/CredentialsWidget.h>
 #include <UI/Widgets/TargetsWidget.h>
 #include <UI/Widgets/TasksWidget.h>
+#include <UI/Widgets/TacticalGuidanceWidget.h>
 #include <UI/Widgets/TunnelsWidget.h>
 #include <UI/Graph/SessionsGraph.h>
 #include <UI/Dialogs/DialogSyncPacket.h>
@@ -76,6 +77,9 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     TasksDock->dockTasks()->toggleAction()->trigger();
     dockBottom->addDockWidgetAsTab( TasksDock->dockTasksOutput() );
     TasksDock->dockTasksOutput()->toggleAction()->trigger();
+
+    TacticalGuidanceDock = new TacticalGuidanceWidget(this);
+    dockTop->addDockWidgetAsTab( TacticalGuidanceDock->dock() );
 
     TunnelsDock = new TunnelsWidget(this);
     dockBottom->addDockWidgetAsTab( TunnelsDock->dock() );
@@ -169,9 +173,10 @@ void AdaptixWidget::createUI()
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
-    auto themedIcon = [isDarkIce, isGlass, isHackerTech](const QString& path) {
+    bool isBreathing = (GlobalClient->settings->data.MainTheme == "Breathing_Tech");
+    auto themedIcon = [isDarkIce, isGlass, isHackerTech, isBreathing](const QString& path) {
         QIcon icon(path);
-        if (isDarkIce || isGlass)
+        if (isDarkIce || isGlass || isBreathing)
             icon = RecolorIcon(icon, COLOR_IceBlue);
         else if (isHackerTech)
             icon = RecolorIcon(icon, COLOR_IceBlue);
@@ -448,6 +453,12 @@ void AdaptixWidget::Close()
 
 void AdaptixWidget::ClearAdaptix()
 {
+    if (McpBridge) {
+        McpBridge->stop();
+        McpBridge->deleteLater();
+        McpBridge = nullptr;
+    }
+
     AxConsoleDock->OutputClear();
     LogsDock->Clear();
     ChatDock->Clear();

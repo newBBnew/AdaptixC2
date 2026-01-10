@@ -12,7 +12,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,123 +53,6 @@ var (
 	CFlags            = "-c -fno-builtin -fno-unwind-tables -fno-strict-aliasing -fno-ident -fno-stack-protector -fno-exceptions -fno-asynchronous-unwind-tables -fno-strict-overflow -fno-delete-null-pointer-checks -fpermissive -w -masm=intel -fPIC"
 	LFlags            = "-Os -s -Wl,-s,--gc-sections -static-libgcc -mwindows"
 )
-
-// BofParamDescriptor represents the JSON structure sent by the Web Client
-type BofParamDescriptor struct {
-	Type  string `json:"__type"`
-	Types string `json:"types"`
-	Args  []any  `json:"args"`
-}
-
-func resolveWebBof(args map[string]any) ([]byte, []byte, error) {
-	// 1. Resolve BOF Content
-	bofPath, _ := args["bof_path"].(string)
-	if bofPath == "" {
-		return nil, nil, errors.New("bof_path is required for notification mode")
-	}
-
-	// Security: Prevent path traversal by ensuring path is relative and doesn't go above extension kit
-	cleanPath := filepath.Clean(bofPath)
-	if strings.HasPrefix(cleanPath, "..") || filepath.IsAbs(cleanPath) {
-		return nil, nil, errors.New("invalid bof_path: security violation")
-	}
-
-	fullPath := filepath.Join(ModuleDir, "..", "..", "..", "Extension-Kit", cleanPath)
-	bofContent, err := os.ReadFile(fullPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read BOF file at %s: %v", fullPath, err)
-	}
-
-	// 2. Resolve Parameters
-	var params []byte
-	paramDataStr, ok := args["param_data"].(string)
-	if ok && paramDataStr != "" {
-		// Check if it's a JSON descriptor
-		if strings.HasPrefix(paramDataStr, "{") {
-			var descriptor BofParamDescriptor
-			if err := json.Unmarshal([]byte(paramDataStr), &descriptor); err == nil && descriptor.Type == "bof_descriptor" {
-				// Server-side bof_pack
-				params, err = serverBofPack(descriptor)
-				if err != nil {
-					return nil, nil, fmt.Errorf("server-side bof_pack failed: %v", err)
-				}
-			} else {
-				// Fallback: treat as raw base64 if it's not our descriptor
-				params, _ = base64.StdEncoding.DecodeString(paramDataStr)
-			}
-		} else {
-			// Traditional Base64
-			params, _ = base64.StdEncoding.DecodeString(paramDataStr)
-		}
-	}
-
-	return bofContent, params, nil
-}
-
-func serverBofPack(desc BofParamDescriptor) ([]byte, error) {
-	types := strings.Split(desc.Types, ",")
-	if len(types) != len(desc.Args) {
-		return nil, errors.New("mismatched types and args count")
-	}
-
-	var packedArgs []interface{}
-	for i, t := range types {
-		val := desc.Args[i]
-		switch strings.TrimSpace(t) {
-		case "cstr":
-			s, ok := val.(string)
-			if !ok {
-				return nil, fmt.Errorf("arg %d: expected string for cstr", i)
-			}
-			packedArgs = append(packedArgs, s)
-		case "wstr":
-			// For now, treat as string as beacon_agent pl_packer uses UTF8->CP conversion in string case
-			s, ok := val.(string)
-			if !ok {
-				return nil, fmt.Errorf("arg %d: expected string for wstr", i)
-			}
-			packedArgs = append(packedArgs, s)
-		case "int":
-			var n int
-			switch v := val.(type) {
-			case float64:
-				n = int(v)
-			case int:
-				n = v
-			case string:
-				n, _ = strconv.Atoi(v)
-			default:
-				return nil, fmt.Errorf("arg %d: expected number for int", i)
-			}
-			packedArgs = append(packedArgs, n)
-		case "short":
-			var n int
-			switch v := val.(type) {
-			case float64:
-				n = int(v)
-			case int:
-				n = v
-			default:
-				return nil, fmt.Errorf("arg %d: expected number for short", i)
-			}
-			packedArgs = append(packedArgs, n)
-		case "bin":
-			s, ok := val.(string)
-			if !ok {
-				return nil, fmt.Errorf("arg %d: expected base64 string for bin", i)
-			}
-			data, err := base64.StdEncoding.DecodeString(s)
-			if err != nil {
-				return nil, fmt.Errorf("arg %d: invalid base64 for bin", i)
-			}
-			packedArgs = append(packedArgs, data)
-		default:
-			return nil, fmt.Errorf("arg %d: unknown type %s", i, t)
-		}
-	}
-
-	return PackArray(packedArgs)
-}
 
 func AgentGenerateProfile(agentConfig string, listenerWM string, listenerMap map[string]any) ([]byte, error) {
 	var (
@@ -765,30 +647,23 @@ func CreateTask(ts Teamserver, agent adaptix.AgentData, args map[string]any) (ad
 		if subcommand == "bof" {
 			taskData.Type = TYPE_JOB
 
-			var bofContent []byte
-			var params []byte
-
 			bofFile, ok := args["bof"].(string)
-			if ok && bofFile != "" {
-				// Traditional Mode (Qt Client)
-				bofContent, err = base64.StdEncoding.DecodeString(bofFile)
-				if err != nil {
-					goto RET
-				}
+			if !ok {
+				err = errors.New("parameter 'bof' must be set")
+				goto RET
+			}
+			bofContent, err := base64.StdEncoding.DecodeString(bofFile)
+			if err != nil {
+				goto RET
+			}
 
-				paramData, ok := args["param_data"].(string)
-				if ok {
-					params, err = base64.StdEncoding.DecodeString(paramData)
-					if err != nil {
-						params = []byte(paramData)
-						params = append(params, 0)
-					}
-				}
-			} else {
-				// Notification Mode (Web Client)
-				bofContent, params, err = resolveWebBof(args)
+			var params []byte
+			paramData, ok := args["param_data"].(string)
+			if ok {
+				params, err = base64.StdEncoding.DecodeString(paramData)
 				if err != nil {
-					goto RET
+					params = []byte(paramData)
+					params = append(params, 0)
 				}
 			}
 

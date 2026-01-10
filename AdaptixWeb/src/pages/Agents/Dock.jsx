@@ -14,6 +14,8 @@ import RemoteTerminal from './RemoteTerminal';
 import FileBrowser from './FileBrowser';
 import ProcessBrowser from './ProcessBrowser';
 import AxConsole from './AxConsole';
+import ScriptsList from './ScriptsList';
+import PivotsList from './PivotsList';
 import { useAgents } from '../../context/AgentContext';
 import { 
   Radio, 
@@ -34,7 +36,8 @@ import {
   FolderOpen,
   Activity,
   Code2,
-  Info
+  Info,
+  Network
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
@@ -67,8 +70,10 @@ const Dock = () => {
       case 'delivery': return Database;
       case 'downloads': return Download;
       case 'targets': return Target;
+      case 'pivots': return Network;
       case 'creds': return Key;
       case 'screens': return ImageIcon;
+      case 'scripts': return Code2;
       case 'agent': return Terminal;
       default: return ScrollText;
     }
@@ -181,6 +186,8 @@ const Dock = () => {
                   {tab.type === 'targets' && <TargetsList />}
                   {tab.type === 'creds' && <CredentialsList />}
                   {tab.type === 'screens' && <ScreenshotsList />}
+                  {tab.type === 'scripts' && <ScriptsList />}
+                  {tab.type === 'pivots' && <PivotsList />}
                 </div>
               )}
             </div>

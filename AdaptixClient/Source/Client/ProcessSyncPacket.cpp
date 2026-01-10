@@ -1,4 +1,5 @@
 #include <Agent/Agent.h>
+#include <Workers/MCP/MCPBridgeWorker.h>
 #include <UI/Widgets/AdaptixWidget.h>
 #include <UI/Widgets/ConsoleWidget.h>
 #include <UI/Widgets/BrowserFilesWidget.h>
@@ -14,12 +15,13 @@
 #include <UI/Widgets/TunnelsWidget.h>
 #include <UI/Widgets/CredentialsWidget.h>
 #include <UI/Widgets/TargetsWidget.h>
+#include <UI/Widgets/TacticalGuidanceWidget.h>
 #include <UI/Widgets/AxConsoleWidget.h>
 #include <UI/Graph/SessionsGraph.h>
 #include <UI/Dialogs/DialogSyncPacket.h>
+#include <Client/Requestor.h>
 
 namespace {
-
     QIcon getTargetOsIcon(int os, bool owned, bool alive) {
         switch (os) {
             case OS_WINDOWS:
@@ -140,7 +142,6 @@ namespace {
         data.Date          = UnixTimestampGlobalToStringLocal(data.DateTimestamp);
         return data;
     }
-
 }
 
 bool AdaptixWidget::isValidSyncPacket(QJsonObject jsonObj)
@@ -474,6 +475,15 @@ bool AdaptixWidget::isValidSyncPacket(QJsonObject jsonObj)
     case TYPE_FILEDELIVERY_DELETE:
         return checkField("fd_files_id", isArr);
 
+    case TYPE_TACTICAL_CATALOG_SYNC:
+        return checkField("action", isStr) && checkField("categories", isArr);
+
+    case TYPE_TACTICAL_WORKFLOW_SYNC:
+        return checkField("action", isStr) && jsonObj.contains("steps");
+
+    case TYPE_TACTICAL_AI_SUGGESTION:
+        return checkField("content", isStr);
+
     default:
         qWarning() << "[SyncPacket] Unknown packet type:" << spType;
         return false;
@@ -552,6 +562,17 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
         Agent* newAgent = new Agent(jsonObj, this);
         SessionsTableDock->AddAgentItem(newAgent);
         SessionsGraphDock->AddAgent(newAgent, this->synchronized);
+        
+        // God View: 通知 MCP 发现新 Agent
+        if (McpBridge) {
+            QJsonObject eventObj;
+            eventObj["event"] = "new_agent";
+            eventObj["agent_id"] = newAgent->data.Id;
+            eventObj["computer"] = newAgent->data.Computer;
+            eventObj["username"] = newAgent->data.Username;
+            McpBridge->sendMessage("c2_event", eventObj);
+        }
+
         if (synchronized)
             Q_EMIT eventNewAgent(newAgent->data.Id);
         break;
@@ -617,11 +638,25 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
                     task->Status = "Canceled";
                 else
                     task->Status = "Success";
+
+                // God View: 通知 MCP 任务完成
+                if (McpBridge) {
+                    QJsonObject eventObj;
+                    eventObj["event"] = "task_completed";
+                    eventObj["agent_id"] = task->AgentId;
+                    eventObj["task_id"] = taskId;
+                    eventObj["command"] = task->CommandLine;
+                    eventObj["status"] = task->Status;
+                    McpBridge->sendMessage("c2_event", eventObj);
+                }
             }
             if (task->Message.isEmpty())
                 task->Message = jsonObj["a_message"].toString();
             task->Output += jsonObj["a_text"].toString();
             TasksDock->UpdateTaskItem(taskId, *task);
+
+            if (TacticalGuidanceDock)
+                TacticalGuidanceDock->handleTaskUpdate(*task);
 
             if ( task->Completed && jsonObj.contains("a_handler_id") && jsonObj["a_handler_id"].isString() ) {
                 QString handlerId = jsonObj["a_handler_id"].toString();
@@ -700,13 +735,48 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
         break;
     }
 
-    case TYPE_CHAT_MESSAGE:
+    case TYPE_CHAT_MESSAGE: {
+        QString username = jsonObj["c_username"].toString();
+        QString message = jsonObj["c_message"].toString();
+        double timestamp = jsonObj["c_date"].toDouble();
+
+        LogInfo("[Chat] Received message from %s: %s", username.toUtf8().constData(), message.toUtf8().constData());
+
         ChatDock->AddChatMessage(
-            jsonObj["c_date"].toDouble(),
-            jsonObj["c_username"].toString(),
-            jsonObj["c_message"].toString()
+            timestamp,
+            username,
+            message
         );
+
+        // Forward to MCP Bridge
+        if (McpBridge) {
+            QJsonObject chatObj;
+            chatObj["type"] = "team_chat";
+            chatObj["username"] = username;
+            chatObj["content"] = message;
+            chatObj["timestamp"] = timestamp;
+            McpBridge->sendMessage("team_chat", chatObj);
+        }
+
+        // --- AI 上帝视角：团队聊天自动响应逻辑 ---
+        // 核心思路：如果消息以 @AI 开头，或者包含特定指令，或者当前 AI 处于活跃引导状态
+        if (username != GetProfile()->GetUsername()) { // 不要响应 AI 自己发的消息
+             bool shouldRespond = message.contains("@AI", Qt::CaseInsensitive) || 
+                                 message.contains("AI ", Qt::CaseInsensitive);
+             
+             if (shouldRespond && McpBridge) {
+                 // 触发 AI 的上帝视角处理逻辑
+                 // 这里通过 MCP 通知 AI 有新的团队指令需要处理
+                 QJsonObject aiTrigger;
+                 aiTrigger["action"] = "auto_respond";
+                 aiTrigger["context"] = "team_chat";
+                 aiTrigger["username"] = username;
+                 aiTrigger["message"] = message;
+                 McpBridge->sendMessage("ai_autonomous_trigger", aiTrigger);
+             }
+        }
         break;
+    }
 
     case TYPE_DOWNLOAD_CREATE:
         DownloadsDock->AddDownloadItem(parseDownloadData(jsonObj));
@@ -748,6 +818,7 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
         for (const QJsonValue &val : jsonObj["c_creds"].toArray()) {
             if (!val.isObject()) continue;
             QJsonObject obj = val.toObject();
+            // ... (existing validation)
             if (!obj.contains("c_creds_id") || !obj["c_creds_id"].isString()) continue;
             if (!obj.contains("c_username") || !obj["c_username"].isString()) continue;
             if (!obj.contains("c_password") || !obj["c_password"].isString()) continue;
@@ -772,6 +843,17 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
             c.AgentId       = obj["c_agent_id"].toString();
             c.Host          = obj["c_host"].toString();
             credList.append(c);
+
+            // God View: 通知 MCP 发现新凭据
+            if (McpBridge) {
+                QJsonObject eventObj;
+                eventObj["event"] = "new_credential";
+                eventObj["username"] = c.Username;
+                eventObj["password"] = c.Password;
+                eventObj["host"] = c.Host;
+                eventObj["type"] = c.Type;
+                McpBridge->sendMessage("c2_event", eventObj);
+            }
         }
         CredentialsDock->AddCredentialsItems(credList);
         break;
@@ -791,13 +873,20 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
         break;
     }
 
-    case TYPE_CREDS_DELETE: {
-        QStringList ids;
-        for (const QJsonValue &val : jsonObj["c_creds_id"].toArray())
-            if (val.isString()) ids.append(val.toString());
-        CredentialsDock->RemoveCredentialsItem(ids);
+    case TYPE_TACTICAL_WORKFLOW_SYNC:
+        if (TacticalGuidanceDock)
+            TacticalGuidanceDock->handleWorkflowSync(jsonObj);
         break;
-    }
+
+    case TYPE_TACTICAL_AI_SUGGESTION:
+        // AI 建议现在直接重定向到团队聊天
+        if (jsonObj.contains("content")) {
+            QString content = jsonObj["content"].toString();
+            HttpReqChatSendMessageAsync("[Tactical AI] " + content, *GetProfile(), [](bool success, const QString& msg, const QJsonObject&){
+                if (!success) LogError("Failed to forward AI suggestion to chat: %s", msg.toUtf8().constData());
+            });
+        }
+        break;
 
     case TYPE_CREDS_SET_TAG: {
         QStringList ids;
@@ -822,26 +911,32 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
             if (!obj.contains("t_info")      || !obj["t_info"].isString())      continue;
             if (!obj.contains("t_date")      || !obj["t_date"].isDouble())      continue;
             if (!obj.contains("t_alive")     || !obj["t_alive"].isBool())       continue;
-            if (!obj.contains("t_agents")) continue;
+            if (!obj.contains("t_agents")    || !obj["t_agents"].isString())    continue;
 
             TargetData t;
             t.TargetId      = obj["t_target_id"].toString();
             t.Computer      = obj["t_computer"].toString();
             t.Domain        = obj["t_domain"].toString();
             t.Address       = obj["t_address"].toString();
-            t.Os            = obj["t_os"].toInt();
+            t.Os            = obj["t_os"].toDouble();
             t.OsDesc        = obj["t_os_desk"].toString();
             t.Tag           = obj["t_tag"].toString();
             t.Info          = obj["t_info"].toString();
             t.DateTimestamp = static_cast<qint64>(obj["t_date"].toDouble());
             t.Date          = UnixTimestampGlobalToStringLocal(t.DateTimestamp);
             t.Alive         = obj["t_alive"].toBool();
-            if (obj["t_agents"].isArray()) {
-                for (const QJsonValue &aid : obj["t_agents"].toArray())
-                    if (aid.isString()) t.Agents.append(aid.toString());
-            }
-            t.OsIcon = getTargetOsIcon(t.Os, !t.Agents.isEmpty(), t.Alive);
+            t.Agents        = obj["t_agents"].toString().split(",", Qt::SkipEmptyParts);
             targetsList.append(t);
+
+            // God View: 通知 MCP 发现新目标
+            if (McpBridge) {
+                QJsonObject eventObj;
+                eventObj["event"] = "new_target";
+                eventObj["computer"] = t.Computer;
+                eventObj["address"] = t.Address;
+                eventObj["os"] = t.OsDesc;
+                McpBridge->sendMessage("c2_event", eventObj);
+            }
         }
         TargetsDock->AddTargetsItems(targetsList);
         break;

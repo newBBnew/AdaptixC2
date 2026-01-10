@@ -23,7 +23,7 @@ import { useAgents } from '../../context/AgentContext';
 import ContextMenu from '../../components/ContextMenu';
 
 const CredentialsList = () => {
-  const { credentials, fetchAgents } = useAgents();
+  const { credentials, fetchAgents, globalSearchQuery } = useAgents();
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
@@ -63,10 +63,11 @@ const CredentialsList = () => {
   const credTypes = ['All Types', ...new Set(credentials.map(c => c.type).filter(Boolean))].sort();
 
   const filteredCreds = credentials.filter(c => {
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
     const matchesSearch = Object.values(c).some(val => 
-      String(val).toLowerCase().includes(searchQuery.toLowerCase())
+      String(val).toLowerCase().includes(query)
     );
-    const matchesType = filterType === 'All Types' || c.type === filterType;
+    const matchesType = filterType === 'All Types' || c.c_type === filterType;
     return matchesSearch && matchesType;
   });
 
@@ -76,7 +77,7 @@ const CredentialsList = () => {
 
   const handleCopyCommand = (cred, format) => {
     let text = '';
-    const { username, password, realm } = cred;
+    const { c_username: username, c_password: password, c_realm: realm } = cred;
     switch (format) {
       case 'realm_user_pass': text = `${realm}\\${username}:${password}`; break;
       case 'user': text = username; break;
@@ -89,14 +90,14 @@ const CredentialsList = () => {
       default: text = password;
     }
     navigator.clipboard.writeText(text);
-    // Optional: add a toast notification here
   };
 
   const handleSetTag = async (id, currentTag) => {
     const newTag = window.prompt('Enter new tag:', currentTag || '');
     if (newTag !== null) {
       try {
-        await dataApi.editCred({ ...credentials.find(c => c.cred_id === id), tag: newTag });
+        await dataApi.setCredTag([id], newTag);
+        fetchAgents();
       } catch (err) {
         console.error('Failed to set tag:', err);
       }
@@ -110,16 +111,16 @@ const CredentialsList = () => {
       y: e.clientY,
       options: [
         { label: 'Edit Credential', icon: Edit3, onClick: () => handleEdit(cred) },
-        { label: 'Remove Credential', icon: Trash2, onClick: () => handleRemove(cred.cred_id) },
+        { label: 'Remove Credential', icon: Trash2, onClick: () => handleRemove(cred.c_creds_id) },
         { divider: true },
-        { label: 'Set Tag...', icon: Tag, onClick: () => handleSetTag(cred.cred_id, cred.tag) },
+        { label: 'Set Tag...', icon: Tag, onClick: () => handleSetTag(cred.c_creds_id, cred.c_tag) },
         { label: 'Export to file', icon: FileDown, onClick: () => {
           const format = window.prompt('Format (use %realm%, %username%, %password%):', '%realm%\\%username%:%password%');
           if (!format) return;
           const text = format
-            .replace(/%realm%/g, cred.realm || '')
-            .replace(/%username%/g, cred.username || '')
-            .replace(/%password%/g, cred.password || '');
+            .replace(/%realm%/g, cred.c_realm || '')
+            .replace(/%username%/g, cred.c_username || '')
+            .replace(/%password%/g, cred.c_password || '');
           const blob = new Blob([text], { type: 'text/plain' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -242,38 +243,38 @@ const CredentialsList = () => {
             ) : (
               filteredCreds.map((c) => (
                 <tr 
-                  key={c.cred_id} 
+                  key={c.c_creds_id} 
                   onContextMenu={(e) => handleContextMenu(e, c)}
                   className="transition-colors group h-8 cursor-default hover:bg-theme-hover"
                 >
                   <td className="text-theme-accent font-black font-mono">
                     <div className="flex items-center space-x-2">
                       <User size={12} className="text-theme-muted" />
-                      <span>{c.username}</span>
+                      <span>{c.c_username}</span>
                     </div>
                   </td>
-                  <td className="text-theme-primary font-mono select-text cursor-pointer hover:text-theme-accent transition-colors" onClick={() => handleCopyPassword(c.password)}>
+                  <td className="text-theme-primary font-mono select-text cursor-pointer hover:text-theme-accent transition-colors" onClick={() => handleCopyPassword(c.c_password)}>
                     <div className="flex items-center justify-between">
-                      <span className="truncate max-w-[200px]">{c.password}</span>
+                      <span className="truncate max-w-[200px]">{c.c_password}</span>
                       <Copy size={10} className="text-theme-muted opacity-0 group-hover:opacity-100" />
                     </div>
                   </td>
-                  <td className="text-theme-secondary font-mono">{c.realm || 'LOCAL_DB'}</td>
+                  <td className="text-theme-secondary font-mono">{c.c_realm || 'LOCAL_DB'}</td>
                   <td>
                     <span className="px-1.5 py-0.5 rounded-sm bg-theme-glass-panel text-[9px] font-black uppercase text-theme-muted border border-theme-glass-light">
-                      {c.type}
+                      {c.c_type}
                     </span>
                   </td>
                   <td className="text-theme-secondary text-[10px] font-mono">
                     <div className="flex items-center space-x-1.5">
                       <Database size={10} className="text-theme-muted" />
-                      <span>{c.host || (c.agent_id ? c.agent_id.substring(0,8) : 'MANUAL')}</span>
+                      <span>{c.c_host || (c.c_agent_id ? c.c_agent_id.substring(0,8) : 'MANUAL')}</span>
                     </div>
                   </td>
                   <td>
-                    {c.tag ? (
+                    {c.c_tag ? (
                       <span className="px-1.5 py-0.5 rounded-sm bg-theme-glass-panel text-[9px] font-black uppercase text-theme-accent-secondary border border-theme-glass-light">
-                        {c.tag}
+                        {c.c_tag}
                       </span>
                     ) : (
                       <span className="text-theme-muted text-[9px] font-black italic opacity-30">UNTAGGED</span>
@@ -282,7 +283,7 @@ const CredentialsList = () => {
                   <td className="text-right">
                     <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity pr-2">
                       <button onClick={() => handleEdit(c)} className="p-1 rounded hover:bg-theme-hover text-theme-muted hover:text-theme-accent transition-colors"><Edit3 size={14} /></button>
-                      <button onClick={() => handleRemove(c.cred_id)} className="p-1 rounded hover:bg-theme-hover text-theme-muted hover:text-theme-danger transition-colors"><Trash2 size={14} /></button>
+                      <button onClick={() => handleRemove(c.c_creds_id)} className="p-1 rounded hover:bg-theme-hover text-theme-muted hover:text-theme-danger transition-colors"><Trash2 size={14} /></button>
                     </div>
                   </td>
                 </tr>

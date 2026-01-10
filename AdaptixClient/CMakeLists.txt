@@ -121,6 +121,7 @@ SET( HEADERS
         Headers/UI/Dialogs/DialogExtender.h
         Headers/Utils/CustomElements.h
         Headers/Client/Settings.h
+        Headers/UI/Widgets/TacticalGuidanceWidget.h
         Headers/UI/Widgets/TunnelsWidget.h
         Headers/Utils/KeyPressHandler.h
         Headers/UI/Graph/SessionsGraph.h
@@ -165,6 +166,7 @@ SET( HEADERS
         Headers/Utils/FontManager.h
         Headers/Utils/TitleBarStyle.h
         Headers/UI/Widgets/DockWidgetRegister.h
+        Headers/Utils/ConsoleHighlighter.h
 )
 
 add_executable(AdaptixClient
@@ -209,6 +211,7 @@ add_executable(AdaptixClient
         Source/UI/Widgets/BrowserFilesWidget.cpp
         Source/UI/Widgets/BrowserProcessWidget.cpp
         Source/UI/Widgets/TasksWidget.cpp
+        Source/UI/Widgets/TacticalGuidanceWidget.cpp
         Source/UI/Dialogs/DialogSettings.cpp
         Source/Client/Extender.cpp
         Source/UI/Dialogs/DialogExtender.cpp
@@ -255,6 +258,7 @@ add_executable(AdaptixClient
         Source/Utils/NonBlockingDialogs.cpp
         Source/Utils/FontManager.cpp
         Source/Utils/TitleBarStyle.cpp
+        Source/Utils/ConsoleHighlighter.cpp
 )
 
 target_compile_definitions(

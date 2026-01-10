@@ -438,6 +438,6 @@ func (ch *ClientHandler) Socket() *websocket.Conn {
 	return ch.socket
 }
 
-func (ch *ClientHandler) Stats() ClientStats {
-	return ch.stats
+func (ch *ClientHandler) Stats() *ClientStats {
+	return &ch.stats
 }

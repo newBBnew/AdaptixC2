@@ -42,7 +42,6 @@ const TunnelsList = () => {
     if (newInfo !== null) {
       try {
         await tunnelApi.setInfo(id, newInfo);
-        fetchAgents();
       } catch (err) {
         console.error('Failed to set info:', err);
       }
@@ -55,8 +54,8 @@ const TunnelsList = () => {
       x: e.clientX,
       y: e.clientY,
       options: [
-        { label: 'Set Info...', icon: Edit3, onClick: () => handleSetInfo(tunnel.tunnel_id, tunnel.info) },
-        { label: 'Stop Tunnel', icon: StopCircle, onClick: () => handleStopTunnel(tunnel.tunnel_id) },
+        { label: 'Set Info...', icon: Edit3, onClick: () => handleSetInfo(tunnel.p_tunnel_id, tunnel.p_info) },
+        { label: 'Stop Tunnel', icon: StopCircle, onClick: () => handleStopTunnel(tunnel.p_tunnel_id) },
       ]
     });
   };
@@ -158,31 +157,31 @@ const TunnelsList = () => {
             ) : (
               filteredTunnels.map((t) => (
                 <tr 
-                  key={t.tunnel_id} 
+                  key={t.p_tunnel_id} 
                   onContextMenu={(e) => handleContextMenu(e, t)}
                   className={cn(
                     "transition-colors group h-8 cursor-default",
-                    t.agent_id === activeTabId ? "bg-theme-hover" : ""
+                    t.p_agent_id === activeTabId ? "bg-theme-hover" : ""
                   )}
                 >
-                  <td className="text-theme-accent font-black font-mono uppercase tracking-tighter">{t.agent_id?.substring(0,8) || 'GLOBAL'}</td>
+                  <td className="text-theme-accent font-black font-mono uppercase tracking-tighter">{t.p_agent_id?.substring(0,8) || 'GLOBAL'}</td>
                   <td>
                     <span className="px-1.5 py-0.5 rounded-sm bg-theme-glass-panel text-[9px] font-black uppercase text-theme-muted border border-theme-glass-light">
-                      {t.type || 'SOCKS5'}
+                      {t.p_type || 'SOCKS5'}
                     </span>
                   </td>
-                  <td className="text-theme-secondary font-mono">{t.interface || '0.0.0.0'}</td>
-                  <td className="text-theme-accent-secondary font-black font-mono tracking-widest">{t.port}</td>
+                  <td className="text-theme-secondary font-mono">{t.p_interface || '0.0.0.0'}</td>
+                  <td className="text-theme-accent-secondary font-black font-mono tracking-widest">{t.p_port}</td>
                   <td className="text-theme-primary font-mono">
-                    {t.fhost ? (
+                    {t.p_fhost ? (
                       <div className="flex items-center space-x-1.5">
-                        <span>{t.fhost}</span>
+                        <span>{t.p_fhost}</span>
                         <ChevronRight size={10} className="text-theme-muted" />
-                        <span>{t.fport}</span>
+                        <span>{t.p_fport}</span>
                       </div>
                     ) : '---'}
                   </td>
-                  <td className="text-theme-muted italic">{t.info || 'No operational data'}</td>
+                  <td className="text-theme-muted italic">{t.p_info || 'No operational data'}</td>
                 </tr>
               ))
             )}

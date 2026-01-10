@@ -26,6 +26,7 @@ class TargetsWidget;
 class TasksWidget;
 class TunnelsWidget;
 class FileDeliveryWidget;
+class TacticalGuidanceWidget;
 class TunnelEndpoint;
 class DialogSyncPacket;
 class AuthProfile;
@@ -112,6 +113,7 @@ public:
     CredentialsWidget*   CredentialsDock   = nullptr;
     TasksWidget*         TasksDock         = nullptr;
     TargetsWidget*       TargetsDock       = nullptr;
+    TacticalGuidanceWidget* TacticalGuidanceDock = nullptr;
 
     QVector<RegListenerConfig>     RegisterListeners;
     QVector<RegAgentConfig>        RegisterAgents;

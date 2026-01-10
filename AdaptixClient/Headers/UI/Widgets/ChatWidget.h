@@ -4,6 +4,7 @@
 #include <main.h>
 #include <UI/Widgets/AbstractDock.h>
 #include <Utils/CustomElements.h>
+#include <QPlainTextEdit>
 
 class AdaptixWidget;
 
@@ -11,7 +12,7 @@ class ChatWidget : public DockTab
 {
     AdaptixWidget*   adaptixWidget  = nullptr;
     QLabel*          usernameLabel  = nullptr;
-    QLineEdit*       chatInput      = nullptr;
+    QPlainTextEdit*  chatInput      = nullptr;
     TextEditConsole* chatTextEdit   = nullptr;
     QGridLayout*     chatGridLayout = nullptr;
 
@@ -41,11 +42,16 @@ public:
     void AddChatMessage(qint64 time, const QString &username, const QString &message);
     void Clear() const;
 
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
+
 public Q_SLOTS:
     void handleChat();
     void toggleSearchPanel();
     void handleSearch();
     void handleSearchBackward();
+    void onExtendContextMenu(QMenu* menu);
+    void handleArchiveChat();
 };
 
 #endif //ADAPTIXCLIENT_CHATWIDGET_H

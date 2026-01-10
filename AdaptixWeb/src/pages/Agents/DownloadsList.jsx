@@ -18,15 +18,20 @@ import {
 import { dataApi } from '../../api/control';
 import { cn } from '../../utils/cn';
 import ContextMenu from '../../components/ContextMenu';
+import DownloadProgressDialog from './DownloadProgressDialog';
 import { useAgents } from '../../context/AgentContext';
 
 const DownloadsList = () => {
-  const { downloads, fetchAgents } = useAgents();
+  const { downloads, fetchAgents, globalSearchQuery } = useAgents();
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [filterState, setFilterState] = useState('Any state');
   const [menu, setMenu] = useState(null);
+
+  const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState('');
+  const [downloadFilename, setDownloadFilename] = useState('');
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -40,53 +45,54 @@ const DownloadsList = () => {
   }, []);
 
   const filteredDownloads = downloads.filter(d => {
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
     const matchesSearch = Object.values(d).some(val => 
-      String(val).toLowerCase().includes(searchQuery.toLowerCase())
+      String(val).toLowerCase().includes(query)
     );
-    // Note: Qt client uses state index, we assume textual state mapping for now
-    const matchesState = filterState === 'Any state' || d.state === filterState.toLowerCase();
+    // Backend states: 1=Running, 2=Finished, 3=Stopped (based on common patterns)
+    const matchesState = filterState === 'Any state' || 
+      (filterState === 'Running' && d.d_state === 1) ||
+      (filterState === 'Finished' && d.d_state === 2) ||
+      (filterState === 'Stopped' && d.d_state === 3);
     return matchesSearch && matchesState;
   });
 
-  const getStatusIcon = (state) => {
-    switch (state?.toLowerCase()) {
-      case 'finished': return <CheckCircle2 size={14} className="text-theme-success" />;
-      case 'running': return <RefreshCw size={14} className="text-theme-accent animate-spin" />;
-      case 'stopped': return <Clock size={14} className="text-theme-muted" />;
-      default: return <AlertCircle size={14} className="text-theme-danger" />;
+  const getStatusText = (state) => {
+    switch (state) {
+      case 1: return 'Running';
+      case 2: return 'Finished';
+      case 3: return 'Stopped';
+      default: return 'Unknown';
     }
   };
 
   const handleSync = async (download) => {
     try {
-      const response = await dataApi.getOTP('download', download.file_id);
+      const response = await dataApi.getOTP('download', download.d_file_id);
       if (response.data?.ok) {
         const otp = response.data.message;
         const baseUrl = localStorage.getItem('adaptix_url') || window.location.origin;
-        const syncUrl = `${baseUrl}/endpoint/otp/download/sync`;
+        // Construct the full proxy URL for the Gateway
+        const syncUrl = `${window.location.origin}/api/proxy/otp/download/sync?token=${otp}`;
         
-        // Construct sync as a direct browser download with OTP header 
-        // Note: Browsers can't easily add headers to <a> downloads. 
-        // We might need to use fetch and create a blob, or use query param if supported.
-        // Qt client uses a custom DialogDownloader.
-        
-        // For Web, we'll offer curl/wget commands or try to fetch.
-        console.log('[Sync] OTP:', otp);
-        alert(`Sync token generated. Use context menu for Curl/Wget commands.`);
+        setDownloadUrl(syncUrl);
+        setDownloadFilename(download.d_file.split(/[\\/]/).pop());
+        setIsDownloadOpen(true);
       }
     } catch (err) {
       console.error('Sync failed:', err);
+      alert('Failed to generate sync token');
     }
   };
 
   const handleCopyCommand = async (download, tool) => {
     try {
-      const response = await dataApi.getOTP('download', download.file_id);
+      const response = await dataApi.getOTP('download', download.d_file_id);
       if (response.data?.ok) {
         const otp = response.data.message;
         const baseUrl = localStorage.getItem('adaptix_url') || window.location.origin;
         const syncUrl = `${baseUrl}/endpoint/otp/download/sync`;
-        const filename = download.filename.split(/[\\/]/).pop();
+        const filename = download.d_file.split(/[\\/]/).pop();
         
         let cmd = '';
         if (tool === 'curl') {
@@ -105,7 +111,7 @@ const DownloadsList = () => {
 
   const handleContextMenu = (e, download) => {
     e.preventDefault();
-    const isFinished = download.state?.toLowerCase() === 'finished';
+    const isFinished = download.d_state === 2;
     
     setMenu({
       x: e.clientX,
@@ -124,7 +130,7 @@ const DownloadsList = () => {
         { divider: true },
         { label: 'Delete file', icon: Trash2, color: 'text-theme-danger', onClick: () => {
           if (window.confirm('Delete this download record?')) {
-            // dataApi.removeDownload([download.file_id]);
+            // dataApi.removeDownload([download.d_file_id]);
           }
         }},
       ]
@@ -214,30 +220,32 @@ const DownloadsList = () => {
               </tr>
             ) : (
               filteredDownloads.map((d) => {
-                const progress = d.total_size > 0 ? (d.recv_size / d.total_size) * 100 : 0;
+                const totalSize = d.d_size || 0;
+                const recvSize = d.d_recv_size || 0;
+                const progress = totalSize > 0 ? (recvSize / totalSize) * 100 : 0;
+                const status = getStatusText(d.d_state);
                 return (
                   <tr 
-                    key={d.file_id} 
+                    key={d.d_file_id} 
                     onContextMenu={(e) => handleContextMenu(e, d)}
                     className={cn(
-                      "transition-colors group h-8 cursor-default",
-                      activeTabId === d.file_id ? "bg-theme-hover" : ""
+                      "transition-colors group h-8 cursor-default"
                     )}
                   >
-                    <td className="text-theme-accent font-black font-mono tracking-tight" title={d.filename}>
+                    <td className="text-theme-accent font-black font-mono tracking-tight" title={d.d_file}>
                       <div className="flex items-center space-x-2">
                         <FileDown size={12} className="text-theme-muted" />
-                        <span className="truncate max-w-[200px]">{d.filename}</span>
+                        <span className="truncate max-w-[200px]">{d.d_file}</span>
                       </div>
                     </td>
-                    <td className="text-theme-primary font-mono text-[11px]">{d.computer || 'Unknown'}</td>
+                    <td className="text-theme-primary font-mono text-[11px]">{d.d_computer || 'Unknown'}</td>
                     <td className="px-4">
                       <div className="flex items-center space-x-3">
                         <div className="flex-1 h-1 bg-theme-glass rounded-full overflow-hidden">
                           <div 
                             className={cn(
                               "h-full transition-all duration-500",
-                              d.state === 'Finished' ? "bg-theme-success shadow-glow-sm" : "bg-theme-accent shadow-glow-sm animate-pulse"
+                              d.d_state === 2 ? "bg-theme-success shadow-glow-sm" : "bg-theme-accent shadow-glow-sm animate-pulse"
                             )}
                             style={{ width: `${progress}%` }}
                           />
@@ -245,16 +253,16 @@ const DownloadsList = () => {
                         <span className="text-[10px] font-mono font-bold text-theme-muted w-12 text-right">{progress.toFixed(1)}%</span>
                       </div>
                     </td>
-                    <td className="text-theme-muted font-mono text-[11px]">{new Date(d.time * 1000).toLocaleString()}</td>
+                    <td className="text-theme-muted font-mono text-[11px]">{new Date(d.d_date * 1000).toLocaleString()}</td>
                     <td className="text-right">
                       <div className="flex items-center justify-end space-x-1 pr-2">
                         <span className={cn(
                           "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest",
-                          d.state === 'Finished' ? "bg-theme-success/10 text-theme-success border border-theme-success/20" :
-                          d.state === 'Stopped' ? "bg-theme-danger/10 text-theme-danger border border-theme-danger/20" :
+                          d.d_state === 2 ? "bg-theme-success/10 text-theme-success border border-theme-success/20" :
+                          d.d_state === 3 ? "bg-theme-danger/10 text-theme-danger border border-theme-danger/20" :
                           "bg-theme-accent/10 text-theme-accent border border-theme-accent/20"
                         )}>
-                          {d.state}
+                          {status}
                         </span>
                       </div>
                     </td>
@@ -282,6 +290,14 @@ const DownloadsList = () => {
 
       {/* Context Menu */}
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
+
+      {/* Download Portal */}
+      <DownloadProgressDialog 
+        isOpen={isDownloadOpen}
+        onClose={() => setIsDownloadOpen(false)}
+        url={downloadUrl}
+        filename={downloadFilename}
+      />
     </div>
   );
 };

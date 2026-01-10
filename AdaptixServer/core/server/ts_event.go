@@ -54,7 +54,7 @@ func (ts *Teamserver) TsEventAgent(restore bool, agentData adaptix.AgentData) {
 	message := "New "
 	postMsg := agentData.Computer
 
-	if len(agentData.Domain) != 0 && strings.ToLower(agentData.Computer) != strings.ToLower(agentData.Domain) {
+	if len(agentData.Domain) != 0 && !strings.EqualFold(agentData.Computer, agentData.Domain) {
 		postMsg += "." + agentData.Domain + "'"
 	} else {
 		postMsg += "'"

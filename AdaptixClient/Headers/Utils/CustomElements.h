@@ -342,6 +342,7 @@ public:
 Q_SIGNALS:
     void ctx_find();
     void ctx_history();
+    void extendContextMenu(QMenu* menu);
 };
 
 #endif

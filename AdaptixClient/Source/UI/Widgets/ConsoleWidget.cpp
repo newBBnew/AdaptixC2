@@ -1,3 +1,4 @@
+#include <Utils/ConsoleHighlighter.h>
 #include <Agent/Agent.h>
 #include <UI/Widgets/AdaptixWidget.h>
 #include <UI/Widgets/ConsoleWidget.h>
@@ -134,6 +135,8 @@ void ConsoleWidget::createUI()
     CommandCompleter->setCompletionMode(QCompleter::PopupCompletion);
 
     InputLineEdit->setCompleter(CommandCompleter);
+
+    new ConsoleHighlighter(OutputTextEdit->document());
 }
 
 void ConsoleWidget::findAndHighlightAll(const QString &pattern)

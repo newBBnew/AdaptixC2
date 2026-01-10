@@ -13,6 +13,7 @@ export const SocketProvider = ({ children }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
   const [lastMessage, setLastMessage] = useState(null);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const socketRef = useRef(null);
   const listenersRef = useRef([]);
   const messageQueueRef = useRef([]);
@@ -41,6 +42,8 @@ export const SocketProvider = ({ children }) => {
     const separator = wsUrl.includes('?') ? '&' : '?';
     wsUrl = `${wsUrl}${separator}token=${encodeURIComponent(token)}&version=v1.0`;
 
+    const maxReconnectAttempts = 10;
+
     try {
       const socket = new WebSocket(wsUrl);
       socket.binaryType = 'arraybuffer';
@@ -48,6 +51,7 @@ export const SocketProvider = ({ children }) => {
       socket.onopen = () => {
         console.log('[WebSocket] Connection established');
         setConnectionStatus('connected');
+        setReconnectAttempts(0);
         
         // Clear any pending reconnect
         if (reconnectTimeoutRef.current) {
@@ -64,7 +68,8 @@ export const SocketProvider = ({ children }) => {
         // Start Sync
         setTimeout(async () => {
           try {
-            await api.post(`/sync`, {});
+            // Use the proxy prefix for the sync call
+            await api.post(`/proxy/sync`, {});
           } catch (err) {
             console.error('[WebSocket] Initial sync trigger failed:', err);
           }
@@ -96,12 +101,16 @@ export const SocketProvider = ({ children }) => {
         
         console.log(`[WebSocket] Connection closed (code: ${event.code})`);
         
-        // Auto-reconnect logic
-        if (event.code !== 1000 && !reconnectTimeoutRef.current) {
+        // Auto-reconnect logic with exponential backoff
+        if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+          console.log(`[WebSocket] Reconnecting in ${delay}ms (Attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`);
+          
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectTimeoutRef.current = null;
+            setReconnectAttempts(prev => prev + 1);
             connect();
-          }, 5000);
+          }, delay);
         }
       };
 

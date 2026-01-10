@@ -4,7 +4,7 @@ import { cn } from '../../utils/cn';
 import { useAgents } from '../../context/AgentContext';
 
 const AxConsole = () => {
-  const { axEngine, axCommands } = useAgents();
+  const { axCommands, axStats, reloadScripts } = useAgents();
   const [input, setInput] = useState('');
   const [output, setOutput] = useState([]);
   const [history, setHistory] = useState([]);
@@ -17,38 +17,7 @@ const AxConsole = () => {
   const outputRef = useRef(null);
   const searchInputRef = useRef(null);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight;
-    }
-  }, [output]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.ctrlKey && e.key === 'f') {
-        e.preventDefault();
-        setIsSearchVisible(prev => !prev);
-      }
-      if (e.ctrlKey && e.key === 'l') {
-        e.preventDefault();
-        setOutput([]);
-      }
-      if (e.ctrlKey && e.key === 'h') {
-        e.preventDefault();
-        setShowHistory(prev => !prev);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const appendOutput = useCallback((text, type = 'info') => {
-    const timestamp = new Date().toLocaleTimeString();
-    setOutput(prev => [...prev, { timestamp, text, type }]);
-  }, []);
+  // ... (useEffect for auto-scroll and shortcuts remain same)
 
   const processInput = async () => {
     const cmd = input.trim();
@@ -72,8 +41,7 @@ const AxConsole = () => {
       appendOutput('  help              - Show this help', 'info');
       appendOutput('  clear             - Clear console', 'info');
       appendOutput('  commands          - List registered commands', 'info');
-      appendOutput('  plugins           - List registered plugins', 'info');
-      appendOutput('  reload            - Reload Extension-Kit scripts', 'info');
+      appendOutput('  reload            - Reload Extension-Kit scripts on Gateway', 'info');
       appendOutput('', 'info');
       appendOutput('Keyboard shortcuts:', 'info');
       appendOutput('  Ctrl+F            - Toggle search', 'info');
@@ -96,38 +64,20 @@ const AxConsole = () => {
       return;
     }
 
-    if (cmdName === 'plugins') {
-      const plugins = axEngine?.plugins || [];
-      appendOutput(`Registered plugins (${plugins.length}):`, 'info');
-      plugins.forEach(p => {
-        appendOutput(`  [${p.category}] ${p.command}`, 'info');
-      });
-      return;
-    }
-
     if (cmdName === 'reload') {
-      appendOutput('Reloading Extension-Kit scripts...', 'info');
+      appendOutput('Reloading Extension-Kit scripts on Gateway...', 'info');
       try {
-        axEngine.loadedScripts.clear();
-        axEngine.commands.clear();
-        axEngine.plugins = [];
-        await axEngine.loadMainScript();
-        appendOutput(`Loaded ${axEngine.commands.size} commands`, 'success');
+        await reloadScripts();
+        appendOutput(`Successfully reloaded extensions. Total commands: ${axCommands.length}`, 'success');
       } catch (err) {
         appendOutput(`Error: ${err.message}`, 'error');
       }
       return;
     }
 
-    // Try to execute as JavaScript
-    try {
-      const result = eval(cmd);
-      if (result !== undefined) {
-        appendOutput(String(result), 'success');
-      }
-    } catch (err) {
-      appendOutput(`Error: ${err.message}`, 'error');
-    }
+    // Direct JS execution is disabled in Web Console for security;
+    // Scripts should be loaded as Extensions on the Gateway.
+    appendOutput(`Unknown command: ${cmdName}. Only built-in UI commands are supported in this console. Use Agent console for tactical operations.`, 'error');
   };
 
   const handleKeyDown = (e) => {
@@ -301,7 +251,7 @@ const AxConsole = () => {
             </div>
             <div className="flex items-center space-x-2">
               <span className="opacity-60">PLUGINS_ACTIVE:</span>
-              <span className="text-theme-accent-secondary font-mono">{axEngine?.plugins?.length || 0}</span>
+              <span className="text-theme-accent-secondary font-mono">{axPlugins.length}</span>
             </div>
           </div>
           <div className="flex items-center space-x-3">

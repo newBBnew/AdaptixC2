@@ -1,3 +1,4 @@
+#include <Utils/ConsoleHighlighter.h>
 #include <UI/Widgets/LogsWidget.h>
 #include <UI/Widgets/AdaptixWidget.h>
 #include <Client/Settings.h>
@@ -66,6 +67,7 @@ void LogsWidget::createUI()
     searchLayout->addSpacerItem(spacer);
 
     logsConsoleTextEdit = new TextEditConsole(this);
+    new ConsoleHighlighter(logsConsoleTextEdit->document());
     logsConsoleTextEdit->setReadOnly(true);
     logsConsoleTextEdit->setProperty("TextEditStyle", "console" );
     logsConsoleTextEdit->setAutoScrollEnabled(true);

@@ -17,7 +17,7 @@ import ContextMenu from '../../components/ContextMenu';
 import { useAgents } from '../../context/AgentContext';
 
 const ScreenshotsList = () => {
-  const { screenshots, fetchAgents } = useAgents();
+  const { screenshots, fetchAgents, globalSearchQuery } = useAgents();
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,10 +48,10 @@ const ScreenshotsList = () => {
   }, []);
 
   const handleSetNote = async (screen) => {
-    const newNote = window.prompt('Enter new note:', screen.note || '');
+    const newNote = window.prompt('Enter new note:', screen.s_note || '');
     if (newNote !== null) {
       try {
-        await dataApi.setScreenshotNote([screen.screen_id], newNote);
+        await dataApi.setScreenshotNote([screen.s_screen_id], newNote);
       } catch (err) {
         console.error('Failed to set note:', err);
       }
@@ -69,8 +69,8 @@ const ScreenshotsList = () => {
   };
 
   const handleDownload = (screen) => {
-    if (!screen.content) return;
-    const binaryString = atob(screen.content);
+    if (!screen.s_content) return;
+    const binaryString = atob(screen.s_content);
     const bytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
       bytes[i] = binaryString.charCodeAt(i);
@@ -79,7 +79,7 @@ const ScreenshotsList = () => {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `screenshot_${screen.computer}_${screen.screen_id.substring(0,6)}.png`);
+    link.setAttribute('download', `screenshot_${screen.s_computer}_${screen.s_screen_id.substring(0,6)}.png`);
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -88,7 +88,7 @@ const ScreenshotsList = () => {
 
   const handleContextMenu = (e, screen) => {
     e.preventDefault();
-    setSelectedId(screen.screen_id);
+    setSelectedId(screen.s_screen_id);
     setMenu({
       x: e.clientX,
       y: e.clientY,
@@ -96,18 +96,19 @@ const ScreenshotsList = () => {
         { label: 'Set note', icon: Edit3, onClick: () => handleSetNote(screen) },
         { label: 'Download', icon: Download, onClick: () => handleDownload(screen) },
         { divider: true },
-        { label: 'Delete', icon: Trash2, color: 'text-theme-danger', onClick: () => handleDelete(screen.screen_id) },
+        { label: 'Delete', icon: Trash2, color: 'text-theme-danger', onClick: () => handleDelete(screen.s_screen_id) },
       ]
     });
   };
 
-  const filteredScreenshots = screenshots.filter(s => 
-    Object.values(s).some(val => 
-      String(val).toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  );
+  const filteredScreenshots = screenshots.filter(s => {
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
+    return Object.values(s).some(val => 
+      String(val).toLowerCase().includes(query)
+    );
+  });
 
-  const selectedScreen = screenshots.find(s => s.screen_id === selectedId);
+  const selectedScreen = screenshots.find(s => s.s_screen_id === selectedId);
 
   return (
     <div className="flex flex-col h-full w-full select-none overflow-hidden" onClick={() => setMenu(null)}>
@@ -172,19 +173,19 @@ const ScreenshotsList = () => {
                 ) : (
                   [...filteredScreenshots].reverse().map((s) => (
                     <tr 
-                      key={s.screen_id} 
-                      onClick={() => setSelectedId(s.screen_id)}
+                      key={s.s_screen_id} 
+                      onClick={() => setSelectedId(s.s_screen_id)}
                       onContextMenu={(e) => handleContextMenu(e, s)}
                       onDoubleClick={() => setIsPreviewOpen(true)}
                       className={cn(
                         "transition-colors group h-8 cursor-default border-b border-theme-glass-light hover:bg-theme-glass",
-                        selectedId === s.screen_id && "bg-theme-accent/10"
+                        selectedId === s.s_screen_id && "bg-theme-accent/10"
                       )}
                     >
-                      <td className="text-theme-accent font-black font-mono truncate max-w-[120px]">{s.computer}</td>
-                      <td className="text-theme-secondary truncate max-w-[100px]">{s.username}</td>
+                      <td className="text-theme-accent font-black font-mono truncate max-w-[120px]">{s.s_computer}</td>
+                      <td className="text-theme-secondary truncate max-w-[100px]">{s.s_user}</td>
                       <td className="text-theme-muted font-mono text-[9px]">
-                        {new Date(s.date * 1000).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                        {new Date(s.s_date * 1000).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}
                       </td>
                     </tr>
                   ))
@@ -228,13 +229,13 @@ const ScreenshotsList = () => {
           <div className="flex-1 flex items-center justify-center p-8 overflow-auto custom-scrollbar">
             {selectedScreen ? (
               <motion.div 
-                key={selectedScreen.screen_id}
+                key={selectedScreen.s_screen_id}
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="relative"
               >
                 <img 
-                  src={selectedScreen.content ? `data:image/png;base64,${selectedScreen.content}` : '/placeholder-screen.png'} 
+                  src={selectedScreen.s_content ? `data:image/png;base64,${selectedScreen.s_content}` : '/placeholder-screen.png'} 
                   alt="Capture Output"
                   className="max-w-full max-h-full shadow-glow rounded-lg border border-theme-glass-light select-text"
                 />
@@ -252,16 +253,16 @@ const ScreenshotsList = () => {
               <div className="flex items-center space-x-4">
                 <span className="text-theme-accent">Capture Info:</span>
                 <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light">
-                  <span className="text-theme-secondary">{selectedScreen.computer}</span>
+                  <span className="text-theme-secondary">{selectedScreen.s_computer}</span>
                   <span className="text-theme-muted">/</span>
-                  <span className="text-theme-secondary">{selectedScreen.username}</span>
+                  <span className="text-theme-secondary">{selectedScreen.s_username}</span>
                 </div>
-                <span className="text-theme-muted font-mono text-[9px] opacity-60">{selectedScreen.screen_id}</span>
+                <span className="text-theme-muted font-mono text-[9px] opacity-60">{selectedScreen.s_screen_id}</span>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="flex items-center space-x-2 bg-theme-glass-panel px-3 py-1 rounded-lg border border-theme-glass-light">
                   <Edit3 size={10} className="text-theme-accent" />
-                  <span className="text-theme-primary italic normal-case font-medium">{selectedScreen.note || 'NO_ARTIFACT_NOTE'}</span>
+                  <span className="text-theme-primary italic normal-case font-medium">{selectedScreen.s_note || 'NO_ARTIFACT_NOTE'}</span>
                 </div>
               </div>
             </div>
@@ -283,7 +284,7 @@ const ScreenshotsList = () => {
                 <div className="text-left">
                   <p className="text-[10px] font-black uppercase tracking-widest text-theme-muted mb-0.5">Telemetry Capture Preview</p>
                   <p className="text-sm font-mono font-bold text-theme-primary">
-                    {selectedScreen.computer} \ {selectedScreen.username}
+                    {selectedScreen.s_computer} \ {selectedScreen.s_username}
                   </p>
                 </div>
               </div>
@@ -298,7 +299,7 @@ const ScreenshotsList = () => {
               <motion.img 
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                src={`data:image/png;base64,${selectedScreen.content}`}
+                src={`data:image/png;base64,${selectedScreen.s_content}`}
                 className="max-w-full max-h-full object-contain shadow-2xl rounded-lg cursor-zoom-out"
               />
             </div>

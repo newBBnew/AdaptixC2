@@ -4,21 +4,21 @@ import { useAgents } from '../../context/AgentContext';
 import { cn } from '../../utils/cn';
 
 const Dashboard = () => {
-  const { agents, targets, tasks, logs, axStats, reloadScripts } = useAgents();
+  const { agents, listeners, targets, tasks, logs, axStats, reloadScripts } = useAgents();
 
-  const activeTasksCount = Object.values(tasks).filter(t => t.Status === 'Running').length;
+  const activeTasksCount = Object.values(tasks).filter(t => !t.a_completed).length;
   const activeBeaconsCount = agents.filter(a => {
     const lastTick = a.a_last_tick || 0;
-    return (Date.now() / 1000 - lastTick) < 300; // 5 minutes threshold
+    return (Math.floor(Date.now() / 1000) - lastTick) < 300; // 5 minutes threshold
   }).length;
 
   const stats = [
-    { label: 'Active Agents', value: activeBeaconsCount.toString(), icon: Users, color: 'text-theme-accent-secondary' },
+    { label: 'Active Beacons', value: activeBeaconsCount.toString(), icon: Users, color: 'text-theme-accent-secondary' },
+    { label: 'Live Listeners', value: listeners.length.toString(), icon: ShieldCheck, color: 'text-theme-success' },
+    { label: 'Tasks Processing', value: activeTasksCount.toString(), icon: Briefcase, color: 'text-theme-accent' },
     { label: 'Total Targets', value: targets.length.toString(), icon: Target, color: 'text-theme-primary' },
-    { label: 'Tasks Running', value: activeTasksCount.toString(), icon: Briefcase, color: 'text-theme-accent' },
-    { label: 'Loaded Scripts', value: (axStats?.loadedScripts || 0).toString(), icon: Box, color: 'text-theme-accent-secondary' },
-    { label: 'Total Commands', value: (axStats?.commandCount || 0).toString(), icon: Terminal, color: 'text-theme-success' },
-    { label: 'Critical Alerts', value: '0', icon: AlertTriangle, color: 'text-theme-danger' },
+    { label: 'Script Engine', value: (axStats?.loadedScripts || 0).toString(), icon: Box, color: 'text-theme-accent-secondary' },
+    { label: 'Extensions', value: (axStats?.commandCount || 0).toString(), icon: Terminal, color: 'text-theme-success' },
   ];
 
   return (
@@ -48,7 +48,7 @@ const Dashboard = () => {
 
       <div className="flex-1 overflow-auto p-6 space-y-6 custom-scrollbar">
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {stats.map((stat) => (
             <div key={stat.label} className="glass-panel p-5 flex flex-col justify-between group hover:border-theme-accent transition-all duration-300 rounded-2xl">
               <div className="flex items-center justify-between mb-3">
@@ -114,7 +114,7 @@ const Dashboard = () => {
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-theme-secondary leading-relaxed group-hover:text-theme-primary break-words">
-                        <span className="text-theme-accent font-bold">[{log.type.toUpperCase()}]</span> {log.content}
+                        <span className="text-theme-accent font-bold">[{String(log.type || 'SYSTEM').toUpperCase()}]</span> {log.content}
                       </p>
                     </div>
                   </div>

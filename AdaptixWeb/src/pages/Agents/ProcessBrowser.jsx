@@ -19,39 +19,59 @@ import { agentApi } from '../../api/agent';
 import { cn } from '../../utils/cn';
 
 const ProcessBrowser = ({ agent }) => {
-  const { browserData } = useAgents();
+  const { browserData, globalSearchQuery } = useAgents();
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'tree'
   const [menu, setMenu] = useState(null);
+  const [expandedNodes, setExpandedNodes] = useState(new Set());
 
   const data = browserData[agent.a_id] || { procs: [] };
   const processes = data.procs;
 
+  // Auto-expand all roots initially
+  useEffect(() => {
+    if (processes.length > 0 && expandedNodes.size === 0) {
+      const roots = processes.filter(p => !p.b_ppid || !processes.find(parent => parent.b_pid === p.b_ppid));
+      setExpandedNodes(new Set(roots.map(r => r.b_pid.toString())));
+    }
+  }, [processes]);
+
+  const toggleNode = (pid) => {
+    const next = new Set(expandedNodes);
+    if (next.has(pid.toString())) next.delete(pid.toString());
+    else next.add(pid.toString());
+    setExpandedNodes(next);
+  };
+
+  const getProcessIcon = (name) => {
+    const lowerName = name.toLowerCase();
+    if (lowerName.includes('explorer')) return <Layers size={14} className="text-theme-accent" />;
+    if (lowerName.includes('cmd') || lowerName.includes('powershell') || lowerName.includes('terminal')) return <Activity size={14} className="text-theme-success" />;
+    if (lowerName.includes('chrome') || lowerName.includes('firefox') || lowerName.includes('msedge') || lowerName.includes('browser')) return <Activity size={14} className="text-theme-secondary" />;
+    if (lowerName.includes('lsass') || lowerName.includes('services') || lowerName.includes('winlogon')) return <Shield size={14} className="text-theme-danger" />;
+    if (lowerName.includes('svchost')) return <Cpu size={14} className="text-theme-muted opacity-60" />;
+    return <Cpu size={14} className="text-theme-muted opacity-60" />;
+  };
+
   const handleRefresh = async () => {
     setLoading(true);
     try {
-      await agentApi.getProcesses(agent.a_id);
+      await agentApi.getProcesses(agent.a_id, agent.a_name);
     } finally {
       setTimeout(() => setLoading(false), 1000);
     }
   };
 
-  useEffect(() => {
-    if (processes.length === 0) {
-      handleRefresh();
-    }
-  }, [agent.a_id]);
-
   const filteredProcesses = useMemo(() => {
-    if (!searchQuery) return processes;
-    const query = searchQuery.toLowerCase();
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
+    if (!query) return processes;
     return processes.filter(p => 
       p.b_process_name?.toLowerCase().includes(query) || 
       p.b_pid?.toString().includes(query) ||
       p.b_context?.toLowerCase().includes(query)
     );
-  }, [processes, searchQuery]);
+  }, [processes, searchQuery, globalSearchQuery]);
 
   // Build tree structure
   const handleContextMenu = (e, process) => {
@@ -62,14 +82,20 @@ const ProcessBrowser = ({ agent }) => {
       y: e.clientY,
       options: [
         { label: 'Inject', icon: Crosshair, disabled: isCurrentAgent, onClick: () => {
-          agentApi.injectProcess(agent.a_id, process.b_pid);
+          // You might want to open a dialog to select a listener here, 
+          // but for now we'll use a placeholder or prompt
+          const listenerName = window.prompt('Enter listener name for injection:');
+          if (listenerName) {
+            agentApi.injectProcess(agent.a_id, agent.a_name, process.b_pid, listenerName);
+          }
         }},
         { label: 'Copy PID', icon: Copy, onClick: () => navigator.clipboard.writeText(process.b_pid.toString()) },
         { label: 'Copy Name', icon: Copy, onClick: () => navigator.clipboard.writeText(process.b_process_name) },
+        { label: 'Search Online', icon: Search, onClick: () => window.open(`https://www.google.com/search?q=${encodeURIComponent(process.b_process_name + " process")}`, '_blank') },
         { divider: true },
         { label: 'Kill process', icon: Trash2, color: 'text-theme-danger', disabled: isCurrentAgent, onClick: () => {
           if (window.confirm(`Kill process ${process.b_process_name} (${process.b_pid})?`)) {
-            agentApi.killProcess(agent.a_id, process.b_pid);
+            agentApi.killProcess(agent.a_id, agent.a_name, process.b_pid);
           }
         }},
       ]
@@ -97,31 +123,44 @@ const ProcessBrowser = ({ agent }) => {
 
   const renderTreeItem = (node, depth = 0) => {
     const isCurrentAgent = node.b_pid.toString() === agent.a_pid;
+    const isExpanded = expandedNodes.has(node.b_pid.toString());
+    const hasChildren = node.children.length > 0;
     
     return (
       <React.Fragment key={node.b_pid}>
-        <tr className={cn(
-          "hover:bg-theme-glass group h-10 cursor-default transition-colors border-b border-theme-glass-light",
-          isCurrentAgent && "bg-theme-accent/5"
-        )}>
+        <tr 
+          onContextMenu={(e) => handleContextMenu(e, node)}
+          className={cn(
+            "hover:bg-theme-glass group h-10 cursor-default transition-colors border-b border-theme-glass-light",
+            isCurrentAgent && "bg-theme-accent/5"
+          )}
+        >
           <td className="px-4 font-mono text-[11px]">
             <div className="flex items-center" style={{ paddingLeft: `${depth * 16}px` }}>
-              {node.children.length > 0 ? (
-                <ChevronDown size={12} className="mr-2 text-theme-muted" />
+              {hasChildren ? (
+                <button 
+                  onClick={() => toggleNode(node.b_pid)}
+                  className="p-1 hover:bg-theme-glass rounded transition-colors mr-1"
+                >
+                  {isExpanded ? <ChevronDown size={12} className="text-theme-accent" /> : <ChevronRight size={12} className="text-theme-muted" />}
+                </button>
               ) : (
-                <div className="w-5" />
+                <div className="w-6" />
               )}
+              <div className="shrink-0 p-1 bg-theme-glass-panel border border-theme-glass-light rounded-lg mr-2">
+                {isCurrentAgent ? <Activity size={12} className="text-theme-accent animate-pulse" /> : getProcessIcon(node.b_process_name)}
+              </div>
               <span className={cn(isCurrentAgent ? "text-theme-accent font-black uppercase tracking-tight" : "text-theme-primary font-bold")}>
                 {node.b_process_name}
               </span>
             </div>
           </td>
           <td className="px-4 text-center font-mono text-theme-muted text-[10px]">{node.b_pid}</td>
-          <td className="px-4 text-center font-mono text-theme-muted text-[10px]">{node.b_ppid}</td>
+          <td className="px-4 text-center font-mono text-theme-muted text-[10px] opacity-60">{node.b_ppid}</td>
           <td className="px-4 text-center font-mono text-theme-accent-secondary text-[10px]">{node.b_arch || '---'}</td>
           <td className="px-4 truncate text-theme-secondary text-[10px] uppercase font-bold tracking-tight">{node.b_context || '---'}</td>
         </tr>
-        {node.children.map(child => renderTreeItem(child, depth + 1))}
+        {hasChildren && isExpanded && node.children.map(child => renderTreeItem(child, depth + 1))}
       </React.Fragment>
     );
   };
@@ -232,7 +271,11 @@ const ProcessBrowser = ({ agent }) => {
                     </td>
                     <td className="flex items-center space-x-3">
                       <div className="shrink-0 p-1.5 bg-theme-glass-panel border border-theme-glass-light rounded-lg">
-                        <Cpu size={14} className={cn(isCurrentAgent ? "text-theme-accent animate-pulse" : "text-theme-muted opacity-60")} />
+                        {isCurrentAgent ? (
+                          <Activity size={14} className="text-theme-accent animate-pulse" />
+                        ) : (
+                          getProcessIcon(p.b_process_name)
+                        )}
                       </div>
                       <span className={cn(isCurrentAgent ? "font-black text-theme-primary tracking-tight" : "text-theme-secondary font-bold", "font-mono truncate tracking-tighter")}>
                         {p.b_process_name}

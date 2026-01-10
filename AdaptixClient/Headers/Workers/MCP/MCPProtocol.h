@@ -34,7 +34,27 @@ namespace Commands {
     const QString PING = "ping";
     const QString GET_VERSION = "get_version";
     const QString GET_CAPABILITIES = "get_capabilities";
-}
+
+    // Consolidated Commands (Scientific MCP)
+    const QString LOOK_ASSETS = "look_assets";
+    const QString LISTEN_INTELLIGENCE = "listen_intelligence";
+    const QString SPEAK_INTERACTION = "speak_interaction";
+    const QString WRITE_ORCHESTRATION = "write_orchestration";
+    const QString OPERATE_CONTROL = "operate_control";
+    const QString TACTICAL_GET_LIBRARY = "tactical_get_library";
+    const QString TACTICAL_MODIFY_WORKFLOW = "tactical_modify_workflow";
+    const QString TACTICAL_EXECUTE_SEQUENCE = "tactical_execute_sequence";
+    const QString TACTICAL_READ_RESULTS = "tactical_read_results";
+    const QString TACTICAL_MODIFY_LIBRARY = "tactical_modify_library";
+    const QString TACTICAL_BROADCAST_SUGGESTION = "tactical_broadcast_suggestion";
+    const QString TACTICAL_CHAT_RESPONSE = "tactical_chat_response";
+    const QString SEND_TEAM_CHAT = "send_team_chat";
+
+    // God View / Autonomous Intelligence Commands
+    const QString GOD_VIEW_QUERY_STATUS = "god_view_query_status";   // AI queries full C2 status
+    const QString GOD_VIEW_SUGGEST_ACTION = "god_view_suggest_action"; // AI suggests an action to team
+    const QString AI_AUTONOMOUS_CONTROL = "ai_autonomous_control";   // Enable/Disable AI autonomy
+} // namespace Commands
 
 namespace Status {
     const QString SUCCESS = "success";

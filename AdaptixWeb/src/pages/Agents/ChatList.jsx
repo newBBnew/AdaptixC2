@@ -17,7 +17,7 @@ import { useAgents } from '../../context/AgentContext';
 import api from '../../api/agent';
 
 const ChatList = () => {
-  const { chatMessages } = useAgents();
+  const { chatMessages, globalSearchQuery } = useAgents();
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -62,10 +62,11 @@ const ChatList = () => {
     }
   };
 
-  const filteredMessages = displayedMessages.filter(msg => 
-    msg.message?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    msg.username?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredMessages = displayedMessages.filter(msg => {
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
+    return msg.message?.toLowerCase().includes(query) ||
+           msg.username?.toLowerCase().includes(query);
+  });
 
   return (
     <div className="flex flex-col h-full w-full select-none overflow-hidden">

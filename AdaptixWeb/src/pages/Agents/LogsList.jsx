@@ -13,7 +13,7 @@ import { useSocket } from '../../context/SocketContext';
 import { useAgents } from '../../context/AgentContext';
 
 const LogsList = () => {
-  const { logs } = useAgents();
+  const { logs, globalSearchQuery } = useAgents();
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
@@ -23,10 +23,12 @@ const LogsList = () => {
   const displayedLogs = logs;
 
   useEffect(() => {
-    if (searchQuery.trim()) {
+    const query = (searchQuery || globalSearchQuery).trim();
+    if (query) {
       const results = [];
       logs.forEach((log, index) => {
-        if (log.message.toLowerCase().includes(searchQuery.toLowerCase())) {
+        const content = log.content || log.message || '';
+        if (content.toLowerCase().includes(query.toLowerCase())) {
           results.push(index);
         }
       });
@@ -36,7 +38,7 @@ const LogsList = () => {
       setSearchResults([]);
       setCurrentIndex(-1);
     }
-  }, [searchQuery, logs]);
+  }, [searchQuery, globalSearchQuery, logs]);
 
   const handleNextSearch = () => {
     if (searchResults.length > 0) {

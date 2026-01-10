@@ -1,3 +1,4 @@
+#include <Utils/ConsoleHighlighter.h>
 #include <QJSEngine>
 #include <QJSValue>
 #include <UI/Widgets/AxConsoleWidget.h>
@@ -97,6 +98,8 @@ void AxConsoleWidget::createUI()
     InputLineEdit->setFont( FontManager::instance().getFont("Hack") );
 
     ResetButton = new QPushButton("Reset AxScript");
+
+    new ConsoleHighlighter(OutputTextEdit->document());
 
     MainGridLayout = new QGridLayout(this );
     MainGridLayout->setVerticalSpacing(4 );

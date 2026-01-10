@@ -21,6 +21,8 @@ import {
   Edit3
 } from 'lucide-react';
 import ContextMenu from '../../components/ContextMenu';
+import UploadFileDialog from './UploadFileDialog';
+import FilePreviewDialog from './FilePreviewDialog';
 import { useAgents } from '../../context/AgentContext';
 import { agentApi } from '../../api/agent';
 import { cn } from '../../utils/cn';
@@ -32,6 +34,10 @@ const FileBrowser = ({ agent }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [menu, setMenu] = useState(null);
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [previewTaskId, setPreviewTaskId] = useState(null);
 
   const data = browserData[agent.a_id] || { disks: [], files: [], currentPath: '' };
 
@@ -44,7 +50,7 @@ const FileBrowser = ({ agent }) => {
   const handleRefresh = async () => {
     setLoading(true);
     try {
-      await agentApi.listDir(agent.a_id, currentPath || '.');
+      await agentApi.listDir(agent.a_id, agent.a_name, currentPath || '.');
     } finally {
       setTimeout(() => setLoading(false), 1000);
     }
@@ -53,7 +59,7 @@ const FileBrowser = ({ agent }) => {
   const handleGetDisks = async () => {
     setLoading(true);
     try {
-      await agentApi.getDisks(agent.a_id);
+      await agentApi.getDisks(agent.a_id, agent.a_name);
     } finally {
       setTimeout(() => setLoading(false), 1000);
     }
@@ -67,13 +73,83 @@ const FileBrowser = ({ agent }) => {
       parts.pop();
       const parentPath = parts.join(separator) || (agent.a_os === 1 ? '' : '/');
       setCurrentPath(parentPath);
-      agentApi.listDir(agent.a_id, parentPath);
+      agentApi.listDir(agent.a_id, agent.a_name, parentPath);
     }
   };
 
   const handleNavigate = (path) => {
-    setCurrentPath(path);
-    agentApi.listDir(agent.a_id, path);
+    const cleanPath = path.replace(/[\\/]+$/, '') || (agent.a_os === 1 ? '' : '/');
+    setCurrentPath(cleanPath);
+    agentApi.listDir(agent.a_id, agent.a_name, cleanPath || '.');
+  };
+
+  const Breadcrumbs = () => {
+    const separator = agent.a_os === 1 ? '\\' : '/';
+    const parts = currentPath.split(separator).filter(Boolean);
+    const crumbs = [];
+    
+    // Add Root/Drive
+    if (agent.a_os === 1) {
+      // For Windows, the first part is usually the drive (e.g., C:)
+    } else {
+      crumbs.push({ name: '/', path: '/' });
+    }
+
+    let accPath = '';
+    parts.forEach((p, i) => {
+      if (agent.a_os === 1 && i === 0 && p.includes(':')) {
+        accPath = p + separator;
+        crumbs.push({ name: p, path: accPath });
+      } else {
+        accPath += (accPath && !accPath.endsWith(separator) ? separator : '') + p;
+        crumbs.push({ name: p, path: accPath });
+      }
+    });
+
+    return (
+      <div className="flex items-center flex-wrap gap-1 px-2 py-1 bg-theme-glass/30 rounded-lg border border-theme-glass-light mb-2">
+        {crumbs.map((c, i) => (
+          <React.Fragment key={i}>
+            <button 
+              onClick={() => handleNavigate(c.path)}
+              className="px-1.5 py-0.5 rounded-md hover:bg-theme-accent/20 text-[10px] font-bold text-theme-muted hover:text-theme-accent transition-all"
+            >
+              {c.name}
+            </button>
+            {i < crumbs.length - 1 && <ChevronRight size={10} className="text-theme-muted opacity-40" />}
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  };
+
+  const handleViewContent = async (file) => {
+    const fullPath = file.b_fullpath || (currentPath + (agent.a_os === 1 ? '\\' : '/') + file.b_filename);
+    const cmd = agent.a_os === 1 ? `type "${fullPath}"` : `cat "${fullPath}"`;
+    
+    try {
+      const response = await agentApi.executeCommand({
+        id: agent.a_id,
+        name: agent.a_name,
+        cmdline: cmd,
+        data: { path: fullPath },
+        ui: true
+      });
+
+      // We need to find the task ID from the command response or wait for it via WebSocket
+      if (response.data && response.data.ok) {
+        const taskId = response.data.task_id || response.data.id; // Try to get Task ID from response
+        if (taskId) {
+            setPreviewTaskId(taskId);
+        } else {
+            console.warn("No Task ID returned from executeCommand for file preview");
+        }
+        setPreviewFile(fullPath);
+        setIsPreviewOpen(true);
+      }
+    } catch (err) {
+      console.error('Failed to issue view command:', err);
+    }
   };
 
   const handleContextMenu = (e, file) => {
@@ -84,20 +160,28 @@ const FileBrowser = ({ agent }) => {
       y: e.clientY,
       options: [
         { label: 'Open', icon: FolderOpen, disabled: !file.b_is_dir, onClick: () => handleNavigate(fullPath) },
-        { label: 'Download', icon: Download, disabled: file.b_is_dir, onClick: () => agentApi.downloadFile(agent.a_id, fullPath) },
+        { label: 'View content', icon: FileText, disabled: file.b_is_dir, onClick: () => handleViewContent(file) },
+        { label: 'Download', icon: Download, disabled: file.b_is_dir, onClick: () => agentApi.downloadFile(agent.a_id, agent.a_name, fullPath) },
         { divider: true },
         { label: 'Copy path', icon: Copy, onClick: () => navigator.clipboard.writeText(fullPath) },
+        { label: 'Copy to...', icon: Copy, onClick: () => {
+          const newPath = window.prompt('Destination path:', fullPath);
+          if (newPath && newPath !== fullPath) {
+            agentApi.copyFile(agent.a_id, agent.a_name, fullPath, newPath);
+            setTimeout(handleRefresh, 1000);
+          }
+        }},
         { label: 'Rename', icon: Edit3, onClick: () => {
           const newName = window.prompt('New name:', file.b_filename);
           if (newName && newName !== file.b_filename) {
             const newPath = currentPath + (agent.a_os === 1 ? '\\' : '/') + newName;
-            agentApi.moveFile(agent.a_id, fullPath, newPath);
+            agentApi.moveFile(agent.a_id, agent.a_name, fullPath, newPath);
           }
         }},
         { divider: true },
         { label: 'Delete', icon: Trash2, color: 'text-theme-danger', onClick: () => {
           if (window.confirm(`Delete ${file.b_filename}?`)) {
-            agentApi.deleteFile(agent.a_id, fullPath);
+            agentApi.deleteFile(agent.a_id, agent.a_name, fullPath);
           }
         }},
       ]
@@ -110,6 +194,34 @@ const FileBrowser = ({ agent }) => {
       f.b_filename.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [data.files, searchQuery]);
+
+  const handleBackgroundContextMenu = (e) => {
+    e.preventDefault();
+    if (e.target.closest('tr')) return; // Ignore if clicked on a file row
+    
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      options: [
+        { label: 'Refresh', icon: RefreshCw, onClick: handleRefresh },
+        { label: 'New Folder', icon: Folder, onClick: async () => {
+          const name = window.prompt('Enter folder name:');
+          if (name) {
+             const separator = agent.a_os === 1 ? '\\' : '/';
+             const path = currentPath + (currentPath.endsWith(separator) ? '' : separator) + name;
+             try {
+               await agentApi.makeDirectory(agent.a_id, agent.a_name, path);
+               setTimeout(handleRefresh, 1000);
+             } catch(err) {
+               console.error("Failed to create directory", err);
+             }
+          }
+        }},
+        { divider: true },
+        { label: 'Upload', icon: Upload, onClick: () => setIsUploadOpen(true) },
+      ]
+    });
+  };
 
   return (
     <div className="flex flex-col h-full select-none overflow-hidden" onClick={() => setMenu(null)}>
@@ -160,27 +272,33 @@ const FileBrowser = ({ agent }) => {
             <HardDrive size={14} />
             <span className="font-black uppercase tracking-widest text-[10px]">Disks</span>
           </button>
-          <button className="glass-btn-primary px-4 py-2 flex items-center space-x-2 shadow-glow-sm">
+          <button 
+            onClick={() => setIsUploadOpen(true)}
+            className="glass-btn-primary px-4 py-2 flex items-center space-x-2 shadow-glow-sm"
+          >
             <Upload size={14} />
             <span className="font-black uppercase tracking-widest text-[10px]">Upload</span>
           </button>
         </div>
       </div>
 
-      {/* 2. Search Panel */}
-      <div className="px-4 py-2 glass-card-sm border-b border-theme-glass-light flex items-center space-x-4 shrink-0">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
-          <input 
-            type="text" 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter files..." 
-            className="glass-input w-full pl-10 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
-          />
-        </div>
-        <div className="text-[9px] font-black text-theme-muted uppercase tracking-[0.2em]">
-          TELEMETRY_COUNT: <span className="text-theme-accent font-mono font-bold">{filteredFiles.length}</span>
+      {/* 2. Search & Breadcrumbs Panel */}
+      <div className="px-4 py-3 glass-card-sm border-b border-theme-glass-light flex flex-col space-y-3 shrink-0">
+        <Breadcrumbs />
+        <div className="flex items-center space-x-4">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
+            <input 
+              type="text" 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter current view..." 
+              className="glass-input w-full pl-10 py-2 text-sm text-theme-primary placeholder:text-theme-muted"
+            />
+          </div>
+          <div className="text-[9px] font-black text-theme-muted uppercase tracking-[0.2em]">
+            TOTAL_ARTIFACTS: <span className="text-theme-accent font-mono font-bold">{filteredFiles.length}</span>
+          </div>
         </div>
       </div>
 
@@ -218,7 +336,10 @@ const FileBrowser = ({ agent }) => {
         </div>
 
         {/* Right: File Table */}
-        <div className="flex-1 overflow-auto custom-scrollbar bg-theme-glass-panel">
+        <div 
+          className="flex-1 overflow-auto custom-scrollbar bg-theme-glass-panel"
+          onContextMenu={handleBackgroundContextMenu}
+        >
           <table className="glass-table min-w-[700px]">
             <thead>
               <tr>
@@ -231,6 +352,7 @@ const FileBrowser = ({ agent }) => {
                   </>
                 )}
                 <th className="text-right w-40">Modified Timestamp</th>
+                <th className="w-16"></th>
               </tr>
             </thead>
             <tbody className="text-[11px] font-medium">
@@ -273,6 +395,21 @@ const FileBrowser = ({ agent }) => {
                   )}
                   <td className="text-right text-theme-muted font-mono text-[10px]">
                     {file.b_date ? new Date(file.b_date * 1000).toLocaleString([], { hour12: false }) : 'N/A'}
+                  </td>
+                  <td className="text-center">
+                    {!file.b_is_dir && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const fullPath = file.b_fullpath || (currentPath + (agent.a_os === 1 ? '\\' : '/') + file.b_filename);
+                          agentApi.downloadFile(agent.a_id, agent.a_name, fullPath);
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-theme-glass text-theme-muted hover:text-theme-accent transition-colors opacity-0 group-hover:opacity-100"
+                        title="Task Download"
+                      >
+                        <Download size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -318,6 +455,47 @@ const FileBrowser = ({ agent }) => {
           onClose={() => setMenu(null)}
         />
       )}
+
+      <UploadFileDialog 
+        isOpen={isUploadOpen} 
+        onClose={() => setIsUploadOpen(false)} 
+        onUploaded={async (fileData) => {
+          if (fileData && fileData.path) {
+            // fileData.path is the path on the Teamserver
+            // We need to upload it to the Agent's current path
+            // Extract filename from the server path or use the original name if available
+            // Assuming fileData.path is the full server path. 
+            // The upload command expects: upload <local_server_path> <remote_agent_path>
+            
+            // We need the filename. UploadFileDialog doesn't return the original filename in the data object usually, 
+            // but we can try to extract it or assume it's the last part of the path.
+            // Let's rely on the server response structure. 
+            // If API returns 'name' use it, otherwise basename of path.
+            const fileName = fileData.name || fileData.path.split(/[/\\]/).pop();
+            const remotePath = currentPath + (agent.a_os === 1 ? '\\' : '/') + fileName;
+            
+            setLoading(true);
+            try {
+              await agentApi.uploadFile(agent.a_id, agent.a_name, fileData.path, remotePath);
+              // Give it some time to process
+              setTimeout(() => handleRefresh(), 2000);
+            } catch (err) {
+              console.error("Failed to trigger agent upload:", err);
+              setLoading(false);
+            }
+          } else {
+            handleRefresh();
+          }
+        }}
+      />
+
+      <FilePreviewDialog
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        agent={agent}
+        filePath={previewFile}
+        taskId={previewTaskId}
+      />
     </div>
   );
 };

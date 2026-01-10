@@ -5,6 +5,9 @@
 #include <UI/Widgets/AdaptixWidget.h>
 #include <Client/AuthProfile.h>
 #include <Client/Requestor.h>
+#include <Workers/MCP/MCPBridgeWorker.h>
+#include <QKeyEvent>
+#include <QMenu>
 
 REGISTER_DOCK_WIDGET(ChatWidget, "Chat", true)
 
@@ -12,12 +15,13 @@ ChatWidget::ChatWidget(AdaptixWidget* w) : DockTab("Chat", w->GetProfile()->GetP
 {
     this->createUI();
 
-    connect(chatInput,      &QLineEdit::returnPressed,  this, &ChatWidget::handleChat);
+    // connect(chatInput,      &QLineEdit::returnPressed,  this, &ChatWidget::handleChat); // Removed
     connect(searchLineEdit, &QLineEdit::returnPressed,  this, &ChatWidget::handleSearch);
     connect(nextButton,     &ClickableLabel::clicked,   this, &ChatWidget::handleSearch);
     connect(prevButton,     &ClickableLabel::clicked,   this, &ChatWidget::handleSearchBackward);
     connect(hideButton,     &ClickableLabel::clicked,   this, &ChatWidget::toggleSearchPanel);
     connect(chatTextEdit,   &TextEditConsole::ctx_find, this, &ChatWidget::toggleSearchPanel);
+    connect(chatTextEdit,   &TextEditConsole::extendContextMenu, this, &ChatWidget::onExtendContextMenu);
 
     shortcutSearch = new QShortcut(QKeySequence("Ctrl+F"), chatTextEdit);
     shortcutSearch->setContext(Qt::WidgetShortcut);
@@ -76,8 +80,10 @@ void ChatWidget::createUI()
     usernameLabel->setProperty( "LabelStyle", "console" );
     usernameLabel->setText( adaptixWidget->GetProfile()->GetUsername() );
 
-    chatInput = new QLineEdit(this);
-    chatInput->setProperty( "LineEditStyle", "console" );
+    chatInput = new QPlainTextEdit(this);
+    chatInput->setProperty( "LineEditStyle", "console" ); // Keep style property, might work or fallback
+    chatInput->setMaximumHeight(60);
+    chatInput->installEventFilter(this);
 
     chatTextEdit = new TextEditConsole(this);
     chatTextEdit->setReadOnly(true);
@@ -94,7 +100,9 @@ void ChatWidget::createUI()
 
 void ChatWidget::handleChat()
 {
-    QString text = chatInput->text();
+    QString text = chatInput->toPlainText().trimmed();
+    if (text.isEmpty()) return;
+    
     chatInput->clear();
     
     HttpReqChatSendMessageAsync(text, *(adaptixWidget->GetProfile()), [](bool success, const QString& message, const QJsonObject&) {
@@ -103,8 +111,24 @@ void ChatWidget::handleChat()
     });
 }
 
+bool ChatWidget::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == chatInput && event->type() == QEvent::KeyPress) {
+        QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+        if ((keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter)) {
+            if (keyEvent->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)) {
+                handleChat();
+                return true;
+            }
+        }
+    }
+    return DockTab::eventFilter(obj, event);
+}
+
+
 void ChatWidget::AddChatMessage(const qint64 time, const QString &username, const QString &message)
 {
+    LogInfo("[ChatWidget] Adding message from %s: %s", username.toUtf8().constData(), message.toUtf8().constData());
     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
     bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
@@ -234,4 +258,27 @@ void ChatWidget::handleSearchBackward()
     }
 
     highlightCurrent();
+}
+
+void ChatWidget::onExtendContextMenu(QMenu* menu)
+{
+    menu->addSeparator();
+    QAction* archiveAction = menu->addAction("Archive Chat (Clear Context)");
+    connect(archiveAction, &QAction::triggered, this, &ChatWidget::handleArchiveChat);
+}
+
+void ChatWidget::handleArchiveChat()
+{
+    // Send to MCP
+    if (adaptixWidget->McpBridge) {
+        QJsonObject params;
+        params["timestamp"] = QDateTime::currentSecsSinceEpoch();
+        adaptixWidget->McpBridge->sendMessage("tactical_archive", params);
+    }
+    
+    // Clear local
+    this->Clear();
+    
+    // Add system message
+    this->AddChatMessage(QDateTime::currentSecsSinceEpoch(), "System", "Chat context has been archived.");
 }

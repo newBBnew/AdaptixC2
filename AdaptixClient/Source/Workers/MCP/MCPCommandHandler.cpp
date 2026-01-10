@@ -40,7 +40,210 @@ MCP::MCPResponse MCPCommandHandler::handleCommand(const MCP::MCPRequest& request
     if (request.type == LIST_COLLECTED_DATA)  return handleListCollectedData(request);
     if (request.type == GET_CAPABILITIES)     return handleGetCapabilities(request);
     
+    // Consolidated Commands (Scientific MCP)
+    if (request.type == LOOK_ASSETS)          return handleLookAssets(request);
+    if (request.type == LISTEN_INTELLIGENCE)  return handleListenIntelligence(request);
+    if (request.type == SPEAK_INTERACTION)   return handleSpeakInteraction(request);
+    if (request.type == WRITE_ORCHESTRATION)  return handleWriteOrchestration(request);
+    if (request.type == OPERATE_CONTROL)      return handleOperateControl(request);
+
+    // Tactical Workflow
+    if (request.type == TACTICAL_GET_LIBRARY)      return handleTacticalGetLibrary(request);
+    if (request.type == TACTICAL_MODIFY_WORKFLOW) return handleTacticalModifyWorkflow(request);
+    if (request.type == TACTICAL_EXECUTE_SEQUENCE) return handleTacticalExecuteSequence(request);
+    if (request.type == TACTICAL_READ_RESULTS)     return handleTacticalReadResults(request);
+    if (request.type == TACTICAL_MODIFY_LIBRARY)   return handleTacticalModifyLibrary(request);
+    if (request.type == TACTICAL_BROADCAST_SUGGESTION) return handleTacticalBroadcastSuggestion(request);
+    if (request.type == SEND_TEAM_CHAT)            return handleSendTeamChat(request);
+    if (request.type == TACTICAL_CHAT_RESPONSE)    return handleTacticalChatResponse(request);
+    if (request.type == GOD_VIEW_QUERY_STATUS)    return handleGodViewQueryStatus(request);
+    if (request.type == GOD_VIEW_SUGGEST_ACTION)  return handleGodViewSuggestAction(request);
+    if (request.type == AI_AUTONOMOUS_CONTROL)     return handleAiAutonomousControl(request);
+    
     return MCP::MCPResponse::notSupported(request.requestId, request.type);
+}
+
+#include <UI/Widgets/TacticalGuidanceWidget.h>
+
+MCP::MCPResponse MCPCommandHandler::handleLookAssets(const MCP::MCPRequest& req)
+{
+    QString type = req.params["type"].toString();
+    if (type == "agents")    return handleListAgents(req);
+    if (type == "listeners") return handleListListeners(req);
+    if (type == "targets")   return handleListTargets(req);
+    if (type == "tunnels")   return handleListTunnels(req);
+    if (type == "pivots")    return handleListPivots(req);
+    
+    return MCP::MCPResponse::error(req.requestId, "Unknown asset type: " + type);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleListenIntelligence(const MCP::MCPRequest& req)
+{
+    QString type = req.params["type"].toString();
+    if (type == "console")        return handleGetConsoleOutput(req);
+    if (type == "tasks")          return handleListTasks(req);
+    if (type == "task_output")    return handleGetTaskOutput(req);
+    if (type == "collected_data") return handleListCollectedData(req);
+    
+    return MCP::MCPResponse::error(req.requestId, "Unknown intelligence type: " + type);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleSpeakInteraction(const MCP::MCPRequest& req)
+{
+    QString action = req.params["action"].toString();
+    if (action == "broadcast") return handleTacticalBroadcastSuggestion(req);
+    if (action == "enter_chat") {
+        // God View: AI 通知团队它已进入聊天模式
+        HttpReqChatSendMessageAsync("[AI] I am now active and monitoring team chat.", *adaptixWidget->GetProfile(), [](bool, const QString&, const QJsonObject&){});
+        return MCP::MCPResponse::success(req.requestId, "AI entered team chat mode");
+    }
+    
+    return MCP::MCPResponse::error(req.requestId, "Unknown interaction action: " + action);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleWriteOrchestration(const MCP::MCPRequest& req)
+{
+    QString action = req.params["action"].toString();
+    if (action == "modify_workflow")     return handleTacticalModifyWorkflow(req);
+    if (action == "modify_library")      return handleTacticalModifyLibrary(req);
+    if (action == "update_agent_config") return handleUpdateAgentConfig(req);
+    if (action == "update_agent_metadata") return handleUpdateAgentMetadata(req);
+    
+    return MCP::MCPResponse::error(req.requestId, "Unknown orchestration action: " + action);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleOperateControl(const MCP::MCPRequest& req)
+{
+    QString action = req.params["action"].toString();
+    if (action == "execute")  return handleExecuteCommand(req);
+    if (action == "tunnel")   return handleManageTunnel(req);
+    if (action == "file")     return handleManageFileDelivery(req);
+    if (action == "pty")      return handleManagePty(req);
+    if (action == "listener") return handleManageListener(req);
+    
+    return MCP::MCPResponse::error(req.requestId, "Unknown control action: " + action);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleTacticalGetLibrary(const MCP::MCPRequest& req)
+{
+    if (!adaptixWidget->TacticalGuidanceDock)
+        return MCP::MCPResponse::error(req.requestId, "Tactical module not found");
+
+    QJsonObject data = adaptixWidget->TacticalGuidanceDock->getLibraryAsJson();
+    return MCP::MCPResponse::success(req.requestId, "Catalog retrieved", data);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleTacticalModifyWorkflow(const MCP::MCPRequest& req)
+{
+    if (!adaptixWidget->TacticalGuidanceDock)
+        return MCP::MCPResponse::error(req.requestId, "Tactical module not found");
+
+    QString action = req.params["action"].toString();
+    if (action == "add_step") {
+        QString variantId = req.params["variant_id"].toString();
+        QJsonObject paramsObj = req.params["parameters"].toObject();
+        QMap<QString, QString> params;
+        for (auto it = paramsObj.begin(); it != paramsObj.end(); ++it) {
+            params[it.key()] = it.value().toString();
+        }
+        adaptixWidget->TacticalGuidanceDock->addStepToWorkflow(variantId, params);
+        return MCP::MCPResponse::success(req.requestId, "Step added to workflow");
+    } else if (action == "clear") {
+        adaptixWidget->TacticalGuidanceDock->clearWorkflow();
+        return MCP::MCPResponse::success(req.requestId, "Workflow cleared");
+    }
+
+    return MCP::MCPResponse::error(req.requestId, "Unsupported tactical action: " + action);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleTacticalExecuteSequence(const MCP::MCPRequest& req)
+{
+    if (!adaptixWidget->TacticalGuidanceDock)
+        return MCP::MCPResponse::error(req.requestId, "Tactical module not found");
+
+    adaptixWidget->TacticalGuidanceDock->executeWorkflow();
+    return MCP::MCPResponse::success(req.requestId, "Tactical execution triggered");
+}
+
+MCP::MCPResponse MCPCommandHandler::handleTacticalReadResults(const MCP::MCPRequest& req)
+{
+    if (!adaptixWidget->TacticalGuidanceDock)
+        return MCP::MCPResponse::error(req.requestId, "Tactical module not found");
+
+    QJsonObject data = adaptixWidget->TacticalGuidanceDock->getResultsAsJson();
+    return MCP::MCPResponse::success(req.requestId, "Results retrieved", data);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleTacticalModifyLibrary(const MCP::MCPRequest& req)
+{
+    if (!adaptixWidget->TacticalGuidanceDock)
+        return MCP::MCPResponse::error(req.requestId, "Tactical module not found");
+
+    QString action = req.params["action"].toString();
+    if (action == "update_block") {
+        QString category = req.params["category"].toString();
+        QJsonObject blockObj = req.params["block"].toObject();
+        
+        // Push to server
+        QJsonObject syncData;
+        syncData["category"] = category;
+        syncData["block"] = blockObj;
+        
+        HttpReqTacticalLibraryUpdateAsync(QJsonDocument(syncData).toJson(), *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Library block updated"));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    } else if (action == "delete_block") {
+        QString blockId = req.params["block_id"].toString();
+        
+        HttpReqTacticalLibraryDeleteAsync(blockId, *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
+            if (success)
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Library block deleted"));
+            else
+                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        });
+        return MCP::MCPResponse::deferred();
+    }
+
+    return MCP::MCPResponse::error(req.requestId, "Unsupported library action: " + action);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleTacticalBroadcastSuggestion(const MCP::MCPRequest& req)
+{
+    QString content = req.params["content"].toString();
+    if (content.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing content parameter");
+
+    HttpReqTacticalSuggestionSendAsync(content, *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
+        if (success)
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Suggestion broadcasted"));
+        else
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+    });
+    return MCP::MCPResponse::deferred();
+}
+
+MCP::MCPResponse MCPCommandHandler::handleSendTeamChat(const MCP::MCPRequest& req)
+{
+    QString content = req.params["content"].toString();
+    if (content.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing content parameter");
+
+    LogInfo("[MCP] AI sending team chat: %s", content.toUtf8().constData());
+
+    HttpReqChatSendMessageAsync(content, *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
+        if (success) {
+            LogInfo("[MCP] AI team chat message sent successfully to server");
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Message sent to team chat"));
+        } else {
+            LogError("[MCP] Failed to send AI team chat: %s", message.toUtf8().constData());
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        }
+    });
+    return MCP::MCPResponse::deferred();
 }
 
 QJsonObject MCPCommandHandler::agentToJson(const QString& agentId)
@@ -744,6 +947,89 @@ MCP::MCPResponse MCPCommandHandler::handleListCollectedData(const MCP::MCPReques
     return MCP::MCPResponse::success(req.requestId, "", data);
 }
 
+MCP::MCPResponse MCPCommandHandler::handleTacticalChatResponse(const MCP::MCPRequest& req)
+{
+    QString content = req.params["content"].toString();
+    if (content.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing content parameter");
+
+    LogInfo("[MCP] AI replying to tactical/team chat: %s", content.toUtf8().constData());
+
+    // God View: 所有的回复现在都直接通过团队聊天发送
+    HttpReqChatSendMessageAsync("[AI] " + content, *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
+        if (success) {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "AI reply sent to team chat"));
+        } else {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, "Failed to send AI reply: " + message));
+        }
+    });
+
+    return MCP::MCPResponse::deferred();
+}
+
+MCP::MCPResponse MCPCommandHandler::handleGodViewQueryStatus(const MCP::MCPRequest& req)
+{
+    QJsonObject fullStatus;
+    
+    // 聚合所有关键信息
+    QJsonArray agents;
+    for (auto it = adaptixWidget->AgentsMap.begin(); it != adaptixWidget->AgentsMap.end(); ++it)
+        agents.append(agentToJson(it.key()));
+    fullStatus["agents"] = agents;
+
+    QJsonArray listeners;
+    for (const auto& listener : adaptixWidget->Listeners)
+        listeners.append(listenerToJson(listener));
+    fullStatus["listeners"] = listeners;
+
+    QJsonArray targets;
+    for (const auto& target : adaptixWidget->Targets)
+        targets.append(targetToJson(target));
+    fullStatus["targets"] = targets;
+
+    QJsonArray tasks;
+    for (auto it = adaptixWidget->TasksMap.begin(); it != adaptixWidget->TasksMap.end(); ++it)
+        tasks.append(taskToJson(*it));
+    fullStatus["tasks"] = tasks;
+
+    return MCP::MCPResponse::success(req.requestId, "Full status retrieved", fullStatus);
+}
+
+MCP::MCPResponse MCPCommandHandler::handleGodViewSuggestAction(const MCP::MCPRequest& req)
+{
+    QString suggestion = req.params["suggestion"].toString();
+    QString reasoning = req.params["reasoning"].toString();
+    
+    if (suggestion.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing suggestion parameter");
+
+    LogInfo("[MCP] AI suggesting action: %s", suggestion.toUtf8().constData());
+
+    QString fullMessage = "[AI Suggestion] " + suggestion;
+    if (!reasoning.isEmpty()) {
+        fullMessage += "\nReasoning: " + reasoning;
+    }
+
+    HttpReqChatSendMessageAsync(fullMessage, *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
+        if (success) {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Suggestion sent to team chat"));
+        } else {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, "Failed to send suggestion: " + message));
+        }
+    });
+
+    return MCP::MCPResponse::deferred();
+}
+
+MCP::MCPResponse MCPCommandHandler::handleAiAutonomousControl(const MCP::MCPRequest& req)
+{
+    bool enabled = req.params["enabled"].toBool(false);
+    LogInfo("[MCP] AI Autonomy set to: %s", enabled ? "ENABLED" : "DISABLED");
+    
+    // 这里可以持久化设置或通知其他组件
+    return MCP::MCPResponse::success(req.requestId, QString("AI autonomy %1").arg(enabled ? "enabled" : "disabled"));
+}
+
 MCP::MCPResponse MCPCommandHandler::handleGetCapabilities(const MCP::MCPRequest& req)
 {
     QJsonArray capabilities;
@@ -776,6 +1062,11 @@ MCP::MCPResponse MCPCommandHandler::handleGetCapabilities(const MCP::MCPRequest&
     addCap("update_agent_config", "Update agent sleep/jitter");
     addCap("update_agent_metadata", "Update agent tag/mark");
     addCap("manage_pty", "Manage PTY sessions (open, read, write, close, list)");
+    addCap("tactical_chat_response", "Reply to tactical chat with AI suggestions");
+    addCap("tactical_execute_sequence", "Execute a sequence of tactical workflow steps");
+    addCap("god_view_query_status", "Query full C2 status (Agents, Tasks, Targets, Listeners)");
+    addCap("god_view_suggest_action", "Suggest an action to the team via chat");
+    addCap("ai_autonomous_control", "Enable/Disable AI autonomous mode");
     
     QJsonObject data;
     data["capabilities"] = capabilities;

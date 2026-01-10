@@ -76,10 +76,10 @@ const FileDeliveryList = () => {
       x: e.clientX,
       y: e.clientY,
       options: [
-        { label: 'Copy download URL', icon: Copy, onClick: () => handleCopyUrl(file.url) },
+        { label: 'Copy download URL', icon: Copy, onClick: () => handleCopyUrl(file.fd_url) },
         { label: 'Create download link', icon: Link, onClick: () => handleCreateLink(file) },
         { divider: true },
-        { label: 'Delete hosted file', icon: Trash2, color: 'text-theme-danger', onClick: () => handleDeleteFile(file.id) },
+        { label: 'Delete hosted file', icon: Trash2, color: 'text-theme-danger', onClick: () => handleDeleteFile(file.fd_file_id) },
       ]
     });
   };
@@ -166,27 +166,27 @@ const FileDeliveryList = () => {
             ) : (
               filteredFiles.map((f) => (
                 <tr 
-                  key={f.id} 
+                  key={f.fd_file_id} 
                   onContextMenu={(e) => handleContextMenu(e, f)}
                   className="transition-colors group h-10 cursor-default border-b border-theme-glass-light hover:bg-theme-glass"
                 >
-                  <td className="text-theme-accent font-black font-mono tracking-tight">{f.filename}</td>
-                  <td className="text-theme-secondary font-mono italic">{f.size || '0 B'}</td>
+                  <td className="text-theme-accent font-black font-mono tracking-tight">{f.fd_name}</td>
+                  <td className="text-theme-secondary font-mono italic">{(f.fd_size / 1024).toFixed(2)} KB</td>
                   <td>
                     <span className="px-1.5 py-0.5 rounded-sm bg-theme-glass-panel text-[9px] font-black text-theme-accent-secondary border border-theme-glass-light">
-                      {f.downloads || 0}
+                      {f.fd_downloads || 0}
                     </span>
                   </td>
-                  <td className="text-theme-primary font-mono select-text hover:text-theme-accent transition-colors cursor-pointer text-[10px]" onClick={() => handleCopyUrl(f.url)}>
-                    {f.url || 'PENDING_MAPPING'}
+                  <td className="text-theme-primary font-mono select-text hover:text-theme-accent transition-colors cursor-pointer text-[10px]" onClick={() => handleCopyUrl(f.fd_url)}>
+                    {f.fd_url || 'PENDING_MAPPING'}
                   </td>
                   <td className="text-theme-muted font-mono text-[10px]">
-                    {f.date ? new Date(f.date * 1000).toLocaleString([], { hour12: false }) : 'N/A'}
+                    {f.fd_date ? new Date(f.fd_date * 1000).toLocaleString([], { hour12: false }) : 'N/A'}
                   </td>
                   <td className="text-right">
                     <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
-                        onClick={() => handleCopyUrl(f.url)}
+                        onClick={() => handleCopyUrl(f.fd_url)}
                         className="p-1.5 rounded-lg hover:bg-theme-glass text-theme-muted hover:text-theme-primary transition-colors" 
                         title="Copy Mapping URL"
                       >
@@ -200,7 +200,7 @@ const FileDeliveryList = () => {
                         <Link size={14} />
                       </button>
                       <button 
-                        onClick={() => handleDeleteFile(f.id)}
+                        onClick={() => handleDeleteFile(f.fd_file_id)}
                         className="p-1.5 rounded-lg hover:bg-theme-glass text-theme-danger/70 hover:text-theme-danger transition-all" 
                         title="Purge Artifact"
                       >
@@ -233,8 +233,8 @@ const FileDeliveryList = () => {
       <CreateLinkDialog 
         isOpen={isLinkOpen}
         onClose={() => setIsLinkOpen(false)}
-        fileId={selectedFile?.id}
-        filename={selectedFile?.filename}
+        fileId={selectedFile?.fd_file_id}
+        filename={selectedFile?.fd_name}
       />
 
       <UploadFileDialog

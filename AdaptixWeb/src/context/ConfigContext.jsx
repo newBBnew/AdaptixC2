@@ -13,35 +13,11 @@ export const ConfigProvider = ({ children }) => {
     } else {
       baseConfig = {
         baseUrl: window.location.origin,
-        apiEndpoint: '/api',
-        wsEndpoint: '/api/connect',
-        teamserverUrl: localStorage.getItem('adaptix_url') || 'https://localhost:4321/endpoint',
-        endpointPrefix: '' // Removed '/endpoint' to match backend routes
+        apiEndpoint: '/api/proxy',
+        wsEndpoint: '/api/proxy/connect',
+        teamserverUrl: 'https://localhost:4321/endpoint',
+        endpointPrefix: '' 
       };
-    }
-
-    // Migration/Normalization: Always ensure local connections use the proxy
-    const isLocal = baseConfig.teamserverUrl && (baseConfig.teamserverUrl.includes('localhost') || baseConfig.teamserverUrl.includes('127.0.0.1'));
-    if (isLocal) {
-      // Re-calculate based on saved teamserverUrl
-      try {
-        let urlStr = baseConfig.teamserverUrl.trim();
-        if (!urlStr.startsWith('http://') && !urlStr.startsWith('https://')) {
-          urlStr = 'https://' + urlStr;
-        }
-        const urlObj = new URL(urlStr);
-        let path = urlObj.pathname;
-        if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
-        const prefix = path === '/' ? '' : path;
-        
-        baseConfig.endpointPrefix = prefix;
-        baseConfig.apiEndpoint = `/api${prefix}`;
-        baseConfig.wsEndpoint = `/api${prefix}/connect`;
-      } catch (e) {
-        // Fallback
-        baseConfig.apiEndpoint = '/api';
-        baseConfig.wsEndpoint = '/api/connect';
-      }
     }
     return baseConfig;
   });
@@ -51,6 +27,9 @@ export const ConfigProvider = ({ children }) => {
   }, [config]);
 
   const updateConfigFromUrl = (inputUrl) => {
+    if (!inputUrl || inputUrl.trim() === '' || inputUrl.trim() === 'https://' || inputUrl.trim() === 'http://') {
+      return null;
+    }
     try {
       // Normalize URL (ensure protocol exists for URL constructor)
       let normalizedUrl = inputUrl.trim();
@@ -79,11 +58,10 @@ export const ConfigProvider = ({ children }) => {
         teamserverUrl: normalizedUrl,
         endpointPrefix: path === '/' ? '' : path,
         // For local, we prefix with /api so the proxy catches it.
-        // We ALSO append the user-defined path (endpointPrefix) so the proxy can just strip '/api'
-        // and forward the full path (e.g. /endpoint/...) to the backend.
-        apiEndpoint: isLocal ? `/api${path === '/' ? '' : path}` : `${origin}${path}`,
+        // We use /api/proxy to match the gateway's Any("/proxy/*path") route.
+        apiEndpoint: isLocal ? `/api/proxy` : `${origin}${path}`,
         // Same for WebSocket
-        wsEndpoint: isLocal ? `/api${path === '/' ? '' : path}/connect` : `${origin.replace('http', 'ws')}${path}/connect`
+        wsEndpoint: isLocal ? `/api/proxy/connect` : `${origin.replace('http', 'ws')}${path}/connect`
       };
       
       setConfig(newConfig);

@@ -5,7 +5,6 @@ import (
 	"AdaptixServer/core/utils/logs"
 	"AdaptixServer/core/utils/token"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -92,7 +91,7 @@ func (tc *TsConnector) tcConnect(ctx *gin.Context) {
 	}
 	wsConn, err := wsUpgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
-		logs.Error("", fmt.Sprintf("WebSocket upgrade error: %s", err.Error()))
+		logs.Error("", "WebSocket upgrade error: %s", err.Error())
 		return
 	}
 
@@ -158,7 +157,7 @@ func (tc *TsConnector) tcChannel(ctx *gin.Context) {
 	}
 	wsConn, err := wsUpgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
-		logs.Error("", fmt.Sprintf("WebSocket upgrade error: %s", err.Error()))
+		logs.Error("", "WebSocket upgrade error: %s", err.Error())
 		return
 	}
 

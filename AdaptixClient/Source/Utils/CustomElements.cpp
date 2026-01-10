@@ -242,6 +242,8 @@ void TextEditConsole::createContextMenu(const QPoint &pos) {
     autoScrollAction->setChecked(autoScroll);
     connect(autoScrollAction, &QAction::toggled, this, &TextEditConsole::setAutoScrollEnabled);
     
+    Q_EMIT extendContextMenu(menu);
+
     menu->exec(mapToGlobal(pos));
     delete menu;
 }

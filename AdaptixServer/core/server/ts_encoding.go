@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"io"
 	"strings"
 
@@ -1000,5 +999,5 @@ func (ts *Teamserver) TsWin32Error(errorCode uint) string {
 	if errStr, exists := win32ErrorCodes[errorCode]; exists {
 		return errStr
 	}
-	return fmt.Sprintf("UNKNOWN_ERROR")
+	return "UNKNOWN_ERROR"
 }

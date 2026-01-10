@@ -9,7 +9,8 @@ import {
   CheckCircle2, 
   AlertCircle,
   Loader2,
-  FileText
+  FileText,
+  Info
 } from 'lucide-react';
 
 const UploadFileDialog = ({ isOpen, onClose, onUploaded }) => {
@@ -35,9 +36,11 @@ const UploadFileDialog = ({ isOpen, onClose, onUploaded }) => {
     formData.append('file', file);
 
     try {
-      const response = await deliveryApi.upload(formData);
+      const response = await deliveryApi.upload(formData, (p) => {
+        setProgress(p);
+      });
       if (response.data?.ok) {
-        onUploaded?.();
+        onUploaded?.(response.data);
         onClose();
       } else {
         alert(response.data?.message || 'Upload failed');
@@ -123,10 +126,13 @@ const UploadFileDialog = ({ isOpen, onClose, onUploaded }) => {
           <div className="space-y-2 animate-in fade-in duration-300">
             <div className="flex justify-between text-[10px] font-black uppercase text-theme-muted tracking-widest px-1">
               <span>Uplinking to Teamserver</span>
-              <span className="text-theme-accent">In progress</span>
+              <span className="text-theme-accent">{progress}%</span>
             </div>
             <div className="h-1.5 w-full bg-theme-glass rounded-full overflow-hidden border border-theme-glass-light">
-              <div className="h-full bg-theme-accent animate-pulse shadow-glow-sm" style={{ width: '100%' }} />
+              <div 
+                className="h-full bg-theme-accent shadow-glow-sm transition-all duration-300" 
+                style={{ width: `${progress}%` }} 
+              />
             </div>
           </div>
         )}

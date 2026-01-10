@@ -2,10 +2,20 @@ package server
 
 import (
 	"AdaptixServer/core/utils/logs"
+	"encoding/json"
 	"fmt"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 )
+
+func (ts *Teamserver) TsPivotList() (string, error) {
+	pivots := ts.DBMS.DbPivotAll()
+	data, err := json.Marshal(pivots)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
 
 func (ts *Teamserver) TsGetPivotInfoByName(pivotName string) (string, string, string) {
 	for value := range ts.pivots.Iterator() {
@@ -94,7 +104,7 @@ func (ts *Teamserver) TsPivotCreate(pivotId string, pAgentId string, chAgentId s
 	if !isRestore {
 		err := ts.DBMS.DbPivotInsert(*pivotData)
 		if err != nil {
-			logs.Error("", err.Error())
+			logs.Error("TsPivotCreate", "failed to insert pivot into database: %s", err.Error())
 		}
 	}
 
@@ -143,7 +153,7 @@ func (ts *Teamserver) TsPivotDelete(pivotId string) error {
 
 	err := ts.DBMS.DbPivotDelete(pivotId)
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("TsPivotDelete", "failed to delete pivot from database: %s", err.Error())
 	}
 
 	packet := CreateSpPivotDelete(pivotId)

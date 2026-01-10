@@ -41,6 +41,26 @@ private:
     MCP::MCPResponse handleListCollectedData(const MCP::MCPRequest& req);
     MCP::MCPResponse handleGetCapabilities(const MCP::MCPRequest& req);
 
+    // Consolidated Commands (Scientific MCP)
+    MCP::MCPResponse handleLookAssets(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleListenIntelligence(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleSpeakInteraction(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleWriteOrchestration(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleOperateControl(const MCP::MCPRequest& req);
+
+    // Tactical Workflow
+    MCP::MCPResponse handleTacticalGetLibrary(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleTacticalModifyWorkflow(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleTacticalExecuteSequence(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleTacticalReadResults(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleTacticalModifyLibrary(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleTacticalBroadcastSuggestion(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleSendTeamChat(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleTacticalChatResponse(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleGodViewQueryStatus(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleGodViewSuggestAction(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleAiAutonomousControl(const MCP::MCPRequest& req);
+
     // PTY
     MCP::MCPResponse handleManagePty(const MCP::MCPRequest& req);
 

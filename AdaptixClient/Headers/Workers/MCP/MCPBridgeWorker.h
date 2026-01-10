@@ -21,6 +21,7 @@ public:
     quint16 getPort() const;
     int getConnectionCount() const;
     void sendResponse(const MCP::MCPResponse& response);
+    void sendMessage(const QString& type, const QJsonObject& params);
 
 Q_SIGNALS:
     void started(quint16 port);
@@ -39,6 +40,10 @@ private Q_SLOTS:
     void onTextMessageReceived(const QString& message);
     void onDisconnected();
     void onSocketError(QAbstractSocket::SocketError error);
+    
+    // Thread-safe send implementations
+    void internalSendResponse(const MCP::MCPResponse& response);
+    void internalSendMessage(const QString& type, const QJsonObject& params);
     
 private:
     MCP::MCPResponse processRequest(const MCP::MCPRequest& request);

@@ -114,7 +114,7 @@ func (ts *Teamserver) TsAgentCreate(agentCrc string, agentId string, beat []byte
 
 	err = ts.DBMS.DbAgentInsert(agent.GetData())
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("", "%s", err.Error())
 	}
 
 	ts.TsEventAgent(false, agent.GetData())
@@ -164,15 +164,15 @@ func (ts *Teamserver) TsAgentProcessData(agentId string, bodyData []byte) error 
 		agent.UpdateData(func(d *adaptix.AgentData) {
 			d.Mark = ""
 		})
-		err := ts.DBMS.DbAgentUpdate(agent.GetData())
-		if err != nil {
-			logs.Error("", err.Error())
+		dbErr := ts.DBMS.DbAgentUpdate(agent.GetData())
+		if dbErr != nil {
+			logs.Error("TsAgentProcessData", "failed to update agent in database: %s", dbErr.Error())
 		}
 	}
 
 	if len(bodyData) > 4 {
-		_, err := ts.Extender.ExAgentProcessData(agent.GetData(), bodyData)
-		return err
+		_, processErr := ts.Extender.ExAgentProcessData(agent.GetData(), bodyData)
+		return processErr
 	}
 
 	return nil
@@ -542,9 +542,9 @@ func (ts *Teamserver) TsAgentUpdateData(newAgentData adaptix.AgentData) error {
 	})
 
 	agentData := agent.GetData()
-	err := ts.DBMS.DbAgentUpdate(agentData)
-	if err != nil {
-		logs.Error("", err.Error())
+	dbErr := ts.DBMS.DbAgentUpdate(agentData)
+	if dbErr != nil {
+		logs.Error("", "%s", dbErr.Error())
 	}
 
 	packetNew := CreateSpAgentUpdate(agentData)
@@ -571,9 +571,9 @@ func (ts *Teamserver) TsAgentUpdateDataPartial(agentId string, updateData interf
 	ts.applyAgentUpdate(agent, updateData, &syncPacket)
 
 	agentData := agent.GetData()
-	err := ts.DBMS.DbAgentUpdate(agentData)
-	if err != nil {
-		logs.Error("", err.Error())
+	dbErr := ts.DBMS.DbAgentUpdate(agentData)
+	if dbErr != nil {
+		logs.Error("TsAgentUpdateDataPartial", "failed to update agent in database: %s", dbErr.Error())
 	}
 
 	ts.TsSyncAllClients(syncPacket)
@@ -830,7 +830,7 @@ func (ts *Teamserver) TsAgentTerminate(agentId string, terminateTaskId string) e
 	agentData := agent.GetData()
 	err := ts.DBMS.DbAgentUpdate(agentData)
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("", "%s", err.Error())
 	}
 
 	packetNew := CreateSpAgentUpdate(agentData)
@@ -909,7 +909,7 @@ func (ts *Teamserver) TsAgentRemove(agentId string) error {
 
 	err := ts.DBMS.DbAgentDelete(agentId)
 	if err != nil {
-		logs.Error("", err.Error())
+		logs.Error("", "%s", err.Error())
 	} else {
 		_ = ts.DBMS.DbTaskDelete("", agentId)
 		_ = ts.DBMS.DbConsoleDelete(agentId)

@@ -8,6 +8,7 @@ import SetAgentDataDialog from './SetAgentDataDialog';
 import ContextMenu from '../../components/ContextMenu';
 import Toolbar from './Toolbar';
 import Dock from './Dock';
+import PluginDialog from './PluginDialog';
 import { 
   X, 
   Terminal, 
@@ -37,13 +38,38 @@ const ControlPlatform = () => {
   const [isDataDialogOpen, setIsDataDialogOpen] = useState(false);
   const [selectedAgentForData, setSelectedAgentForData] = useState(null);
   const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [selectedPluginCmd, setSelectedPluginCmd] = useState(null);
+  const [pluginDialogOpen, setPluginDialogOpen] = useState(false);
+  const [targetAgentId, setTargetAgentId] = useState(null);
   const [filterActiveOnly, setFilterActiveOnly] = useState(false);
   const [filterType, setFilterType] = useState('All types');
-  const { agents: contextAgents, activeTabId, setActiveTabId, closeTab, openDockTab, openAgentTab, fetchAgents, isDockExpanded } = useAgents();
+  const { 
+    agents: contextAgents, 
+    activeTabId, 
+    setActiveTabId, 
+    closeTab, 
+    openDockTab, 
+    openAgentTab, 
+    fetchAgents, 
+    isDockExpanded,
+    axPlugins,
+    axCommands,
+    processCommand,
+    globalSearchQuery
+  } = useAgents();
   const { isSyncing, syncProgress } = useSocket();
 
   const [viewMode, setViewMode] = useState('sessions'); // 'sessions' or 'graph'
-  const [dockHeight, setDockHeight] = useState(300);
+  // Force periodic refresh for the 'Last' column seconds
+  const [ticker, setTick] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Initialize dock height to 60% of the window height
+  const [dockHeight, setDockHeight] = useState(window.innerHeight * 0.6);
   const [isResizing, setIsResizing] = useState(false);
 
   useEffect(() => {
@@ -77,12 +103,13 @@ const ControlPlatform = () => {
 
   // 过滤逻辑
   const filteredAgents = agents.filter(agent => {
-    const matchesSearch = searchQuery === '' || 
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
+    const matchesSearch = query === '' || 
       Object.values(agent).some(val => 
-        String(val).toLowerCase().includes(searchQuery.toLowerCase())
+        String(val).toLowerCase().includes(query)
       );
     const matchesType = filterType === 'All types' || agent.a_name === filterType;
-    const matchesActive = !filterActiveOnly || (agent.a_last_tick && (Date.now() - new Date(agent.a_last_tick).getTime()) < 60000);
+    const matchesActive = !filterActiveOnly || (agent.a_last_tick && (Math.floor(Date.now() / 1000) - agent.a_last_tick) < 60);
     
     return matchesSearch && matchesType && matchesActive;
   });
@@ -124,77 +151,122 @@ const ControlPlatform = () => {
   const handleContextMenu = (e, agent) => {
     e.preventDefault();
     const ids = [agent.a_id];
-    setMenu({
-      x: e.clientX,
-      y: e.clientY,
-      options: [
-        { label: 'Console', icon: Terminal, onClick: () => openAgentTab(agent, 'console') },
-        { divider: true },
-        { 
-          label: 'Agent', 
-          icon: ChevronRight,
-          children: [
-            { label: 'Execute command', onClick: () => {
-              const cmd = window.prompt('Enter command to execute:');
-              if (cmd) {
-                openAgentTab(agent, 'console');
-                // Command will be executed via console
-              }
-            }},
-            { label: 'Task manager', onClick: () => {
-              openDockTab('tasks', 'tasks', 'Tasks');
-            }},
-            { divider: true },
-            { label: 'Remove console data', onClick: () => {
-              if (window.confirm('Clear console history for this agent?')) agentApi.removeConsole(ids);
-            }},
-            { label: 'Remove from server', color: 'text-theme-danger', onClick: () => {
-              if (window.confirm('Are you sure you want to delete all information about this agent from the server?')) agentApi.remove(ids);
-            }},
-          ]
-        },
-        { 
-          label: 'Session', 
-          icon: ChevronRight,
-          children: [
-            { label: 'Mark as Active', onClick: () => agentApi.setMark(ids, '') },
-            { label: 'Mark as Inactive', onClick: () => agentApi.setMark(ids, 'Inactive') },
-            { divider: true },
-            { label: 'Set data', onClick: () => {
-              setSelectedAgentForData(agent);
-              setIsDataDialogOpen(true);
-            }},
-            { label: 'Set tag...', onClick: () => {
-              const tag = window.prompt('Enter tag:', agent.a_tags || '');
-              if (tag !== null) agentApi.setTag(ids, tag);
-            }},
-            { divider: true },
-            { label: 'Set items color', onClick: () => {
-              const bc = window.prompt('Enter background color hex (e.g. #1a1a1a):', theme.colors.glassPanel.split(' ')[0].includes('#') ? theme.colors.glassPanel.split(' ')[0] : '#1a1a1a');
-              if (bc) agentApi.setColor(ids, bc, '', false).then(fetchAgents);
-            }},
-            { label: 'Set text color', onClick: () => {
-              const fc = window.prompt('Enter text color hex (e.g. #ffffff):', theme.colors.primary);
-              if (fc) agentApi.setColor(ids, '', fc, false).then(fetchAgents);
-            }},
-            { label: 'Reset color', onClick: () => agentApi.setColor(ids, '', '', true).then(fetchAgents) },
-            { divider: true },
-            { label: 'Hide on client', onClick: () => {
-              // Local hide - not persisted to server
-              console.log('Hide agent:', agent.a_id);
-            }},
-          ]
-        },
-        { 
-          label: 'Browsers', 
-          icon: ChevronRight,
-          children: [
-            { label: 'File Browser', icon: Files, onClick: () => openAgentTab(agent, 'files') },
-            { label: 'Process List', icon: Activity, onClick: () => openAgentTab(agent, 'procs') },
-          ]
-        },
-      ]
-    });
+    
+    try {
+      // Mapping OS integer to strings for filtering (aligned with beacon_agent/pl_main.go)
+      const osMap = { 1: 'windows', 2: 'linux', 3: 'macos' };
+      const agentOS = osMap[agent.a_os] || 'unknown';
+      const agentType = agent.a_name?.toLowerCase();
+
+      // Filter plugins based on Agent type, OS, and Listener (Qt client style)
+      const filteredPlugins = axPlugins.filter(p => {
+        const matchesAgent = !p.agents || p.agents.length === 0 || p.agents.some(a => a.toLowerCase() === agentType);
+        const matchesOS = !p.os || p.os.length === 0 || p.os.some(o => o.toLowerCase() === agentOS);
+        const matchesListener = !p.listeners || p.listeners.length === 0 || p.listeners.some(l => l.toLowerCase() === agent.a_listener?.toLowerCase());
+        return matchesAgent && matchesOS && matchesListener;
+      });
+
+      // Flatten extensions to fit within 2-level context menu limit
+      const extensionMenu = filteredPlugins.length > 0 ? {
+        label: 'Extensions',
+        icon: ChevronRight,
+        children: filteredPlugins.map(p => ({
+          label: `${p.category || 'Misc'} / ${p.command}`,
+          icon: Terminal,
+          onClick: () => {
+            const cmdMeta = axCommands.find(c => c.name === p.command);
+            if (!cmdMeta) {
+              console.error(`[Agents] Metadata for command ${p.command} not found`);
+              return;
+            }
+            if (cmdMeta.args && cmdMeta.args.length > 0) {
+              setTargetAgentId(agent.a_id);
+              setSelectedPluginCmd(cmdMeta);
+              setPluginDialogOpen(true);
+            } else {
+              openAgentTab(agent, 'console');
+              processCommand(agent.a_id, p.command);
+            }
+          }
+        }))
+      } : null;
+
+      setMenu({
+        x: e.clientX,
+        y: e.clientY,
+        options: [
+          { label: 'Console', icon: Terminal, onClick: () => openAgentTab(agent, 'console') },
+          { divider: true },
+          extensionMenu,
+          extensionMenu ? { divider: true } : null,
+          { 
+            label: 'Agent', 
+            icon: ChevronRight,
+            children: [
+              { label: 'Execute command', onClick: () => {
+                const cmd = window.prompt('Enter command to execute:');
+                if (cmd) {
+                  openAgentTab(agent, 'console');
+                  processCommand(agent.a_id, cmd);
+                }
+              }},
+              { label: 'Task manager', onClick: () => {
+                openDockTab('tasks', 'tasks', 'Tasks');
+              }},
+              { divider: true },
+              { label: 'Remove console data', onClick: () => {
+                if (window.confirm('Clear console history for this agent?')) agentApi.removeConsole(ids);
+              }},
+              { label: 'Remove from server', color: 'text-theme-danger', onClick: () => {
+                if (window.confirm('Are you sure you want to delete all information about this agent from the server?')) agentApi.remove(ids);
+              }},
+            ]
+          },
+          { 
+            label: 'Session', 
+            icon: ChevronRight,
+            children: [
+              { label: 'Mark as Active', onClick: () => agentApi.setMark(ids, '') },
+              { label: 'Mark as Inactive', onClick: () => agentApi.setMark(ids, 'Inactive') },
+              { divider: true },
+              { label: 'Set data', onClick: () => {
+                setSelectedAgentForData(agent);
+                setIsDataDialogOpen(true);
+              }},
+              { label: 'Set tag...', onClick: () => {
+                const tag = window.prompt('Enter tag:', agent.a_tags || '');
+                if (tag !== null) agentApi.setTag(ids, tag);
+              }},
+              { divider: true },
+              { label: 'Set items color', onClick: () => {
+                const bc = window.prompt('Enter background color hex (e.g. #1a1a1a):', theme.colors.glassPanel.split(' ')[0].includes('#') ? theme.colors.glassPanel.split(' ')[0] : '#1a1a1a');
+                if (bc) agentApi.setColor(ids, bc, '', false).then(fetchAgents);
+              }},
+              { label: 'Set text color', onClick: () => {
+                const fc = window.prompt('Enter text color hex (e.g. #ffffff):', theme.colors.primary);
+                if (fc) agentApi.setColor(ids, '', fc, false).then(fetchAgents);
+              }},
+              { label: 'Reset color', onClick: () => agentApi.setColor(ids, '', '', true).then(fetchAgents) },
+              { divider: true },
+              { label: 'Hide on client', onClick: () => {
+                // Local hide - not persisted to server
+                console.log('Hide agent:', agent.a_id);
+              }},
+            ]
+          },
+          { 
+            label: 'Browsers', 
+            icon: ChevronRight,
+            children: [
+              { label: 'File Browser', icon: Files, onClick: () => openAgentTab(agent, 'files') },
+              { label: 'Process List', icon: Activity, onClick: () => openAgentTab(agent, 'procs') },
+            ]
+          },
+        ].filter(Boolean)
+      });
+    } catch (err) {
+      console.error("Context menu error:", err);
+    }
   };
 
   const handleToolbarClick = (dockId) => {
@@ -276,8 +348,8 @@ const ControlPlatform = () => {
         {/* Sessions/Graph Area */}
         <div className="flex-1 min-h-0 overflow-hidden glass-panel">
           {viewMode === 'sessions' ? (
-            <div className="h-full flex flex-col">
-              <div className="flex-1 overflow-auto custom-scrollbar">
+            <div className="h-full flex flex-col min-h-0">
+              <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
                 <table className="glass-table min-w-[1000px]">
                   <thead>
                     <tr>
@@ -391,6 +463,21 @@ const ControlPlatform = () => {
         onClose={() => setIsDataDialogOpen(false)}
         agent={selectedAgentForData}
         onUpdated={fetchAgents}
+      />
+
+      <PluginDialog 
+        isOpen={pluginDialogOpen}
+        onClose={() => {
+          setPluginDialogOpen(false);
+          setSelectedPluginCmd(null);
+        }}
+        command={selectedPluginCmd}
+        onExecute={(cmdLine, values) => {
+          if (targetAgentId) {
+            openAgentTab(agents.find(a => a.a_id === targetAgentId), 'console');
+            processCommand(targetAgentId, cmdLine, values);
+          }
+        }}
       />
     </div>
   );

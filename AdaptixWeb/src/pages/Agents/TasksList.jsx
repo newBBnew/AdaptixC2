@@ -22,7 +22,7 @@ import { cn } from '../../utils/cn';
 import ContextMenu from '../../components/ContextMenu';
 
 const TasksList = () => {
-  const { agents, activeTabId, openAgentTab, tasks: contextTasks, fetchAgents } = useAgents();
+  const { agents, activeTabId, openAgentTab, tasks: contextTasks, fetchAgents, globalSearchQuery } = useAgents();
   const [selectedTask, setSelectedTask] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
@@ -91,7 +91,8 @@ const TasksList = () => {
     // Apply agent filter
     if (filterAgent !== 'All agents' && t.a_id !== filterAgent) return false;
     
-    const matchesSearch = searchQuery === '' || t.a_cmdline.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = (searchQuery || globalSearchQuery).toLowerCase();
+    const matchesSearch = query === '' || t.a_cmdline.toLowerCase().includes(query);
     const matchesStatus = filterStatus === 'Any status' || 
       (filterStatus === 'Completed' && t.a_completed) ||
       (filterStatus === 'In Progress' && !t.a_completed);
@@ -216,17 +217,15 @@ const TasksList = () => {
                     <div className="flex items-center space-x-2">
                       <div className={cn(
                         "w-1.5 h-1.5 rounded-full shadow-[0_0_4px]",
-                        task.Status === 'Success' || task.a_completed ? "bg-theme-success shadow-theme-success/50" : 
-                        task.Status === 'Error' ? "bg-theme-danger shadow-theme-danger/50" : 
+                        task.a_completed ? (task.a_msg_type === 2 || task.a_msg_type === 4 ? "bg-theme-danger shadow-theme-danger/50" : "bg-theme-success shadow-theme-success/50") : 
                         "bg-theme-accent shadow-theme-accent/50 animate-pulse"
                       )} />
                       <span className={cn(
                         "text-[10px] font-black uppercase tracking-tighter",
-                        task.Status === 'Success' || task.a_completed ? "text-theme-accent-secondary" : 
-                        task.Status === 'Error' ? "text-theme-danger" : 
+                        task.a_completed ? (task.a_msg_type === 2 || task.a_msg_type === 4 ? "text-theme-danger" : "text-theme-accent-secondary") : 
                         "text-theme-accent"
                       )}>
-                        {task.Status || (task.a_completed ? 'Finished' : 'Running')}
+                        {task.a_completed ? (task.a_msg_type === 2 || task.a_msg_type === 4 ? 'Error' : 'Success') : 'Running'}
                       </span>
                     </div>
                   </td>

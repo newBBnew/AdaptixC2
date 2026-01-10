@@ -15,6 +15,11 @@ type Request struct {
 	Params    map[string]interface{} `json:"params"`
 }
 
+type Notification struct {
+	Type   string                 `json:"type"`
+	Params map[string]interface{} `json:"params"`
+}
+
 type Response struct {
 	RequestID string                 `json:"request_id"`
 	Status    string                 `json:"status"`
@@ -32,23 +37,31 @@ type Connector struct {
 	reconnectInterval time.Duration
 	timeout           time.Duration
 
-	connected    bool
-	reconnecting bool
-	stopChan     chan struct{}
+	connected      bool
+	reconnecting   bool
+	stopChan       chan struct{}
+	onNotification func(Notification)
 }
 
-func NewConnector(url string) *Connector {
+func NewConnector(url string, onNotif func(Notification)) *Connector {
 	return &Connector{
 		url:               url,
 		reconnectInterval: 5 * time.Second,
 		timeout:           30 * time.Second,
 		stopChan:          make(chan struct{}),
+		onNotification:    onNotif,
 	}
 }
 
 func (c *Connector) SetReconnectInterval(d time.Duration) { c.reconnectInterval = d }
 func (c *Connector) SetTimeout(d time.Duration)           { c.timeout = d }
 func (c *Connector) IsConnected() bool                    { return c.connected }
+
+func (c *Connector) SetNotificationCallback(cb func(Notification)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onNotification = cb
+}
 
 func (c *Connector) Connect() error {
 	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
@@ -137,17 +150,42 @@ func (c *Connector) listenResponses() {
 		case <-c.stopChan:
 			return
 		default:
-			var resp Response
-			if err := c.conn.ReadJSON(&resp); err != nil {
-				utils.ErrorLogger.Printf("Failed to read response: %v", err)
+			var raw map[string]interface{}
+			if err := c.conn.ReadJSON(&raw); err != nil {
+				utils.ErrorLogger.Printf("Failed to read message: %v", err)
 				return
 			}
 
-			if ch, ok := c.pending.Load(resp.RequestID); ok {
-				if respChan, ok := ch.(chan *Response); ok {
-					respChan <- &resp
+			// Check if it's a response or notification
+			if reqID, ok := raw["request_id"].(string); ok && reqID != "" {
+				// It's a response
+				resp := &Response{
+					RequestID: reqID,
+					Status:    utils.ToString(raw["status"]),
+					Message:   utils.ToString(raw["message"]),
+					Version:   utils.ToString(raw["version"]),
 				}
-				c.pending.Delete(resp.RequestID)
+				if data, ok := raw["data"].(map[string]interface{}); ok {
+					resp.Data = data
+				}
+
+				if ch, ok := c.pending.Load(reqID); ok {
+					if respChan, ok := ch.(chan *Response); ok {
+						respChan <- resp
+					}
+					c.pending.Delete(reqID)
+				}
+			} else if msgType, ok := raw["type"].(string); ok {
+				// It's a notification
+				notif := Notification{
+					Type: msgType,
+				}
+				if params, ok := raw["params"].(map[string]interface{}); ok {
+					notif.Params = params
+				}
+				if c.onNotification != nil {
+					c.onNotification(notif)
+				}
 			}
 		}
 	}

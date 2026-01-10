@@ -16,7 +16,7 @@ func NewTeamserver() *Teamserver {
 
 	dbms, err := database.NewDatabase(logs.RepoLogsInstance.DbPath)
 	if err != nil {
-		logs.Error("", "Failed to create a DBMS: "+err.Error())
+		logs.Error("", "Failed to create a DBMS: %s", err.Error())
 		return nil
 	}
 
@@ -46,10 +46,18 @@ func NewTeamserver() *Teamserver {
 		terminals:   safe.NewMap(),
 		pivots:      safe.NewSlice(),
 		otps:        safe.NewMap(),
+
+		TacticalCatalog: safe.NewMap(),
 	}
 	ts.TaskManager = NewTaskManager(ts)
 	ts.TunnelManager = NewTunnelManager(ts)
 	ts.Extender = extender.NewExtender(ts)
+
+	err = ts.LoadTacticalLibrary()
+	if err != nil {
+		logs.Error("TACTICAL", "Failed to load tactical library: %s", err.Error())
+	}
+
 	return ts
 }
 
@@ -291,7 +299,7 @@ func (ts *Teamserver) Start() {
 
 	ts.AdaptixServer, err = connector.NewTsConnector(ts, *ts.Profile.Server, *ts.Profile.ServerResponse)
 	if err != nil {
-		logs.Error("", "Failed to init HTTP handler: "+err.Error())
+		logs.Error("", "Failed to init HTTP handler: %s", err.Error())
 		return
 	}
 

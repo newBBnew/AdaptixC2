@@ -19,10 +19,10 @@ const CreateLinkDialog = ({ isOpen, onClose, fileId, filename }) => {
   const handleCreate = async () => {
     setLoading(true);
     try {
-      // payload matches HttpReqFileDeliveryLinkCreateAsync logic
+      // payload matches TcFileDeliveryCreateLink struct in tc_filedelivery.go
       const response = await deliveryApi.createLink({
         file_id: fileId,
-        expiration: parseInt(hours),
+        expire_hours: parseInt(hours),
         max_uses: 0, // 0 for unlimited
         allowed_ip: ''
       });

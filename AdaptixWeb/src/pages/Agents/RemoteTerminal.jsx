@@ -201,7 +201,7 @@ const RemoteTerminal = ({ agent }) => {
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;
-    const endpoint = '/api'; // Vite proxy or Nginx will handle this
+    const proxyPath = '/api/proxy/channel'; 
     
     // Build terminal data: agentId|terminalId|program(base64)|sizeH|sizeW|OemCP
     const terminalId = generateTerminalId();
@@ -227,9 +227,8 @@ const RemoteTerminal = ({ agent }) => {
     
     const terminalData = btoa(`${agent.a_id}|${terminalId}|${programB64}|${rows}|${cols}|${oemCP}`);
 
-    // Note: Browser WebSocket doesn't support custom headers
-    // We need to pass auth via query params
-    const wsUrl = `${wsProtocol}//${wsHost}${endpoint}/channel?token=${encodeURIComponent(token)}&channel_type=terminal&channel_data=${encodeURIComponent(terminalData)}`;
+    // Standardized channel URL for Gateway proxy
+    const wsUrl = `${wsProtocol}//${wsHost}${proxyPath}?token=${encodeURIComponent(token)}&channel_type=terminal&channel_data=${encodeURIComponent(terminalData)}`;
     
     try {
       const wsAuth = new WebSocket(wsUrl);

@@ -21,54 +21,102 @@ import {
 import { cn } from '../../utils/cn';
 
 const AgentConsole = ({ agent: initialAgent }) => {
-  const { agents, setActiveSubTab, consoleHistory, addConsoleLine, agentConfigs, processCommand, axEngine } = useAgents();
+  const { agents, openTabs, activeTabId, setActiveSubTab, consoleHistory, addConsoleLine, agentConfigs, processCommand, axCommands } = useAgents();
   
-  // Merge live agent data (from Context) with UI state (from openTabs/props)
-  // This ensures 'Info' tab shows real-time data while preserving UI state like activeSubTab
-  const liveAgent = agents.find(a => a.a_id === initialAgent.a_id);
-  const agent = { ...initialAgent, ...(liveAgent || {}) };
+  // Find current tab state for this agent
+  const currentTab = openTabs.find(t => t.id === initialAgent?.a_id);
+  const activeSubTab = currentTab?.activeSubTab || 'console';
 
-  const activeSubTab = agent.activeSubTab || 'console';
   const [inputValue, setInputValue] = useState('');
   const [commandHistory, setCommandHistory] = useState([]);
   const [historyIndex, setCommandHistoryIndex] = useState(-1);
+  const [suggestions, setSuggestions] = useState([]);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchIndex, setSearchIndex] = useState(0);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
-  const [suggestions, setSuggestions] = useState([]);
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const searchInputRef = useRef(null);
   const suggestionsRef = useRef(null);
 
-  // Get available commands for this agent type from axEngine (dynamic autocomplete)
-  const availableCommands = React.useMemo(() => {
-    if (axEngine?.getCommandList) {
-      return axEngine.getCommandList(agent.a_name);
-    }
-    return agentConfigs[agent.a_name]?.commands || [
-      'help', 'shell', 'upload', 'download', 'execute', 'exit', 'sleep', 'jitter', 'pwd', 'ls', 'cd', 'whoami', 'ps', 'kill'
+  // Sync with live agent data from context
+  const agent = agents.find(a => a.a_id === initialAgent?.a_id) || initialAgent;
+
+  // Get available commands for this agent type from synced axCommands
+  const commandIndex = React.useMemo(() => {
+    const idx = new Map();
+
+    const builtins = [
+      { name: 'help' },
+      { name: 'clear' },
+      { name: 'sleep' },
+      { name: 'jitter' },
+      { name: 'pwd' },
+      { name: 'ls' },
+      { name: 'cd' },
+      { name: 'cat' },
+      { name: 'download' },
+      { name: 'upload' },
+      { name: 'ps', sub_commands: { list: { name: 'list' }, kill: { name: 'kill' } } },
+      { name: 'execute', sub_commands: { bof: { name: 'bof' } } },
     ];
-  }, [axEngine, agent.a_name, agentConfigs]);
+
+    builtins.forEach(c => idx.set(c.name.toLowerCase(), c));
+    (axCommands || []).forEach(c => {
+      if (!c?.name) return;
+      idx.set(String(c.name).toLowerCase(), c);
+    });
+    return idx;
+  }, [axCommands]);
+
+  const computeSuggestions = React.useCallback((rawInput) => {
+    const input = (rawInput || '').replace(/^\s+/, '');
+    if (!input) return [];
+
+    const hasTrailingSpace = /\s$/.test(rawInput);
+    const parts = input.split(/\s+/);
+    const cmdPart = (parts[0] || '').toLowerCase();
+    const subPart = (parts[1] || '').toLowerCase();
+
+    // 1) Command suggestions
+    if (parts.length === 1 && !hasTrailingSpace) {
+      const out = [];
+      for (const [name] of commandIndex.entries()) {
+        if (name.startsWith(cmdPart)) out.push(name);
+      }
+      return out.sort().slice(0, 50).map(n => n);
+    }
+
+    // 2) Sub-command suggestions
+    const cmd = commandIndex.get(cmdPart);
+    const subMap = cmd?.sub_commands || cmd?.subCommands;
+    if (!subMap) return [];
+
+    const subs = Array.isArray(subMap)
+      ? subMap
+      : Object.values(subMap || {});
+
+    const out = [];
+    subs.forEach(sc => {
+      const subName = String(sc?.name || '').toLowerCase();
+      if (!subName) return;
+      if (subName.startsWith(subPart)) {
+        out.push(`${cmdPart} ${subName}`);
+      }
+    });
+    return out.sort().slice(0, 50);
+  }, [commandIndex]);
 
   // Update suggestions when input changes (Qt client style)
   useEffect(() => {
-    const currentInput = inputValue.trim();
-    if (!currentInput) {
-      setSuggestions([]);
-      setSelectedSuggestionIndex(0);
-      return;
-    }
-    
-    const matches = availableCommands.filter(cmd => 
-      cmd.toLowerCase().startsWith(currentInput.toLowerCase())
-    );
-    setSuggestions(matches);
+    const next = computeSuggestions(inputValue);
+    setSuggestions(next);
     setSelectedSuggestionIndex(0);
-  }, [inputValue, availableCommands]);
+  }, [inputValue, computeSuggestions]);
 
   // Message type colors (aligned with Qt ConsoleWidget.cpp)
   const getMsgPrefix = (msgType) => {
@@ -100,8 +148,8 @@ const AgentConsole = ({ agent: initialAgent }) => {
     return d.toLocaleString();
   };
 
-  const history = consoleHistory[agent.a_id] || [
-    { type: 'info', content: `Session established with ${agent.a_name || agent.a_id.substring(0,8)}` },
+  const history = consoleHistory[agent?.a_id] || [
+    { type: 'info', content: `Session established with ${agent?.a_name || agent?.a_id?.substring(0,8) || 'Unknown'}` },
     { type: 'info', content: 'Type "help" for a list of available commands.' }
   ];
 
@@ -139,34 +187,18 @@ const AgentConsole = ({ agent: initialAgent }) => {
     setCommandHistoryIndex(-1);
 
     // Add locally to history immediately
-    addConsoleLine(agent.a_id, { type: 'input', content: cmdline, time: Math.floor(Date.now() / 1000) });
+    addConsoleLine(agent?.a_id, { type: 'input', content: cmdline, time: Math.floor(Date.now() / 1000) });
 
     try {
-      // 1. Check if it's an Extension Command (registered in axEngine)
-      const axCommand = typeof processCommand === 'function' ? await processCommand(agent.a_id, cmdline, true) : null;
-      
-      // 2. If it's an Extension Command, processCommand already handled the hook/alias logic
-      if (axCommand) {
-        return;
-      }
-
-      // 3. Fallback to standard/built-in commands via direct API
-      await agentApi.executeCommand({
-        name: agent.a_name,
-        id: agent.a_id,
-        ui: true,
-        cmdline: cmdline,
-        data: "{}",
-        ax_hook_id: "",
-        ax_handler_id: ""
-      });
+      // Use the centralized processCommand which handles:
+      // 1. Extension Hooks (on Gateway)
+      // 2. Standard Commands (forwarded to C2)
+      // 3. Protocol field alignment (command, data: "{}", etc.)
+      await processCommand(agent?.a_id, cmdline);
     } catch (err) {
-      console.error('[AgentConsole] Command execution failed:', err);
-      addConsoleLine(agent.a_id, { 
-        type: 'output', 
-        content: `[-] Error: ${err.response?.data?.message || err.message || 'Command failed to send'}`,
-        msgType: 2 // Error type
-      });
+      console.error('[AgentConsole] Command processing failed:', err);
+      // Error display is handled by processCommand in most cases, 
+      // but we catch here to be safe and ensure the UI stays stable.
     }
   };
 
@@ -227,7 +259,7 @@ const AgentConsole = ({ agent: initialAgent }) => {
       setIsHistoryDialogOpen(true);
     } else if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
       e.preventDefault();
-      addConsoleLine(agent.a_id, { type: 'clear' });
+      addConsoleLine(agent?.a_id, { type: 'clear' });
     }
   };
 

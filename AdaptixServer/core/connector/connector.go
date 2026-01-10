@@ -17,6 +17,37 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type TacticalVariant struct {
+	Id              string `json:"id"`
+	Name            string `json:"name"`
+	Cmd             string `json:"cmd"`
+	Os              int    `json:"os"`
+	Risk            int    `json:"risk"`
+	Opsec           string `json:"opsec"`
+	AiGuidance      string `json:"ai_guidance"`
+	CommandTemplate string `json:"command_template"`
+}
+
+type TacticalBlock struct {
+	Id          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Variants    []TacticalVariant `json:"variants"`
+}
+
+type TacticalCategory struct {
+	Name   string          `json:"name"`
+	Blocks []TacticalBlock `json:"blocks"`
+}
+
+type TacticalWorkflowStep struct {
+	InstanceId string            `json:"instance_id"`
+	BlockId    string            `json:"block_id"`
+	VariantId  string            `json:"variant_id"`
+	Name       string            `json:"name"`
+	Params     map[string]string `json:"params"`
+}
+
 type Teamserver interface {
 	CreateOTP(otpType string, id string) (string, error)
 	ValidateOTP() gin.HandlerFunc
@@ -62,6 +93,16 @@ type Teamserver interface {
 
 	TsChatSendMessage(username string, message string)
 
+	TsTacticalWorkflowUpdate(steps []TacticalWorkflowStep, targets string)
+	TsTacticalWorkflowClear()
+
+	TsTacticalLibraryUpdate(category string, block TacticalBlock) error
+	TsTacticalLibraryDelete(blockId string) error
+	TsTacticalAiSuggestion(content string)
+
+	TsPivotList() (string, error)
+	TsPivotDelete(pivotId string) error
+
 	TsDownloadAdd(agentId string, fileId string, fileName string, fileSize int) error
 	TsDownloadUpdate(fileId string, state int, data []byte) error
 	TsDownloadClose(fileId string, reason int) error
@@ -93,11 +134,8 @@ type Teamserver interface {
 	TsClientGuiDisks(taskData adaptix.TaskData, jsonDrives string)
 	TsClientGuiFiles(taskData adaptix.TaskData, path string, jsonFiles string)
 	TsClientGuiFilesStatus(taskData adaptix.TaskData)
-	TsClientGuiProcess(taskData adaptix.TaskData, jsonFiles string)
 
 	TsAgentTerminalCreateChannel(terminalData string, wsconn *websocket.Conn) error
-
-	TsGetExtensionPath() string
 
 	TsTunnelList() (string, error)
 	TsTunnelClientStart(AgentId string, Listen bool, Type int, Info string, Lhost string, Lport int, Client string, Thost string, Tport int, AuthUser string, AuthPass string) (string, error)
@@ -251,6 +289,16 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 
 		api_group.POST("/chat/send", connector.TcChatSendMessage)
 
+		api_group.POST("/tactical/workflow/update", connector.TcTacticalWorkflowUpdate)
+		api_group.POST("/tactical/workflow/clear", connector.TcTacticalWorkflowClear)
+
+		api_group.POST("/tactical/library/update", connector.TcTacticalLibraryUpdate)
+		api_group.POST("/tactical/library/delete", connector.TcTacticalLibraryDelete)
+		api_group.POST("/tactical/suggestion/send", connector.TcTacticalAiSuggestion)
+
+		api_group.GET("/pivot/list", connector.TcPivotList)
+		api_group.POST("/pivot/remove", connector.TcPivotRemove)
+
 		api_group.GET("/download/list", connector.TcDownloadList)
 		api_group.POST("/download/sync", connector.TcGuiDownloadSync)
 		api_group.POST("/download/delete", connector.TcGuiDownloadDelete)
@@ -278,11 +326,6 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 		api_group.POST("/tunnel/start/rportfwd", connector.TcTunnelStartRpf)
 		api_group.POST("/tunnel/stop", connector.TcTunnelStop)
 		api_group.POST("/tunnel/set/info", connector.TcTunnelSetIno)
-
-		api_group.GET("/script/basepath", connector.TcScriptGetBasePath)
-		api_group.GET("/script/list", connector.TcScriptList)
-		api_group.POST("/script/read", connector.TcScriptRead)
-		api_group.POST("/script/bof", connector.TcScriptReadBof)
 	}
 
 	connector.Engine.NoRoute(limitTimeoutMiddleware(), default404Middleware(tsResponse), func(c *gin.Context) { _ = c.Error(errors.New("NoRoute")) })
@@ -320,7 +363,7 @@ func (tc *TsConnector) Start(finished *chan bool) {
 	err := server.ListenAndServeTLS(tc.Cert, tc.Key)
 	//err := tc.Engine.RunTLS(host, tc.Cert, tc.Key)
 	if err != nil {
-		logs.Error("", fmt.Sprintf("Failed to start HTTP Server: %s", err.Error()))
+		logs.Error("", "Failed to start HTTP Server: %s", err.Error())
 		return
 	}
 	*finished <- true

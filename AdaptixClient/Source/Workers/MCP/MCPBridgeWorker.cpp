@@ -16,7 +16,27 @@ MCPBridgeWorker::MCPBridgeWorker(AdaptixWidget* widget, int port, QObject* paren
 
 MCPBridgeWorker::~MCPBridgeWorker()
 {
-    stop();
+    // Use a local pointer to avoid race conditions during destruction
+    QWebSocketServer* serverToKill = nullptr;
+    QWebSocket* connToKill = nullptr;
+
+    {
+        QMutexLocker locker(&connectionMutex);
+        serverToKill = wsServer;
+        connToKill = mcpConnection;
+        wsServer = nullptr;
+        mcpConnection = nullptr;
+    }
+
+    if (connToKill) {
+        connToKill->close();
+        delete connToKill;
+    }
+
+    if (serverToKill) {
+        serverToKill->close();
+        delete serverToKill;
+    }
 }
 
 quint16 MCPBridgeWorker::getPort() const
@@ -53,14 +73,17 @@ bool MCPBridgeWorker::start()
 
 void MCPBridgeWorker::stop()
 {
+    QMutexLocker locker(&connectionMutex);
+    
     if (mcpConnection) {
         mcpConnection->close();
+        mcpConnection->deleteLater();
         mcpConnection = nullptr;
     }
     
     if (wsServer) {
         wsServer->close();
-        delete wsServer;
+        wsServer->deleteLater();
         wsServer = nullptr;
     }
     
@@ -76,12 +99,15 @@ void MCPBridgeWorker::onNewConnection()
     QMutexLocker locker(&connectionMutex);
     
     if (mcpConnection) {
-        socket->close(QWebSocketProtocol::CloseCodePolicyViolated, "Only one connection allowed");
-        socket->deleteLater();
-        return;
+        // Allow new connection to supersede the old one
+        disconnect(mcpConnection, nullptr, this, nullptr);
+        mcpConnection->close(QWebSocketProtocol::CloseCodeNormal, "New connection replacing old one");
+        mcpConnection->deleteLater();
+        mcpConnection = nullptr;
     }
     
     mcpConnection = socket;
+    mcpConnection->setParent(this); // Reparent to worker to manage lifecycle independently of server
     
     connect(mcpConnection, &QWebSocket::textMessageReceived, this, &MCPBridgeWorker::onTextMessageReceived);
     connect(mcpConnection, &QWebSocket::disconnected, this, &MCPBridgeWorker::onDisconnected);
@@ -129,7 +155,15 @@ void MCPBridgeWorker::onDisconnected()
 
 void MCPBridgeWorker::onSocketError(QAbstractSocket::SocketError error)
 {
-    Q_UNUSED(error)
+    // Ignore RemoteHostClosedError as it's a normal closure
+    if (error == QAbstractSocket::RemoteHostClosedError)
+        return;
+
+    // Filter out generic "Unknown error" which often happens during teardown
+    if (error == QAbstractSocket::UnknownSocketError && mcpConnection && mcpConnection->errorString() == "Unknown error")
+        return;
+
+    QMutexLocker locker(&connectionMutex);
     if (mcpConnection) {
         Q_EMIT errorOccurred(mcpConnection->errorString());
     }
@@ -153,10 +187,39 @@ MCP::MCPResponse MCPBridgeWorker::processRequest(const MCP::MCPRequest& request)
 
 void MCPBridgeWorker::sendResponse(const MCP::MCPResponse& response)
 {
+    QMetaObject::invokeMethod(this, [this, response]() {
+        internalSendResponse(response);
+    }, Qt::QueuedConnection);
+}
+
+void MCPBridgeWorker::internalSendResponse(const MCP::MCPResponse& response)
+{
     QMutexLocker locker(&connectionMutex);
     if (!mcpConnection)
         return;
     
     QJsonDocument doc(response.toJson());
+    mcpConnection->sendTextMessage(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+}
+
+void MCPBridgeWorker::sendMessage(const QString& type, const QJsonObject& params)
+{
+    QMetaObject::invokeMethod(this, [this, type, params]() {
+        internalSendMessage(type, params);
+    }, Qt::QueuedConnection);
+}
+
+void MCPBridgeWorker::internalSendMessage(const QString& type, const QJsonObject& params)
+{
+    QMutexLocker locker(&connectionMutex);
+    if (!mcpConnection)
+        return;
+
+    QJsonObject json;
+    json["version"] = MCP::PROTOCOL_VERSION;
+    json["type"] = type;
+    json["params"] = params;
+
+    QJsonDocument doc(json);
     mcpConnection->sendTextMessage(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
 }
