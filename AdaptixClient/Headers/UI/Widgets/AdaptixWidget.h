@@ -60,6 +60,7 @@ Q_OBJECT
     QPushButton*    sessionsButton    = nullptr;
     QPushButton*    graphButton       = nullptr;
     QPushButton*    tasksButton       = nullptr;
+    QPushButton*    tacticalButton    = nullptr;
     QPushButton*    targetsButton     = nullptr;
     QPushButton*    tunnelButton      = nullptr;
     QPushButton*    deliveryButton    = nullptr;
@@ -187,6 +188,8 @@ public Q_SLOTS:
     void SetSessionsTableUI() const;
     void SetGraphUI() const;
     void SetTasksUI() const;
+    void LoadTacticalGuidanceUI() const;
+    void LoadTacticalGuidanceUI() const;
     void LoadAxConsoleUI() const;
     void LoadLogsUI() const;
     void LoadChatUI() const;

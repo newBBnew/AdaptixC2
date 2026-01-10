@@ -121,6 +121,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     connect( sessionsButton,  &QPushButton::clicked, this, &AdaptixWidget::SetSessionsTableUI);
     connect( graphButton,     &QPushButton::clicked, this, &AdaptixWidget::SetGraphUI);
     connect( tasksButton,     &QPushButton::clicked, this, &AdaptixWidget::SetTasksUI);
+    connect( tacticalButton,  &QPushButton::clicked, this, &AdaptixWidget::LoadTacticalGuidanceUI);
     connect( tunnelButton,    &QPushButton::clicked, this, &AdaptixWidget::LoadTunnelsUI);
     connect( deliveryButton,  &QPushButton::clicked, this, &AdaptixWidget::LoadFileDeliveryUI);
     connect( downloadsButton, &QPushButton::clicked, this, &AdaptixWidget::LoadDownloadsUI);
@@ -285,6 +286,7 @@ void AdaptixWidget::createUI()
     topHLayout->addWidget(sessionsButton);
     topHLayout->addWidget(graphButton);
     topHLayout->addWidget(tasksButton);
+    topHLayout->addWidget(tacticalButton);
     topHLayout->addWidget(line_2);
     topHLayout->addWidget(tunnelButton);
     topHLayout->addWidget(deliveryButton);
@@ -939,6 +941,10 @@ void AdaptixWidget::SetSessionsTableUI() const { this->AddDockTop( SessionsTable
 void AdaptixWidget::SetGraphUI() const { this->AddDockTop( SessionsGraphDock->dock() ); }
 
 void AdaptixWidget::SetTasksUI() const { this->AddDockTop( TasksDock->dockTasks() ); }
+
+void AdaptixWidget::LoadTacticalGuidanceUI() const { this->AddDockTop( TacticalGuidanceDock->dock() ); }
+
+void AdaptixWidget::LoadAxConsoleUI() const { this->AddDockBottom( AxConsoleDock->dock() ); }
 
 void AdaptixWidget::LoadAxConsoleUI() const { this->AddDockBottom( AxConsoleDock->dock() ); }
 

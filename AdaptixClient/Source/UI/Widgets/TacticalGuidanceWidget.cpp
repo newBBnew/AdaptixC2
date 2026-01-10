@@ -18,6 +18,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageBox>
+#include <QMenu>
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QUrl>
@@ -72,6 +73,8 @@ void TacticalGuidanceWidget::createLibraryUI()
     libraryView->setDragEnabled(true);
     libraryView->setDragDropMode(QAbstractItemView::DragOnly);
     libraryView->viewport()->installEventFilter(this);
+    libraryView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(libraryView, &QTreeView::customContextMenuRequested, this, &TacticalGuidanceWidget::onLibraryContextMenu);
 
     libraryModel = new QStandardItemModel(this);
     libraryProxyModel = new QSortFilterProxyModel(this);
@@ -364,6 +367,107 @@ void TacticalGuidanceWidget::onLibrarySearchChanged(const QString& text)
 {
     if (libraryProxyModel)
         libraryProxyModel->setFilterWildcard(text);
+}
+
+void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
+{
+    QModelIndex index = libraryView->indexAt(pos);
+    QMenu menu(this);
+
+    if (!index.isValid()) {
+        menu.addAction("Add Category", this, [this](){
+            bool ok;
+            QString text = QInputDialog::getText(this, "Add Category", "Category Name:", QLineEdit::Normal, "", &ok);
+            if (ok && !text.isEmpty()) {
+                auto* item = new QStandardItem(text);
+                item->setFont(QFont("", -1, QFont::Bold));
+                item->setSelectable(false);
+                libraryModel->appendRow(item);
+            }
+        });
+    } else {
+        auto sourceIndex = libraryProxyModel->mapToSource(index);
+        auto* item = libraryModel->itemFromIndex(sourceIndex);
+        
+        // Check depth: 0=Category, 1=Block, 2=Variant
+        int depth = 0;
+        auto* p = item->parent();
+        while (p) { depth++; p = p->parent(); }
+
+        if (depth == 0) { // Category
+            menu.addAction("Add Block", this, [this, item](){
+                bool ok;
+                QString text = QInputDialog::getText(this, "Add Block", "Block Name:", QLineEdit::Normal, "", &ok);
+                if (ok && !text.isEmpty()) {
+                    QString id = QUuid::createUuid().toString();
+                    TacticalBlockData block;
+                    block.id = id;
+                    block.name = text;
+                    block.category = item->text();
+                    catalogMap[id] = block;
+
+                    auto* blockItem = new QStandardItem(text);
+                    blockItem->setData(id, Qt::UserRole);
+                    blockItem->setSelectable(false);
+                    item->appendRow(blockItem);
+                    libraryView->expand(libraryProxyModel->mapFromSource(item->index()));
+                }
+            });
+            menu.addSeparator();
+            menu.addAction("Delete Category", this, [this, item](){
+                if (QMessageBox::question(this, "Delete", "Delete category and all contents?") == QMessageBox::Yes) {
+                    libraryModel->removeRow(item->row());
+                }
+            });
+        } else if (depth == 1) { // Block
+            menu.addAction("Add Variant", this, [this, item](){
+                bool ok;
+                QString text = QInputDialog::getText(this, "Add Variant", "Variant Name:", QLineEdit::Normal, "", &ok);
+                if (ok && !text.isEmpty()) {
+                    QString cmd = QInputDialog::getText(this, "Add Variant", "Command:", QLineEdit::Normal, "");
+                    
+                    QString blockId = item->data(Qt::UserRole).toString();
+                    QString id = QUuid::createUuid().toString();
+                    
+                    TacticalVariantData var;
+                    var.id = id;
+                    var.name = text;
+                    var.commandTemplate = cmd;
+                    var.os = 1; // Default Win
+                    
+                    variantMap[id] = var;
+                    catalogMap[blockId].variants.push_back(var);
+
+                    auto* varItem = new QStandardItem(text);
+                    varItem->setData(id, Qt::UserRole);
+                    varItem->setIcon(QIcon(":/icons/os_win_blue"));
+                    item->appendRow(varItem);
+                    libraryView->expand(libraryProxyModel->mapFromSource(item->index()));
+                }
+            });
+            menu.addSeparator();
+            menu.addAction("Delete Block", this, [this, item](){
+                // Also remove from map? For now just UI
+                libraryModel->removeRow(item->row(), item->parent()->index());
+            });
+        } else if (depth == 2) { // Variant
+            menu.addAction("Edit", this, [this, item](){
+                QString id = item->data(Qt::UserRole).toString();
+                if (variantMap.contains(id)) {
+                    bool ok;
+                    QString cmd = QInputDialog::getText(this, "Edit Command", "Command:", QLineEdit::Normal, variantMap[id].commandTemplate, &ok);
+                    if (ok) {
+                        variantMap[id].commandTemplate = cmd;
+                    }
+                }
+            });
+            menu.addAction("Delete Variant", this, [this, item](){
+                libraryModel->removeRow(item->row(), item->parent()->index());
+            });
+        }
+    }
+
+    menu.exec(libraryView->viewport()->mapToGlobal(pos));
 }
 
 void TacticalGuidanceWidget::onWorkflowSelected()

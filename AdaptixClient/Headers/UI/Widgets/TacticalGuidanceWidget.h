@@ -100,6 +100,7 @@ private Q_SLOTS:
     // Library slots
     void onLibraryBlockSelected();
     void onLibrarySearchChanged(const QString& text);
+    void onLibraryContextMenu(const QPoint& pos);
 
     // Composer slots
     void onWorkflowSelected();

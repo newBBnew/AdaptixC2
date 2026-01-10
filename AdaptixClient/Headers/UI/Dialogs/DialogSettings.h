@@ -2,6 +2,7 @@
 #define ADAPTIXCLIENT_DIALOGSETTINGS_H
 
 #include <main.h>
+#include <QPlainTextEdit>
 
 class Settings;
 

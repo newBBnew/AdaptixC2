@@ -68,7 +68,7 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 					},
 					"agent_id":         map[string]interface{}{"type": "string", "description": "Target agent channel ID. Required for console/tasks."},
 					"task_id":          map[string]interface{}{"type": "string", "description": "Unique task ID. Required for task_output."},
-					"timeout":          map[string]interface{}{"type": "number", "description": "When type='chat', seconds to wait (default 60s)."},
+					"timeout":          map[string]interface{}{"type": "number", "description": "When type='chat', seconds to wait (default 300s)."},
 					"last_timestamp":   map[string]interface{}{"type": "number", "description": "Timestamp of last read message; used to fetch unread messages."},
 					"target_user":      map[string]interface{}{"type": "string", "description": "Optional. Only return messages from a specific user."},
 					"exclude_user":     map[string]interface{}{"type": "string", "description": "Optional. Exclude messages from a specific user (e.g., the AI itself)."},
@@ -231,7 +231,7 @@ func (s *MCPServer) handleListenIntelligence(params map[string]interface{}) (int
 	case "collected_data":
 		return s.clientConnector.SendCommand("list_collected_data", params)
 	case "chat":
-		timeout := 60.0
+		timeout := 300.0
 		if val, ok := params["timeout"].(float64); ok && val > 0 {
 			timeout = val
 		}
