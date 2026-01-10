@@ -189,7 +189,6 @@ public Q_SLOTS:
     void SetGraphUI() const;
     void SetTasksUI() const;
     void LoadTacticalGuidanceUI() const;
-    void LoadTacticalGuidanceUI() const;
     void LoadAxConsoleUI() const;
     void LoadLogsUI() const;
     void LoadChatUI() const;

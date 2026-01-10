@@ -220,7 +220,12 @@ void AdaptixWidget::createUI()
     tasksButton = new QPushButton(themedIcon(":/icons/job"), "", this );
     tasksButton->setIconSize(QSize(24, 24 ));
     tasksButton->setFixedSize(37, 28);
-    tasksButton->setToolTip("Jobs & Tasks");
+    tasksButton->setToolTip("Tasks");
+
+    tacticalButton = new QPushButton( themedIcon(":/icons/code_blocks"), "", this );
+    tacticalButton->setIconSize( QSize( 24,24 ));
+    tacticalButton->setFixedSize(37, 28);
+    tacticalButton->setToolTip("Tactical Guidance");
 
     tunnelButton = new QPushButton( themedIcon(":/icons/vpn"), "", this );
     tunnelButton->setIconSize( QSize( 24,24 ));
@@ -943,8 +948,6 @@ void AdaptixWidget::SetGraphUI() const { this->AddDockTop( SessionsGraphDock->do
 void AdaptixWidget::SetTasksUI() const { this->AddDockTop( TasksDock->dockTasks() ); }
 
 void AdaptixWidget::LoadTacticalGuidanceUI() const { this->AddDockTop( TacticalGuidanceDock->dock() ); }
-
-void AdaptixWidget::LoadAxConsoleUI() const { this->AddDockBottom( AxConsoleDock->dock() ); }
 
 void AdaptixWidget::LoadAxConsoleUI() const { this->AddDockBottom( AxConsoleDock->dock() ); }
 
