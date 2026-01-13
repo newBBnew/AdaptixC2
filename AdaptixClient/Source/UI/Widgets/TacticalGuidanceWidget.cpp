@@ -319,9 +319,13 @@ void TacticalGuidanceWidget::createResultsUI()
     resultsLayout->setSpacing(4);
 
     resultsTree = new QTreeWidget(resultsPanel);
-    resultsTree->setHeaderLabels({"Step", "Status", "Output"});
+    resultsTree->setHeaderLabels({"Agent", "Step", "TaskId", "Status", "Output"});
     resultsTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     resultsTree->setAlternatingRowColors(true);
+    resultsTree->setColumnWidth(0, 120);  // Agent column
+    resultsTree->setColumnWidth(1, 200);  // Step column
+    resultsTree->setColumnWidth(2, 150);  // TaskId column
+    resultsTree->setColumnWidth(3, 80);   // Status column
 
     resultsLayout->addWidget(new QLabel("<b>Results</b>"));
     
@@ -657,8 +661,14 @@ void TacticalGuidanceWidget::advanceExecution()
         }
 
         currentExecutingItem->setText(1, hasError ? "Error" : "Success");
-        if (resultsStepItems.contains(stepInstanceId)) {
-            resultsStepItems[stepInstanceId]->setText(1, hasError ? "Error" : "Success");
+        
+        // Update all agent task items for this step
+        for (const QString& agentId : executionTargetAgents) {
+            const QString agentKey = stepInstanceId + "|" + agentId;
+            QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+            if (agentResItem) {
+                agentResItem->setText(3, hasError ? "Error" : "Success");  // Status column
+            }
         }
 
         // Always stop on error since we require all agents to succeed
@@ -690,8 +700,13 @@ void TacticalGuidanceWidget::advanceExecution()
     composerItemHasError[stepInstanceId] = false;
     currentExecutingItem->setText(1, "Running");
 
-    if (resultsStepItems.contains(stepInstanceId)) {
-        resultsStepItems[stepInstanceId]->setText(1, "Running");
+    // Update all agent task items for this step to "Running"
+    for (const QString& agentId : executionTargetAgents) {
+        const QString agentKey = stepInstanceId + "|" + agentId;
+        QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+        if (agentResItem) {
+            agentResItem->setText(3, "Running");  // Status column
+        }
     }
 
     const QString commandId = currentExecutingItem->data(2, Qt::UserRole).toString();
@@ -723,21 +738,27 @@ void TacticalGuidanceWidget::advanceExecution()
 
         const QString agentKey = stepInstanceId + "|" + agentId;
 
-        QTreeWidgetItem* stepResItem = resultsStepItems.value(stepInstanceId, nullptr);
         QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
-        if (!agentResItem && stepResItem) {
-            agentResItem = new QTreeWidgetItem(stepResItem);
-            agentResItem->setText(0, agentId);
-            agentResItem->setText(1, "Pending");
-            resultsAgentItems[agentKey] = agentResItem;
-            stepResItem->setExpanded(true);
+        if (!agentResItem) {
+            // Find the agent item and create task item under it
+            QTreeWidgetItem* agentItem = resultsAgentItems.value(agentId, nullptr);
+            if (agentItem) {
+                agentResItem = new QTreeWidgetItem(agentItem);
+                agentResItem->setText(0, "");  // Agent column (empty since it's under agent)
+                agentResItem->setText(1, currentExecutingItem->text(0));  // Step name
+                agentResItem->setText(2, "");  // TaskId (will be set when submitted)
+                agentResItem->setText(3, "Pending");  // Status
+                agentResItem->setText(4, "");  // Output
+                resultsAgentItems[agentKey] = agentResItem;
+                agentItem->setExpanded(true);
+            }
         }
 
         if (!agent->commander) {
             composerItemHasError[stepInstanceId] = true;
             if (agentResItem) {
-                agentResItem->setText(1, "Error");
-                agentResItem->setText(2, "Commander is not initialized");
+                agentResItem->setText(3, "Error");
+                agentResItem->setText(4, "Commander is not initialized");
             }
             continue;
         }
@@ -746,8 +767,8 @@ void TacticalGuidanceWidget::advanceExecution()
         if (cmdResult.is_pre_hook) {
             composerItemPendingCount[stepInstanceId] = composerItemPendingCount.value(stepInstanceId, 0) + 1;
             if (agentResItem) {
-                agentResItem->setText(1, "Hook");
-                agentResItem->setText(2, "Pre-hook triggered");
+                agentResItem->setText(3, "Hook");
+                agentResItem->setText(4, "Pre-hook triggered");
             }
 
             const QString stepIdCopy = stepInstanceId;
@@ -776,8 +797,8 @@ void TacticalGuidanceWidget::advanceExecution()
 
         if (cmdResult.output) {
             if (agentResItem) {
-                agentResItem->setText(1, cmdResult.error ? "Error" : "Success");
-                agentResItem->setText(2, cmdResult.message);
+                agentResItem->setText(3, cmdResult.error ? "Error" : "Success");
+                agentResItem->setText(4, cmdResult.message);
             }
             if (cmdResult.error)
                 composerItemHasError[stepInstanceId] = true;
@@ -786,7 +807,7 @@ void TacticalGuidanceWidget::advanceExecution()
 
         composerItemPendingCount[stepInstanceId] = composerItemPendingCount.value(stepInstanceId, 0) + 1;
         if (agentResItem)
-            agentResItem->setText(1, "Submitted");
+            agentResItem->setText(3, "Submitted");
 
         QTreeWidgetItem* stepItemForCallbacks = currentExecutingItem;
         CommandSubmitter::Submit(adaptixWidget, agent, commandLine, cmdResult, true, this, false,
@@ -796,8 +817,8 @@ void TacticalGuidanceWidget::advanceExecution()
                 composerItemHasError[stepInstanceId] = true;
                 composerItemPendingCount[stepInstanceId] = qMax(0, composerItemPendingCount.value(stepInstanceId, 0) - 1);
                 if (agentResItem) {
-                    agentResItem->setText(1, "Submit Error");
-                    agentResItem->setText(2, info.message);
+                    agentResItem->setText(3, "Submit Error");
+                    agentResItem->setText(4, info.message);
                 }
                 if (!executionAdvanceScheduled && composerItemPendingCount.value(stepInstanceId, 0) == 0) {
                     executionAdvanceScheduled = true;
@@ -809,13 +830,17 @@ void TacticalGuidanceWidget::advanceExecution()
             } else if (!info.taskId.isEmpty()) {
                 if (stepItemForCallbacks)
                     taskIdToComposerItem[info.taskId] = stepItemForCallbacks;
-                if (agentResItem)
-                    agentResItem->setData(0, Qt::UserRole, info.taskId);
+                if (agentResItem) {
+                    agentResItem->setText(2, info.taskId);  // Set TaskId column
+                    agentResItem->setData(0, Qt::UserRole, info.taskId);  // Store for task updates
+                }
             } else {
                 composerItemHasError[stepInstanceId] = true;
                 composerItemPendingCount[stepInstanceId] = qMax(0, composerItemPendingCount.value(stepInstanceId, 0) - 1);
-                if (agentResItem)
-                    agentResItem->setText(1, "No TaskId");
+                if (agentResItem) {
+                    agentResItem->setText(3, "No TaskId");
+                    agentResItem->setText(4, "Failed to get task ID");
+                }
                 if (!executionAdvanceScheduled && composerItemPendingCount.value(stepInstanceId, 0) == 0) {
                     executionAdvanceScheduled = true;
                     QTimer::singleShot(0, this, [this]() {
@@ -831,8 +856,10 @@ void TacticalGuidanceWidget::advanceExecution()
             if (stepItemForCallbacks)
                 taskIdToComposerItem[taskId] = stepItemForCallbacks;
             QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
-            if (agentResItem)
-                agentResItem->setData(0, Qt::UserRole, taskId);
+            if (agentResItem) {
+                agentResItem->setText(2, taskId);  // Update TaskId column
+                agentResItem->setData(0, Qt::UserRole, taskId);  // Store for task updates
+            }
         });
     }
 
@@ -864,8 +891,8 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
     const QString agentKey = stepInstanceId + "|" + task.AgentId;
     QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
     if (agentResItem) {
-        agentResItem->setText(1, task.Status);
-        agentResItem->setText(2, task.Output);
+        agentResItem->setText(3, task.Status);  // Status column
+        agentResItem->setText(4, task.Output);  // Output column
     }
 
     if (!task.Completed)
@@ -1761,18 +1788,43 @@ void TacticalGuidanceWidget::runActivePlaybook()
     if (resultsTree)
         resultsTree->clear();
 
+    // Create agent groups in results tree
+    for (const QString& agentId : executionTargetAgents) {
+        QTreeWidgetItem* agentItem = new QTreeWidgetItem(resultsTree);
+        agentItem->setText(0, agentId);
+        agentItem->setText(1, "Pending");
+        agentItem->setText(2, "");
+        agentItem->setText(3, "");
+        agentItem->setText(4, "");
+        
+        // Store agent item for easy access
+        resultsAgentItems[agentId] = agentItem;
+        agentItem->setExpanded(true);
+    }
+
     for (QTreeWidgetItem* stepItem : executionQueue) {
         if (!stepItem)
             continue;
         stepItem->setText(1, "Pending");
 
         const QString stepInstanceId = stepItem->data(0, Qt::UserRole).toString();
-        if (resultsTree && !stepInstanceId.isEmpty()) {
-            QTreeWidgetItem* resStep = new QTreeWidgetItem(resultsTree);
-            resStep->setText(0, stepItem->text(0));
-            resStep->setText(1, "Pending");
-            resStep->setText(2, stepItem->text(2));
-            resultsStepItems[stepInstanceId] = resStep;
+        if (!stepInstanceId.isEmpty()) {
+            // Create step items under each agent
+            for (const QString& agentId : executionTargetAgents) {
+                QTreeWidgetItem* agentItem = resultsAgentItems.value(agentId, nullptr);
+                if (agentItem) {
+                    QTreeWidgetItem* taskItem = new QTreeWidgetItem(agentItem);
+                    taskItem->setText(0, "");  // Agent column (empty since it's under agent)
+                    taskItem->setText(1, stepItem->text(0));  // Step name
+                    taskItem->setText(2, "");  // TaskId (will be set when submitted)
+                    taskItem->setText(3, "Pending");  // Status
+                    taskItem->setText(4, "");  // Output
+                    
+                    const QString agentKey = stepInstanceId + "|" + agentId;
+                    resultsAgentItems[agentKey] = taskItem;
+                }
+            }
+            resultsStepItems[stepInstanceId] = stepItem;
         }
     }
     if (resultsTree)
