@@ -95,6 +95,44 @@ TasksWidget::TasksWidget( AdaptixWidget* w )
 
 TasksWidget::~TasksWidget() = default;
 
+void TasksWidget::SelectTaskById(const QString& taskId) const
+{
+    if (!proxyModel || !tableView)
+        return;
+    if (taskId.isEmpty())
+        return;
+
+    QModelIndex found;
+    for (int row = 0; row < proxyModel->rowCount(); ++row) {
+        const QString id = proxyModel->index(row, TC_TaskId).data().toString();
+        if (id == taskId) {
+            found = proxyModel->index(row, 0);
+            break;
+        }
+    }
+
+    if (!found.isValid())
+        return;
+
+    tableView->setCurrentIndex(found);
+    tableView->scrollTo(found, QAbstractItemView::PositionAtCenter);
+}
+
+void TasksWidget::SelectTaskAndShowOutputById(const QString& taskId) const
+{
+    if (taskId.isEmpty())
+        return;
+
+    SelectTaskById(taskId);
+
+    if (!adaptixWidget || !adaptixWidget->TasksMap.contains(taskId) || !taskOutputConsole)
+        return;
+
+    const TaskData taskData = adaptixWidget->TasksMap[taskId];
+    taskOutputConsole->SetConten(taskData.Message, taskData.Output);
+    adaptixWidget->LoadTasksOutput();
+}
+
 KDDockWidgets::QtWidgets::DockWidget* TasksWidget::dockTasks() { return this->dockWidgetTable; }
 
 KDDockWidgets::QtWidgets::DockWidget * TasksWidget::dockTasksOutput() { return this->dockWidgetOutput; }

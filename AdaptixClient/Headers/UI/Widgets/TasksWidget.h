@@ -359,6 +359,9 @@ public:
     void RemoveTaskItem(const QString &taskId) const;
     void RemoveAgentTasksItem(const QString &agentId) const;
 
+    void SelectTaskById(const QString& taskId) const;
+    void SelectTaskAndShowOutputById(const QString& taskId) const;
+
     void SetAgentFilter(const QString &agentId);
     void UpdateColumnsVisible() const;
     void UpdateColumnsSize() const;

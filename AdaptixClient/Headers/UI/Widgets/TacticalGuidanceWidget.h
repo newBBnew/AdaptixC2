@@ -146,6 +146,8 @@ protected:
     QJsonObject serializeComposerItem(QTreeWidgetItem* item) const;
     QTreeWidgetItem* deserializeComposerItem(const QJsonObject& obj, QTreeWidgetItem* parent = nullptr);
 
+    void moveSelectedComposerItem(const int delta);
+
 private:
     QJsonObject serializeNode(QStandardItem* item);
 

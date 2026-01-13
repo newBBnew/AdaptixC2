@@ -39,6 +39,61 @@
 #include <QMimeData>
 #include <QUuid>
 
+#include <UI/Widgets/TasksWidget.h>
+
+namespace {
+    constexpr int ROLE_NODE_ID  = Qt::UserRole;
+    constexpr int ROLE_NODE_TYPE = Qt::UserRole + 1;
+    constexpr int ROLE_COMMAND_OS = Qt::UserRole + 2;
+
+    class TacticalLibraryProxyModel final : public QSortFilterProxyModel {
+    public:
+        explicit TacticalLibraryProxyModel(QObject* parent = nullptr)
+            : QSortFilterProxyModel(parent) {}
+
+        void setOsFilter(const int os)
+        {
+            if (osFilter == os)
+                return;
+            osFilter = os;
+            invalidateFilter();
+        }
+
+    protected:
+        bool filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override
+        {
+            const QModelIndex idx = sourceModel()->index(source_row, 0, source_parent);
+            if (!idx.isValid())
+                return false;
+
+            const QString type = idx.data(ROLE_NODE_TYPE).toString();
+
+            if (type == "command") {
+                if (osFilter != 0) {
+                    const int os = idx.data(ROLE_COMMAND_OS).toInt();
+                    if (os != 0 && os != osFilter)
+                        return false;
+                }
+                return QSortFilterProxyModel::filterAcceptsRow(source_row, source_parent);
+            }
+
+            // category: accept if itself matches text OR any child matches (os+text)
+            if (QSortFilterProxyModel::filterAcceptsRow(source_row, source_parent))
+                return true;
+
+            const int childCount = sourceModel()->rowCount(idx);
+            for (int i = 0; i < childCount; ++i) {
+                if (filterAcceptsRow(i, idx))
+                    return true;
+            }
+            return false;
+        }
+
+    private:
+        int osFilter = 0; // 0=All, 1=Win,2=Linux,3=mac
+    };
+}
+
 REGISTER_DOCK_WIDGET(TacticalGuidanceWidget, "Tactical Guidance", true)
 
 TacticalGuidanceWidget::TacticalGuidanceWidget(AdaptixWidget* w)
@@ -67,9 +122,9 @@ TacticalGuidanceWidget::TacticalGuidanceWidget(AdaptixWidget* w)
 
     this->loadComposer();
 
-    mainHSplitter->setStretchFactor(0, 1);
+    mainHSplitter->setStretchFactor(0, 2);
     mainHSplitter->setStretchFactor(1, 2);
-    mainHSplitter->setStretchFactor(2, 2);
+    mainHSplitter->setStretchFactor(2, 1);
 
     auto* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(0, 0, 0, 0);
@@ -144,7 +199,7 @@ void TacticalGuidanceWidget::createLibraryUI()
     connect(libraryView, &QTreeView::customContextMenuRequested, this, &TacticalGuidanceWidget::onLibraryContextMenu);
 
     libraryModel = new QStandardItemModel(this);
-    libraryProxyModel = new QSortFilterProxyModel(this);
+    libraryProxyModel = new TacticalLibraryProxyModel(this);
     libraryProxyModel->setSourceModel(libraryModel);
     libraryProxyModel->setRecursiveFilteringEnabled(true);
     libraryProxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
@@ -304,13 +359,20 @@ void TacticalGuidanceWidget::createComposerUI()
     composerTree->setDragEnabled(true);
     composerTree->setAcceptDrops(true);
     composerTree->setDropIndicatorShown(true);
-    composerTree->setDragDropMode(QAbstractItemView::DragDrop);
+    composerTree->setDragDropMode(QAbstractItemView::InternalMove);
     composerTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     
     composerTree->setDefaultDropAction(Qt::MoveAction);
     composerTree->viewport()->installEventFilter(this);
     composerTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(composerTree, &QTreeWidget::customContextMenuRequested, this, &TacticalGuidanceWidget::onComposerContextMenu);
+
+    composerTree->setColumnWidth(0, 260);
+    composerTree->setColumnWidth(1, 90);
+    composerTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    composerTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    composerTree->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    composerTree->header()->setStretchLastSection(false);
 
     connect(composerTree->model(), &QAbstractItemModel::rowsInserted, this, &TacticalGuidanceWidget::onComposerChanged);
     connect(composerTree->model(), &QAbstractItemModel::rowsRemoved, this, &TacticalGuidanceWidget::onComposerChanged);
@@ -342,6 +404,21 @@ void TacticalGuidanceWidget::createComposerUI()
     actionsLayout->addWidget(btnClear);
     actionsLayout->addWidget(btnSaveLocal);
     actionsLayout->addWidget(btnPushServer);
+
+    auto* btnUp = new QPushButton(composerActionsRow);
+    btnUp->setIcon(QIcon(":/icons/arrow_drop_up_64dp.png"));
+    btnUp->setToolTip("Move Up");
+    btnUp->setMaximumWidth(30);
+    connect(btnUp, &QPushButton::clicked, this, [this](){ moveSelectedComposerItem(-1); });
+    actionsLayout->addWidget(btnUp);
+
+    auto* btnDown = new QPushButton(composerActionsRow);
+    btnDown->setIcon(QIcon(":/icons/arrow_drop_down_64dp.png"));
+    btnDown->setToolTip("Move Down");
+    btnDown->setMaximumWidth(30);
+    connect(btnDown, &QPushButton::clicked, this, [this](){ moveSelectedComposerItem(1); });
+    actionsLayout->addWidget(btnDown);
+
     actionsLayout->addStretch();
 
     composerLayout->addWidget(composerActionsRow);
@@ -397,13 +474,18 @@ void TacticalGuidanceWidget::createResultsUI()
     resultsLayout->setSpacing(4);
 
     resultsTree = new QTreeWidget(resultsPanel);
-    resultsTree->setHeaderLabels({"Agent", "Step", "TaskId", "Status", "Output"});
+    resultsTree->setHeaderLabels({"Agent", "Step", "TaskId", "Status"});
     resultsTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     resultsTree->setAlternatingRowColors(true);
     resultsTree->setColumnWidth(0, 120);  // Agent column
     resultsTree->setColumnWidth(1, 200);  // Step column
-    resultsTree->setColumnWidth(2, 150);  // TaskId column
+    resultsTree->setColumnWidth(2, 160);  // TaskId column
     resultsTree->setColumnWidth(3, 80);   // Status column
+    resultsTree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    resultsTree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    resultsTree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    resultsTree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    resultsTree->header()->setStretchLastSection(false);
 
     resultsLayout->addWidget(new QLabel("<b>Results</b>"));
     
@@ -457,6 +539,7 @@ void TacticalGuidanceWidget::buildLibraryTree(QStandardItem* parentItem, const Q
             item->setToolTip(QString("%1\n\nCommand: %2").arg(mutableNode.description).arg(mutableNode.command.rawCommand));
             
             int os = mutableNode.command.os;
+            item->setData(os, ROLE_COMMAND_OS);
             if (os == 1) item->setIcon(QIcon(":/icons/os_win_blue"));
             else if (os == 2) item->setIcon(QIcon(":/icons/os_linux_blue"));
             else if (os == 3) item->setIcon(QIcon(":/icons/os_mac_blue"));
@@ -624,12 +707,8 @@ void TacticalGuidanceWidget::onAgentSelectionChanged()
     
     // Filter Library View
     if (libraryProxyModel) {
-        // This is a placeholder. To properly filter by OS, we'd need OS data in the model.
-        // Currently the model only has Name. 
-        // We added icon for command.
-        // We can check the node data via the user role ID.
-        // Since ProxyModel supports recursive filtering, let's just leave it or implement CustomFilter
-        // For now, no-op or maybe just Log
+        auto* proxy = static_cast<TacticalLibraryProxyModel*>(libraryProxyModel);
+        proxy->setOsFilter(targetOs);
     }
 }
 
@@ -795,7 +874,6 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
             agentResItem->setText(1, commandItem->text(0));  // Step name
             agentResItem->setText(2, "");  // TaskId (will be set when submitted)
             agentResItem->setText(3, "Pending");  // Status
-            agentResItem->setText(4, "");  // Output
             resultsAgentItems[agentKey] = agentResItem;
             agentItem->setExpanded(true);
         }
@@ -809,7 +887,6 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
         queue.isWaitingForTask = false;
         if (agentResItem) {
             agentResItem->setText(3, "Submit Error");
-            agentResItem->setText(4, "Console is not initialized");
         }
         QTimer::singleShot(0, this, [this, agentId]() {
             if (executionRunning)
@@ -835,7 +912,6 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
             QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
             if (agentResItem) {
                 agentResItem->setText(3, "Submit Error");
-                agentResItem->setText(4, info.message);
             }
 
             QTimer::singleShot(0, this, [this, agentId]() {
@@ -903,7 +979,6 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
     if (cmdResult.output) {
         if (agentResItem) {
             agentResItem->setText(3, cmdResult.error ? "Error" : "Success");
-            agentResItem->setText(4, cmdResult.message);
         }
 
         AgentExecutionQueue& queue = agentQueues[agentId];
@@ -977,7 +1052,6 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
     QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
     if (agentResItem) {
         agentResItem->setText(3, task.Status);  // Status column
-        agentResItem->setText(4, task.Output);  // Output column
     }
 
     // Debug: Log task state changes
@@ -1058,6 +1132,8 @@ void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, c
 
     QVariantMap taskIdsVar;
     item->setData(5, Qt::UserRole, taskIdsVar);
+
+    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
 
     if (cmd.os == 1) item->setIcon(0, QIcon(":/icons/os_win_blue"));
     else if (cmd.os == 2) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
@@ -1341,8 +1417,8 @@ void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
                 nodeMap[id] = node;
 
                 auto* item = new QStandardItem(text);
-                item->setData(id, Qt::UserRole);
-                item->setData("category", Qt::UserRole + 1);
+                item->setData(id, ROLE_NODE_ID);
+                item->setData("category", ROLE_NODE_TYPE);
                 item->setFont(QFont("", -1, QFont::Bold));
                 item->setSelectable(false);
                 item->setIcon(QIcon(":/icons/folder"));
@@ -1355,8 +1431,8 @@ void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
         auto sourceIndex = libraryProxyModel->mapToSource(index);
         auto* item = libraryModel->itemFromIndex(sourceIndex);
         
-        QString id = item->data(Qt::UserRole).toString();
-        QString type = item->data(Qt::UserRole + 1).toString();
+        QString id = item->data(ROLE_NODE_ID).toString();
+        QString type = item->data(ROLE_NODE_TYPE).toString();
 
         if (type == "category") {
             menu.addAction("Add Subcategory", this, [this, item, id](){
@@ -1372,8 +1448,8 @@ void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
                     nodeMap[newId] = node;
 
                     auto* newItem = new QStandardItem(text);
-                    newItem->setData(newId, Qt::UserRole);
-                    newItem->setData("category", Qt::UserRole + 1);
+                    newItem->setData(newId, ROLE_NODE_ID);
+                    newItem->setData("category", ROLE_NODE_TYPE);
                     newItem->setFont(QFont("", -1, QFont::Bold));
                     newItem->setSelectable(false);
                     newItem->setIcon(QIcon(":/icons/folder"));
@@ -1406,8 +1482,9 @@ void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
                     commandMap[newId] = cmd;
 
                     auto* newItem = new QStandardItem(cmd.name);
-                    newItem->setData(newId, Qt::UserRole);
-                    newItem->setData("command", Qt::UserRole + 1);
+                    newItem->setData(newId, ROLE_NODE_ID);
+                    newItem->setData("command", ROLE_NODE_TYPE);
+                    newItem->setData(cmd.os, ROLE_COMMAND_OS);
                     newItem->setToolTip(QString("%1\n\nCommand: %2").arg(cmd.description).arg(cmd.rawCommand));
                     
                     if (cmd.os == 1) newItem->setIcon(QIcon(":/icons/os_win_blue"));
@@ -1469,6 +1546,7 @@ void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
                         // Update UI
                         item->setText(cmd.name);
                         item->setToolTip(QString("%1\n\nCommand: %2").arg(cmd.description).arg(cmd.rawCommand));
+                        item->setData(cmd.os, ROLE_COMMAND_OS);
                         
                         if (cmd.os == 1) item->setIcon(QIcon(":/icons/os_win_blue"));
                         else if (cmd.os == 2) item->setIcon(QIcon(":/icons/os_linux_blue"));
@@ -1618,8 +1696,8 @@ void TacticalGuidanceWidget::rebuildLibraryFromJSON(const QJsonArray& nodes)
             nodeMap[id] = node;
             
             auto* item = new QStandardItem(name);
-            item->setData(id, Qt::UserRole);
-            item->setData(type, Qt::UserRole + 1);
+            item->setData(id, ROLE_NODE_ID);
+            item->setData(type, ROLE_NODE_TYPE);
             
             if (type == "category") {
                 item->setIcon(QIcon(":/icons/folder"));
@@ -1641,6 +1719,7 @@ void TacticalGuidanceWidget::rebuildLibraryFromJSON(const QJsonArray& nodes)
                 nodeMap[id].command = node.command;
                 
                 int os = node.command.os;
+                item->setData(os, ROLE_COMMAND_OS);
                 if (os == 1) item->setIcon(QIcon(":/icons/os_win_blue"));
                 else if (os == 2) item->setIcon(QIcon(":/icons/os_linux_blue"));
                 else if (os == 3) item->setIcon(QIcon(":/icons/os_mac_blue"));
@@ -1777,6 +1856,7 @@ QTreeWidgetItem* TacticalGuidanceWidget::deserializeComposerItem(const QJsonObje
 
     if (type == "group") {
         item->setIcon(0, QIcon(":/icons/folder"));
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
         if (parent)
             parent->addChild(item);
         else
@@ -1793,6 +1873,7 @@ QTreeWidgetItem* TacticalGuidanceWidget::deserializeComposerItem(const QJsonObje
     if (type == "command") {
         const QString commandId = obj["command_id"].toString();
         item->setData(2, Qt::UserRole, commandId);
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
 
         if (obj.contains("params") && obj["params"].isObject()) {
             const QVariantMap params = obj["params"].toObject().toVariantMap();
@@ -2023,6 +2104,7 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
                 item->setData(4, Qt::UserRole, "command");
                 item->setData(3, Qt::UserRole, QVariantMap());
                 item->setData(5, Qt::UserRole, QVariantMap());
+                item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
                 if (cmd.os == 1) item->setIcon(0, QIcon(":/icons/os_win_blue"));
                 else if (cmd.os == 2) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
                 else if (cmd.os == 3) item->setIcon(0, QIcon(":/icons/os_mac_blue"));
@@ -2066,66 +2148,8 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
             
             // Handle Internal Move
             if (dropEvent->source() == composerTree) {
-                 QList<QTreeWidgetItem*> items = composerTree->selectedItems();
-                 if (items.isEmpty()) return true;
-                 
-                 QTreeWidgetItem* targetItem = composerTree->itemAt(dropEvent->position().toPoint());
-                 auto indicator = static_cast<AccessTreeWidget*>(composerTree)->dropIndicatorPosition();
-                 
-                 // We execute manual move immediately
-                 for(auto* item : items) {
-                     if (item == targetItem) continue;
-                     
-                     // Safety check: Cannot move parent into its own child
-                     QTreeWidgetItem* check = targetItem;
-                     bool invalidMove = false;
-                     while(check) {
-                         if (check == item) {
-                             invalidMove = true;
-                             break;
-                         }
-                         check = check->parent();
-                     }
-                     if (invalidMove) continue;
-
-                     // Remove from current position
-                     if (item->parent()) item->parent()->removeChild(item);
-                     else composerTree->takeTopLevelItem(composerTree->indexOfTopLevelItem(item));
-                     
-                     // Insert at new position
-                     if (targetItem) {
-                         if (indicator == AccessTreeWidget::OnItem && targetItem->data(4, Qt::UserRole).toString() == "group") {
-                             targetItem->addChild(item);
-                             targetItem->setExpanded(true);
-                         } else if (indicator == AccessTreeWidget::OnItem) {
-                             QTreeWidgetItem* p = targetItem->parent();
-                             if (p) p->insertChild(p->indexOfChild(targetItem) + 1, item);
-                             else composerTree->insertTopLevelItem(composerTree->indexOfTopLevelItem(targetItem) + 1, item);
-                         } else if (indicator == AccessTreeWidget::AboveItem) {
-                             QTreeWidgetItem* p = targetItem->parent();
-                             if (p) p->insertChild(p->indexOfChild(targetItem), item);
-                             else composerTree->insertTopLevelItem(composerTree->indexOfTopLevelItem(targetItem), item);
-                         } else if (indicator == AccessTreeWidget::BelowItem) {
-                             QTreeWidgetItem* p = targetItem->parent();
-                             if (p) p->insertChild(p->indexOfChild(targetItem)+1, item);
-                             else composerTree->insertTopLevelItem(composerTree->indexOfTopLevelItem(targetItem)+1, item);
-                         } else {
-                             // Fallback
-                             composerTree->addTopLevelItem(item);
-                         }
-                     } else {
-                         // Dropped on empty space
-                         composerTree->addTopLevelItem(item);
-                     }
-                 }
-                 
-                 // Update selection to moved items
-                 for(auto* item : items) item->setSelected(true);
-
-                 onComposerChanged();
-
-                 dropEvent->accept();
-                 return true; 
+                 // Let Qt handle internal move (InternalMove) to avoid item loss.
+                 return false;
             }
         }
     }
@@ -2160,6 +2184,7 @@ void TacticalGuidanceWidget::onAddGroupClicked()
     item->setIcon(0, QIcon(":/icons/folder"));
     item->setData(0, Qt::UserRole, QUuid::createUuid().toString()); // instanceId
     item->setData(4, Qt::UserRole, "group"); // Type
+    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
     
     item->setExpanded(true);
 }
@@ -2207,7 +2232,6 @@ void TacticalGuidanceWidget::runActivePlaybook()
         agentItem->setText(1, "Pending");
         agentItem->setText(2, "");
         agentItem->setText(3, "");
-        agentItem->setText(4, "");
         
         // Store agent item for easy access
         resultsAgentItems[agentId] = agentItem;
@@ -2235,7 +2259,6 @@ void TacticalGuidanceWidget::runActivePlaybook()
                     taskItem->setText(1, stepItem->text(0));  // Step name
                     taskItem->setText(2, "");  // TaskId (will be set when submitted)
                     taskItem->setText(3, "Pending");  // Status
-                    taskItem->setText(4, "");  // Output
                     
                     const QString agentKey = stepInstanceId + "|" + agentId;
                     resultsAgentItems[agentKey] = taskItem;
@@ -2318,5 +2341,48 @@ void TacticalGuidanceWidget::onLibraryBlockSelected()
 void TacticalGuidanceWidget::onResultsItemClicked(QTreeWidgetItem* item, int column)
 {
     Q_UNUSED(column);
-    // Maybe show details in a popup or something?
+    if (!item || !adaptixWidget)
+        return;
+
+    const QString taskId = item->text(2);
+    if (taskId.isEmpty())
+        return;
+
+    if (adaptixWidget->TasksDock)
+        adaptixWidget->TasksDock->SelectTaskAndShowOutputById(taskId);
+}
+
+void TacticalGuidanceWidget::moveSelectedComposerItem(const int delta)
+{
+    if (!composerTree)
+        return;
+    if (delta == 0)
+        return;
+
+    QTreeWidgetItem* item = composerTree->currentItem();
+    if (!item)
+        return;
+
+    QTreeWidgetItem* parent = item->parent();
+    if (parent) {
+        const int idx = parent->indexOfChild(item);
+        const int newIdx = idx + delta;
+        if (newIdx < 0 || newIdx >= parent->childCount())
+            return;
+
+        parent->takeChild(idx);
+        parent->insertChild(newIdx, item);
+        composerTree->setCurrentItem(item);
+    } else {
+        const int idx = composerTree->indexOfTopLevelItem(item);
+        const int newIdx = idx + delta;
+        if (newIdx < 0 || newIdx >= composerTree->topLevelItemCount())
+            return;
+
+        composerTree->takeTopLevelItem(idx);
+        composerTree->insertTopLevelItem(newIdx, item);
+        composerTree->setCurrentItem(item);
+    }
+
+    onComposerChanged();
 }
