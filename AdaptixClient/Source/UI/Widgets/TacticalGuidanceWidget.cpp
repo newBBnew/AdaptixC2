@@ -895,8 +895,16 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
         agentResItem->setText(4, task.Output);  // Output column
     }
 
-    if (!task.Completed)
+    // Debug: Log task state changes
+    qDebug() << "[TG] TaskUpdate:" << taskId << "Agent:" << task.AgentId 
+             << "Status:" << task.Status << "Completed:" << task.Completed 
+             << "Pending:" << composerItemPendingCount.value(stepInstanceId, 0);
+
+    // Only process completion when task is actually completed
+    if (!task.Completed) {
+        qDebug() << "[TG] Task not completed yet, waiting:" << taskId;
         return;
+    }
 
     // Track per-agent success/failure
     const QString agentErrorKey = stepInstanceId + "|error|" + task.AgentId;
@@ -905,11 +913,15 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
         composerItemHasError[agentErrorKey] = true;
         // Also mark the step as having errors (for UI display)
         composerItemHasError[stepInstanceId] = true;
+        qDebug() << "[TG] Task failed:" << taskId << "Status:" << task.Status;
     }
 
-    // Only decrement pending count and advance if task is successful
-    if (task.Status == "Success") {
+    // Only decrement pending count and advance if task is completed AND successful
+    if (task.Completed && task.Status == "Success") {
         composerItemPendingCount[stepInstanceId] = qMax(0, composerItemPendingCount.value(stepInstanceId, 0) - 1);
+        
+        qDebug() << "[TG] Task succeeded, decrementing pending:" << taskId 
+                 << "New pending:" << composerItemPendingCount.value(stepInstanceId, 0);
         
         if (!executionAdvanceScheduled && composerItemPendingCount.value(stepInstanceId, 0) == 0) {
             executionAdvanceScheduled = true;
@@ -919,7 +931,7 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
             });
         }
     }
-    // If task failed, keep pending count as is to prevent advancement
+    // If task failed or not completed, keep pending count as is to prevent advancement
 }
 
 void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, const QMap<QString, QString>& params)
