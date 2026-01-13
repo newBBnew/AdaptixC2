@@ -915,6 +915,7 @@ void TacticalGuidanceWidget::executeNextCommandForAgent(const QString& agentId)
     queue.currentStepIndex++;
 
     qDebug() << "[TG] Executing command" << queue.currentStepIndex << "for agent:" << agentId;
+    qDebug() << "[TG] Queue size after taking command:" << queue.commandQueue.size() << "for agent:" << agentId;
 
     submitCommandForAgent(agentId, nextCommand);
 }
@@ -1013,8 +1014,13 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
     QTreeWidgetItem* commandItemForCallback = commandItem;
     const QString stepInstanceIdCopy = stepInstanceId;
     
+    // NOTE: isWaitingForTask is already set in executeNextCommandForAgent()
+    // Don't set it again here to avoid state confusion
     CommandSubmitter::Submit(adaptixWidget, agent, commandLine, cmdResult, true, this, false,
                              [this, commandItemForCallback, stepInstanceIdCopy, agentKey, agentId](const CommandSubmitInfo& info) {
+        qDebug() << "[TG] CommandSubmitter callback for agent" << agentId 
+                 << "ok:" << info.ok << "taskId:" << info.taskId;
+        
         if (!info.ok) {
             qDebug() << "[TG] Command submission failed for agent" << agentId << ":" << info.message;
             
@@ -1043,6 +1049,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
             QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
             if (agentResItem) {
                 agentResItem->setText(2, info.taskId);  // Set TaskId column
+                agentResItem->setText(3, "Running");  // Update status to Running
                 agentResItem->setData(0, Qt::UserRole, info.taskId);  // Store for task updates
             }
             
@@ -1067,6 +1074,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
         }
     },
     [this, commandItemForCallback, agentKey](const QString&, const QString& taskId) {
+        qDebug() << "[TG] TaskIdCallback received for task:" << taskId;
         if (taskId.isEmpty())
             return;
         if (commandItemForCallback)
