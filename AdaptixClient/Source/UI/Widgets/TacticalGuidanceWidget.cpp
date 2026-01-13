@@ -872,6 +872,247 @@ void TacticalGuidanceWidget::advanceExecution()
     }
 }
 
+void TacticalGuidanceWidget::initializeAgentQueues()
+{
+    agentQueues.clear();
+    for (const QString& agentId : executionTargetAgents) {
+        AgentExecutionQueue queue;
+        queue.agentId = agentId;
+        queue.isWaitingForTask = false;
+        queue.currentStepIndex = 0;
+        agentQueues[agentId] = queue;
+        qDebug() << "[TG] Initialized queue for agent:" << agentId;
+    }
+}
+
+void TacticalGuidanceWidget::executeNextCommandForAgent(const QString& agentId)
+{
+    if (!agentQueues.contains(agentId)) {
+        qDebug() << "[TG] No queue found for agent:" << agentId;
+        return;
+    }
+
+    AgentExecutionQueue& queue = agentQueues[agentId];
+    
+    if (queue.isWaitingForTask) {
+        qDebug() << "[TG] Agent" << agentId << "is already waiting for task completion";
+        return;
+    }
+
+    if (queue.commandQueue.isEmpty()) {
+        qDebug() << "[TG] No more commands for agent:" << agentId;
+        return;
+    }
+
+    QTreeWidgetItem* nextCommand = queue.commandQueue.takeFirst();
+    if (!nextCommand) {
+        qDebug() << "[TG] Invalid command item for agent:" << agentId;
+        return;
+    }
+
+    queue.currentCommand = nextCommand;
+    queue.isWaitingForTask = true;
+    queue.currentStepIndex++;
+
+    qDebug() << "[TG] Executing command" << queue.currentStepIndex << "for agent:" << agentId;
+
+    submitCommandForAgent(agentId, nextCommand);
+}
+
+void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTreeWidgetItem* commandItem)
+{
+    if (!adaptixWidget || !adaptixWidget->AgentsMap.contains(agentId)) {
+        qDebug() << "[TG] Agent not found:" << agentId;
+        return;
+    }
+
+    Agent* agent = adaptixWidget->AgentsMap[agentId];
+    if (!agent || !agent->commander) {
+        qDebug() << "[TG] Agent or commander not initialized:" << agentId;
+        return;
+    }
+
+    const QString commandId = commandItem->data(2, Qt::UserRole).toString();
+    if (!commandMap.contains(commandId)) {
+        qDebug() << "[TG] Command not found:" << commandId;
+        return;
+    }
+
+    const auto& cmd = commandMap[commandId];
+    const QString commandLine = cmd.rawCommand;
+
+    // Create result item for this agent's task
+    const QString stepInstanceId = commandItem->data(0, Qt::UserRole).toString();
+    const QString agentKey = stepInstanceId + "|" + agentId;
+    QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+    
+    if (!agentResItem) {
+        QTreeWidgetItem* agentItem = resultsAgentItems.value(agentId, nullptr);
+        if (agentItem) {
+            agentResItem = new QTreeWidgetItem(agentItem);
+            agentResItem->setText(0, "");  // Agent column (empty since it's under agent)
+            agentResItem->setText(1, commandItem->text(0));  // Step name
+            agentResItem->setText(2, "");  // TaskId (will be set when submitted)
+            agentResItem->setText(3, "Pending");  // Status
+            agentResItem->setText(4, "");  // Output
+            resultsAgentItems[agentKey] = agentResItem;
+            agentItem->setExpanded(true);
+        }
+    }
+
+    // Process command through commander
+    CommanderResult cmdResult = agent->commander->ProcessInput(agentId, commandLine);
+    
+    if (cmdResult.is_pre_hook) {
+        if (agentResItem) {
+            agentResItem->setText(3, "Hook");
+            agentResItem->setText(4, "Pre-hook triggered");
+        }
+        
+        // Schedule next command after pre-hook
+        QTimer::singleShot(200, this, [this, agentId]() {
+            if (!executionRunning)
+                return;
+            
+            AgentExecutionQueue& queue = agentQueues[agentId];
+            queue.isWaitingForTask = false;
+            executeNextCommandForAgent(agentId);
+        });
+        return;
+    }
+
+    if (cmdResult.output && cmdResult.error) {
+        const QString fallbackCmd = "shell " + commandLine;
+        CommanderResult fallback = agent->commander->ProcessInput(agentId, fallbackCmd);
+        if (!fallback.is_pre_hook && !fallback.output) {
+            cmdResult = fallback;
+        }
+    }
+
+    if (cmdResult.output) {
+        if (agentResItem) {
+            agentResItem->setText(3, cmdResult.error ? "Error" : "Success");
+            agentResItem->setText(4, cmdResult.message);
+        }
+        
+        // Continue to next command immediately
+        AgentExecutionQueue& queue = agentQueues[agentId];
+        queue.isWaitingForTask = false;
+        QTimer::singleShot(0, this, [this, agentId]() {
+            if (executionRunning)
+                executeNextCommandForAgent(agentId);
+        });
+        return;
+    }
+
+    // Submit command to server
+    if (agentResItem) {
+        agentResItem->setText(3, "Submitted");
+    }
+
+    QTreeWidgetItem* commandItemForCallback = commandItem;
+    const QString stepInstanceIdCopy = stepInstanceId;
+    
+    CommandSubmitter::Submit(adaptixWidget, agent, commandLine, cmdResult, true, this, false,
+                             [this, commandItemForCallback, stepInstanceIdCopy, agentKey, agentId](const CommandSubmitInfo& info) {
+        if (!info.ok) {
+            qDebug() << "[TG] Command submission failed for agent" << agentId << ":" << info.message;
+            
+            AgentExecutionQueue& queue = agentQueues[agentId];
+            queue.isWaitingForTask = false;
+            
+            QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+            if (agentResItem) {
+                agentResItem->setText(3, "Submit Error");
+                agentResItem->setText(4, info.message);
+            }
+            
+            // Continue to next command
+            QTimer::singleShot(0, this, [this, agentId]() {
+                if (executionRunning)
+                    executeNextCommandForAgent(agentId);
+            });
+        } else if (!info.taskId.isEmpty()) {
+            // Store task ID and continue waiting
+            AgentExecutionQueue& queue = agentQueues[agentId];
+            queue.currentTaskId = info.taskId;
+            
+            if (commandItemForCallback)
+                taskIdToComposerItem[info.taskId] = commandItemForCallback;
+                
+            QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+            if (agentResItem) {
+                agentResItem->setText(2, info.taskId);  // Set TaskId column
+                agentResItem->setData(0, Qt::UserRole, info.taskId);  // Store for task updates
+            }
+            
+            qDebug() << "[TG] Command submitted for agent" << agentId << "with task ID:" << info.taskId;
+        } else {
+            qDebug() << "[TG] No task ID received for agent" << agentId;
+            
+            AgentExecutionQueue& queue = agentQueues[agentId];
+            queue.isWaitingForTask = false;
+            
+            QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+            if (agentResItem) {
+                agentResItem->setText(3, "No TaskId");
+                agentResItem->setText(4, "Failed to get task ID");
+            }
+            
+            // Continue to next command
+            QTimer::singleShot(0, this, [this, agentId]() {
+                if (executionRunning)
+                    executeNextCommandForAgent(agentId);
+            });
+        }
+    },
+    [this, commandItemForCallback, agentKey](const QString&, const QString& taskId) {
+        if (taskId.isEmpty())
+            return;
+        if (commandItemForCallback)
+            taskIdToComposerItem[taskId] = commandItemForCallback;
+        QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+        if (agentResItem) {
+            agentResItem->setText(2, taskId);  // Update TaskId column
+            agentResItem->setData(0, Qt::UserRole, taskId);  // Store for task updates
+        }
+    });
+}
+
+void TacticalGuidanceWidget::notifyTaskSuccess(const QString& taskId)
+{
+    if (!executionRunning) {
+        qDebug() << "[TG] notifyTaskSuccess: execution not running, ignoring:" << taskId;
+        return;
+    }
+
+    // Find the agent queue that contains this task
+    QString agentId;
+    for (auto it = agentQueues.begin(); it != agentQueues.end(); ++it) {
+        if (it.value().currentTaskId == taskId) {
+            agentId = it.key();
+            break;
+        }
+    }
+
+    if (agentId.isEmpty()) {
+        qDebug() << "[TG] notifyTaskSuccess: task not found in any agent queue:" << taskId;
+        return;
+    }
+
+    AgentExecutionQueue& queue = agentQueues[agentId];
+    
+    qDebug() << "[TG] notifyTaskSuccess: Task" << taskId << "for agent" << agentId << "completed successfully";
+    
+    // Mark current task as completed
+    queue.isWaitingForTask = false;
+    queue.currentTaskId.clear();
+    queue.currentCommand = nullptr;
+
+    // Execute next command for this agent
+    executeNextCommandForAgent(agentId);
+}
+
 void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
 {
     // L4 + A mode: task-result binding/execution gating is disabled.
@@ -1800,6 +2041,10 @@ void TacticalGuidanceWidget::runActivePlaybook()
         return;
     }
 
+    // Initialize per-agent queues
+    initializeAgentQueues();
+
+    // Clear old mappings
     taskIdToComposerItem.clear();
     composerItemPendingCount.clear();
     composerItemHasError.clear();
@@ -1824,6 +2069,7 @@ void TacticalGuidanceWidget::runActivePlaybook()
         agentItem->setExpanded(true);
     }
 
+    // Build command queues for each agent
     for (QTreeWidgetItem* stepItem : executionQueue) {
         if (!stepItem)
             continue;
@@ -1831,8 +2077,12 @@ void TacticalGuidanceWidget::runActivePlaybook()
 
         const QString stepInstanceId = stepItem->data(0, Qt::UserRole).toString();
         if (!stepInstanceId.isEmpty()) {
-            // Create step items under each agent
+            // Add this step to each agent's queue
             for (const QString& agentId : executionTargetAgents) {
+                AgentExecutionQueue& queue = agentQueues[agentId];
+                queue.commandQueue.append(stepItem);
+                
+                // Create result items for this step under each agent
                 QTreeWidgetItem* agentItem = resultsAgentItems.value(agentId, nullptr);
                 if (agentItem) {
                     QTreeWidgetItem* taskItem = new QTreeWidgetItem(agentItem);
@@ -1849,11 +2099,17 @@ void TacticalGuidanceWidget::runActivePlaybook()
             resultsStepItems[stepInstanceId] = stepItem;
         }
     }
+    
     if (resultsTree)
         resultsTree->expandAll();
 
     executionRunning = true;
-    advanceExecution();
+    
+    // Start execution for all agents
+    qDebug() << "[TG] Starting execution for" << executionTargetAgents.size() << "agents";
+    for (const QString& agentId : executionTargetAgents) {
+        executeNextCommandForAgent(agentId);
+    }
 }
 
 void TacticalGuidanceWidget::onComposerContextMenu(const QPoint& pos)

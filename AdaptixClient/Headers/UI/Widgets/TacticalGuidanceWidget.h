@@ -58,6 +58,16 @@ protected:
         QVector<TacticalNodeData> children;
     };
 
+    // Per-Agent Execution Queue
+    struct AgentExecutionQueue {
+        QString agentId;
+        QList<QTreeWidgetItem*> commandQueue;  // Commands to execute for this agent
+        QTreeWidgetItem* currentCommand = nullptr;  // Currently executing command
+        QString currentTaskId;  // Task ID of current command
+        bool isWaitingForTask = false;  // Waiting for task completion
+        int currentStepIndex = 0;  // Current step in the workflow
+    };
+
     // Column 1: Library
     QWidget* libraryPanel = nullptr;
     QVBoxLayout* libraryLayout = nullptr;
@@ -107,6 +117,9 @@ protected:
     QHash<QString, bool> composerItemHasError;
     QHash<QString, QTreeWidgetItem*> resultsStepItems;
     QHash<QString, QTreeWidgetItem*> resultsAgentItems;
+
+    // New per-agent execution management
+    QHash<QString, AgentExecutionQueue> agentQueues;  // agentId -> execution queue
 
     void createLibraryUI();
     void createComposerUI();
@@ -161,11 +174,17 @@ public:
     
     void handleWorkflowSync(const QJsonObject& json);
     void handleTaskUpdate(const TaskData& task);
+    void notifyTaskSuccess(const QString& taskId);  // New: Called when UI shows success
 
     void addStepToActivePlaybook(const QString& commandId, const QMap<QString, QString>& params);
     void clearWorkflow();
 
     void runActivePlaybook();
+
+    // New per-agent execution methods
+    void initializeAgentQueues();
+    void executeNextCommandForAgent(const QString& agentId);
+    void submitCommandForAgent(const QString& agentId, QTreeWidgetItem* commandItem);
 
 private Q_SLOTS:
     void onComposerChanged();

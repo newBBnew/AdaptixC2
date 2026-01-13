@@ -694,6 +694,11 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
                     eventObj["status"] = task->Status;
                     McpBridge->sendMessage("c2_event", eventObj);
                 }
+
+                // Tactical Guidance: 通知任务成功
+                if (task->Status == "Success" && TacticalGuidanceDock) {
+                    TacticalGuidanceDock->notifyTaskSuccess(taskId);
+                }
             }
             if (task->Message.isEmpty())
                 task->Message = jsonObj["a_message"].toString();
