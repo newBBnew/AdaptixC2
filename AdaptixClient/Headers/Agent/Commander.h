@@ -92,6 +92,9 @@ public:
     // Get command definition by path (e.g., "jump psexec" or "token make")
     bool FindCommand(const QString &commandPath, Command &outCommand, QString &outDescription) const;
 
+    const CommandsGroup& GetRegCommandsGroup() const;
+    const QVector<CommandsGroup>& GetAxCommandsGroups() const;
+
 Q_SIGNALS:
     void commandsUpdated();
 };

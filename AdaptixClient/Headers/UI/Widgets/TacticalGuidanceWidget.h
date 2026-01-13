@@ -131,6 +131,10 @@ protected:
     void refreshPlaybookList();
     void buildLibraryTree(QStandardItem* parentItem, const QVector<TacticalNodeData>& nodes);
 
+    void scheduleSaveLayout();
+    void saveLayout();
+    bool loadLayout();
+
     // Helper for Add/Edit Command
     bool showCommandDialog(TacticalCommandData& data, QString& parentId, const QString& title);
     
@@ -219,9 +223,15 @@ private:
     QJsonArray serializeLibraryTree(QStandardItem* parent = nullptr);
     void rebuildLibraryFromJSON(const QJsonArray& nodes);
 
+    void importRegisteredCommandsIntoLibrary();
+
 public:
     explicit TacticalGuidanceWidget(AdaptixWidget* w);
     ~TacticalGuidanceWidget() override;
+
+private:
+    QTimer* layoutSaveTimer = nullptr;
+    bool layoutRestoring = false;
 };
 
 #endif

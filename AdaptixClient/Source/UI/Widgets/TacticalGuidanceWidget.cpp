@@ -36,9 +36,14 @@
 #include <QCoreApplication>
 #include <QDir>
 
+#include <QHeaderView>
+
 #include <QDrag>
 #include <QMimeData>
 #include <QUuid>
+
+#include <QLineEdit>
+#include <QStyledItemDelegate>
 
 #include <UI/Widgets/TasksWidget.h>
 
@@ -132,6 +137,49 @@ namespace {
     private:
         int osFilter = 0; // 0=All, 1=Win,2=Linux,3=mac
     };
+
+    class RawCommandEditorDelegate final : public QStyledItemDelegate {
+    public:
+        using QStyledItemDelegate::QStyledItemDelegate;
+
+        QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem& option, const QModelIndex& index) const override
+        {
+            QWidget* editor = QStyledItemDelegate::createEditor(parent, option, index);
+            QLineEdit* lineEdit = qobject_cast<QLineEdit*>(editor);
+            if (lineEdit) {
+                lineEdit->setFrame(false);
+                lineEdit->setContentsMargins(0, 0, 0, 0);
+                lineEdit->setTextMargins(0, 0, 0, 0);
+                lineEdit->setAutoFillBackground(true);
+                lineEdit->setAttribute(Qt::WA_OpaquePaintEvent, true);
+
+                lineEdit->setStyleSheet(
+                    "QLineEdit {"
+                    "  background-color: palette(base);"
+                    "  color: palette(text);"
+                    "  selection-background-color: palette(highlight);"
+                    "  selection-color: palette(highlighted-text);"
+                    " }"
+                );
+
+                // Ensure editor colors follow the view palette (avoid transparent editor under some themes)
+                QPalette pal = lineEdit->palette();
+                pal.setColor(QPalette::Base, parent->palette().color(QPalette::Base));
+                pal.setColor(QPalette::Text, parent->palette().color(QPalette::Text));
+                pal.setColor(QPalette::Highlight, parent->palette().color(QPalette::Highlight));
+                pal.setColor(QPalette::HighlightedText, parent->palette().color(QPalette::HighlightedText));
+                lineEdit->setPalette(pal);
+            }
+            return editor;
+        }
+
+        void updateEditorGeometry(QWidget* editor, const QStyleOptionViewItem& option, const QModelIndex& index) const override
+        {
+            Q_UNUSED(index);
+            if (editor)
+                editor->setGeometry(option.rect);
+        }
+    };
 }
 
 REGISTER_DOCK_WIDGET(TacticalGuidanceWidget, "Tactical Guidance", true)
@@ -143,6 +191,11 @@ TacticalGuidanceWidget::TacticalGuidanceWidget(AdaptixWidget* w)
 
     mainHSplitter = new QSplitter(Qt::Horizontal, this);
     mainHSplitter->setHandleWidth(3);
+
+    layoutSaveTimer = new QTimer(this);
+    layoutSaveTimer->setSingleShot(true);
+    layoutSaveTimer->setInterval(450);
+    connect(layoutSaveTimer, &QTimer::timeout, this, &TacticalGuidanceWidget::saveLayout);
 
     connect(adaptixWidget, &AdaptixWidget::eventNewAgent, this, &TacticalGuidanceWidget::onNewAgent);
     connect(adaptixWidget, &AdaptixWidget::eventRemoveAgent, this, &TacticalGuidanceWidget::onRemoveAgent);
@@ -162,6 +215,16 @@ TacticalGuidanceWidget::TacticalGuidanceWidget(AdaptixWidget* w)
 
     this->loadComposer();
 
+    connect(mainHSplitter, &QSplitter::splitterMoved, this, &TacticalGuidanceWidget::scheduleSaveLayout);
+    if (composerTree && composerTree->header()) {
+        connect(composerTree->header(), &QHeaderView::sectionResized, this, &TacticalGuidanceWidget::scheduleSaveLayout);
+        connect(composerTree->header(), &QHeaderView::sectionMoved, this, &TacticalGuidanceWidget::scheduleSaveLayout);
+    }
+    if (resultsTree && resultsTree->header()) {
+        connect(resultsTree->header(), &QHeaderView::sectionResized, this, &TacticalGuidanceWidget::scheduleSaveLayout);
+        connect(resultsTree->header(), &QHeaderView::sectionMoved, this, &TacticalGuidanceWidget::scheduleSaveLayout);
+    }
+
     mainHSplitter->setStretchFactor(0, 2);
     mainHSplitter->setStretchFactor(1, 2);
     mainHSplitter->setStretchFactor(2, 1);
@@ -169,11 +232,14 @@ TacticalGuidanceWidget::TacticalGuidanceWidget(AdaptixWidget* w)
     QTimer::singleShot(0, this, [this]() {
         if (!mainHSplitter)
             return;
+        if (loadLayout())
+            return;
+
         int w = this->width();
         if (w <= 0)
             w = 1200;
-        int w0 = qMax(340, static_cast<int>(w * 0.33));
-        int w1 = qMax(420, static_cast<int>(w * 0.40));
+        int w0 = qMax(300, static_cast<int>(w * 0.28));
+        int w1 = qMax(420, static_cast<int>(w * 0.44));
         int w2 = qMax(320, w - w0 - w1);
         mainHSplitter->setSizes({w0, w1, w2});
     });
@@ -206,6 +272,411 @@ void TacticalGuidanceWidget::onAgentUpdate(QString agentId)
 void TacticalGuidanceWidget::onSynced()
 {
     refreshAgentList();
+
+    importRegisteredCommandsIntoLibrary();
+}
+
+void TacticalGuidanceWidget::scheduleSaveLayout()
+{
+    if (layoutRestoring)
+        return;
+    if (layoutSaveTimer)
+        layoutSaveTimer->start();
+}
+
+void TacticalGuidanceWidget::saveLayout()
+{
+    if (!mainHSplitter)
+        return;
+
+    QDir dir(QDir::home().filePath(".adaptix"));
+    if (!dir.exists("data"))
+        dir.mkpath("data");
+
+    QJsonObject root;
+    QJsonArray sizes;
+    const QList<int> s = mainHSplitter->sizes();
+    for (int v : s)
+        sizes.append(v);
+    root["splitter_sizes"] = sizes;
+
+    if (composerTree && composerTree->header()) {
+        const QByteArray st = composerTree->header()->saveState();
+        root["composer_header_state"] = QString::fromLatin1(st.toBase64());
+    }
+    if (resultsTree && resultsTree->header()) {
+        const QByteArray st = resultsTree->header()->saveState();
+        root["results_header_state"] = QString::fromLatin1(st.toBase64());
+    }
+
+    QFile file(dir.absoluteFilePath("data/tactical_guidance_layout.json"));
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(root).toJson());
+        file.close();
+    }
+}
+
+bool TacticalGuidanceWidget::loadLayout()
+{
+    if (!mainHSplitter)
+        return false;
+
+    QDir dir(QDir::home().filePath(".adaptix"));
+    const QString path = dir.absoluteFilePath("data/tactical_guidance_layout.json");
+    QFile file(path);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly))
+        return false;
+
+    const QByteArray data = file.readAll();
+    file.close();
+    const QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isObject())
+        return false;
+    const QJsonObject root = doc.object();
+
+    layoutRestoring = true;
+
+    if (root.contains("splitter_sizes") && root["splitter_sizes"].isArray()) {
+        const QJsonArray arr = root["splitter_sizes"].toArray();
+        QList<int> sizes;
+        for (const auto& v : arr)
+            sizes.append(v.toInt());
+        if (!sizes.isEmpty())
+            mainHSplitter->setSizes(sizes);
+    }
+
+    if (composerTree && composerTree->header() && root.contains("composer_header_state")) {
+        const QByteArray st = QByteArray::fromBase64(root["composer_header_state"].toString().toLatin1());
+        if (!st.isEmpty())
+            composerTree->header()->restoreState(st);
+    }
+    if (resultsTree && resultsTree->header() && root.contains("results_header_state")) {
+        const QByteArray st = QByteArray::fromBase64(root["results_header_state"].toString().toLatin1());
+        if (!st.isEmpty())
+            resultsTree->header()->restoreState(st);
+    }
+
+    layoutRestoring = false;
+    return true;
+}
+
+void TacticalGuidanceWidget::importRegisteredCommandsIntoLibrary()
+{
+    if (!adaptixWidget || !libraryModel)
+        return;
+
+    struct TgTaxonomyDomain {
+        QString id;
+        QString title;
+        QString description;
+        QStringList keywords;
+    };
+
+    auto taxonomyPath = []() -> QString {
+        return QDir(QDir::home().filePath(".adaptix")).absoluteFilePath("data/tactical_command_taxonomy.json");
+    };
+
+    auto ensureDefaultTaxonomyFile = [&](const QString& path) {
+        QFile f(path);
+        if (f.exists())
+            return;
+
+        QDir dir(QDir::home().filePath(".adaptix"));
+        if (!dir.exists("data"))
+            dir.mkpath("data");
+
+        QJsonObject root;
+        root["schema_version"] = 1;
+        root["title"] = "Tactical Command Taxonomy";
+        root["description"] = "该文件用于把 Commander 中的内置命令/Extension-Kit 命令分类到 Tactical Guidance 的 Library 树中。你只需要在这里调整分类域、描述和关键词，无需改动 Client 代码。匹配逻辑：把命令路径(如 `jump psexec`) 与描述拼接成文本，然后按 domains 顺序依次用每个域的 keywords 做 contains 匹配，命中则归类到该域；否则归类到 `通用 (General)`。\n\ndomains 数组元素格式：{ id, title, description, keywords }\n- id: 稳定标识\n- title: UI 显示名称\n- description: 域说明（会显示在 UI 提示中）\n- keywords: 字符串数组（大小写不敏感，contains 匹配）\n\n注意：Client 不会在源码里内置任何关键词，domains 默认为空，你可以自行添加域定义。";
+
+        root["domains"] = QJsonArray();
+
+        if (f.open(QIODevice::WriteOnly)) {
+            f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+            f.close();
+        }
+    };
+
+    auto loadTaxonomy = [&](QVector<TgTaxonomyDomain>& outDomains) {
+        outDomains.clear();
+
+        const QString path = taxonomyPath();
+        ensureDefaultTaxonomyFile(path);
+
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly))
+            return;
+        const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+        f.close();
+        if (!doc.isObject())
+            return;
+
+        const QJsonObject root = doc.object();
+        if (!root.contains("domains") || !root["domains"].isArray())
+            return;
+
+        const QJsonArray domains = root["domains"].toArray();
+        for (const auto& dv : domains) {
+            if (!dv.isObject())
+                continue;
+            const QJsonObject d = dv.toObject();
+            TgTaxonomyDomain dom;
+            dom.id = d.value("id").toString();
+            dom.title = d.value("title").toString();
+            dom.description = d.value("description").toString();
+            if (d.contains("keywords") && d["keywords"].isArray()) {
+                const QJsonArray ks = d["keywords"].toArray();
+                for (const auto& kv : ks) {
+                    if (kv.isString())
+                        dom.keywords.append(kv.toString());
+                }
+            }
+            if (!dom.title.isEmpty())
+                outDomains.append(dom);
+        }
+    };
+
+    QVector<TgTaxonomyDomain> taxonomyDomains;
+    loadTaxonomy(taxonomyDomains);
+
+    QMap<QString, QString> domainDescByTitle;
+    for (const auto& d : taxonomyDomains) {
+        if (!d.title.isEmpty() && !d.description.isEmpty())
+            domainDescByTitle[d.title] = d.description;
+    }
+
+    auto classifyDomainTitle = [&](const QString& commandPath, const QString& description) -> QString {
+        const QString hay = (commandPath + " " + description).toLower();
+        for (const auto& dom : taxonomyDomains) {
+            for (const auto& kw : dom.keywords) {
+                const QString k = kw.toLower();
+                if (k.isEmpty())
+                    continue;
+                if (hay.contains(k))
+                    return dom.title;
+            }
+        }
+        return QStringLiteral("通用 (General)");
+    };
+
+    auto ensureTopCategory = [&](const QString& title) -> QStandardItem* {
+        QStandardItem* root = libraryModel->invisibleRootItem();
+        for (int i = 0; i < root->rowCount(); ++i) {
+            QStandardItem* it = root->child(i);
+            if (!it)
+                continue;
+            if (it->data(Qt::UserRole + 1).toString() == "category" && it->text() == title)
+                return it;
+        }
+
+        const QString id = QUuid::createUuid().toString();
+        auto* it = new QStandardItem(title);
+        it->setData(id, Qt::UserRole);
+        it->setData(QStringLiteral("category"), Qt::UserRole + 1);
+        it->setFont(QFont("", -1, QFont::Bold));
+        it->setSelectable(false);
+        it->setIcon(QIcon(":/icons/folder"));
+
+        TacticalNodeData node;
+        node.id = id;
+        node.name = title;
+        node.type = "category";
+        node.description = "";
+        node.parentId = "";
+        nodeMap[id] = node;
+
+        root->appendRow(it);
+        return it;
+    };
+
+    auto clearChildren = [&](QStandardItem* parent) {
+        if (!parent)
+            return;
+        while (parent->rowCount() > 0) {
+            QStandardItem* child = parent->child(0);
+            cleanupNodeData(child);
+            parent->removeRow(0);
+        }
+    };
+
+    auto ensureChildCategory = [&](QStandardItem* parent, const QString& title, const QString& desc = QString()) -> QStandardItem* {
+        if (!parent)
+            return nullptr;
+        for (int i = 0; i < parent->rowCount(); ++i) {
+            QStandardItem* it = parent->child(i);
+            if (!it)
+                continue;
+            if (it->data(Qt::UserRole + 1).toString() == "category" && it->text() == title) {
+                if (!desc.isEmpty()) {
+                    it->setToolTip(desc);
+                    const QString id = it->data(Qt::UserRole).toString();
+                    if (nodeMap.contains(id))
+                        nodeMap[id].description = desc;
+                }
+                return it;
+            }
+        }
+
+        const QString id = QUuid::createUuid().toString();
+        auto* it = new QStandardItem(title);
+        it->setData(id, Qt::UserRole);
+        it->setData(QStringLiteral("category"), Qt::UserRole + 1);
+        it->setFont(QFont("", -1, QFont::Bold));
+        it->setSelectable(false);
+        it->setIcon(QIcon(":/icons/folder"));
+        if (!desc.isEmpty())
+            it->setToolTip(desc);
+
+        TacticalNodeData node;
+        node.id = id;
+        node.name = title;
+        node.type = "category";
+        node.description = desc;
+        node.parentId = parent->data(Qt::UserRole).toString();
+        nodeMap[id] = node;
+
+        parent->appendRow(it);
+        return it;
+    };
+
+    auto commandToRaw = [&](const QString& path, const Command& c) -> QString {
+        if (!c.example.trimmed().isEmpty())
+            return c.example;
+        return path;
+    };
+
+    auto addCommandItem = [&](QStandardItem* parent, const QString& title, const QString& raw, const QString& desc, const int os) {
+        if (!parent)
+            return;
+        const QString id = QUuid::createUuid().toString();
+        auto* it = new QStandardItem(title);
+        it->setData(id, Qt::UserRole);
+        it->setData(QStringLiteral("command"), Qt::UserRole + 1);
+        it->setData(os, ROLE_COMMAND_OS);
+        if (os == OS_WINDOWS) it->setIcon(QIcon(":/icons/os_win_blue"));
+        else if (os == OS_LINUX) it->setIcon(QIcon(":/icons/os_linux_blue"));
+        else if (os == OS_MAC) it->setIcon(QIcon(":/icons/os_mac_blue"));
+        else it->setIcon(QIcon(":/icons/code_blocks"));
+        it->setToolTip(QString("%1\n\nCommand: %2").arg(desc).arg(raw));
+
+        TacticalCommandData cmd;
+        cmd.id = id;
+        cmd.name = title;
+        cmd.rawCommand = raw;
+        cmd.description = desc;
+        cmd.os = os;
+        cmd.risk = 1;
+        cmd.arch = 0;
+        commandMap[id] = cmd;
+
+        TacticalNodeData node;
+        node.id = id;
+        node.name = title;
+        node.type = "command";
+        node.description = desc;
+        node.parentId = parent->data(Qt::UserRole).toString();
+        node.command = cmd;
+        nodeMap[id] = node;
+
+        parent->appendRow(it);
+    };
+
+    QStandardItem* builtinsRoot = ensureTopCategory("内置命令库 (Built-in Commands)");
+    QStandardItem* extsRoot = ensureTopCategory("扩展命令库 (Extension-Kit Commands)");
+    if (!builtinsRoot || !extsRoot)
+        return;
+
+    clearChildren(builtinsRoot);
+    clearChildren(extsRoot);
+
+    QMap<int, QMap<QString, QMap<QString, QMap<QString, QPair<Command, QString>>>>> builtins;
+    QMap<int, QMap<QString, QMap<QString, QMap<QString, QPair<Command, QString>>>>> exts;
+
+    for (const auto& regAgent : adaptixWidget->RegisterAgents) {
+        if (!regAgent.valid || !regAgent.commander)
+            continue;
+        const int os = regAgent.os;
+        const QString source = regAgent.name + " / " + regAgent.listenerType;
+
+        const CommandsGroup& regGroup = regAgent.commander->GetRegCommandsGroup();
+        if (!regGroup.commands.isEmpty()) {
+            const QString gname = regGroup.groupName.isEmpty() ? QStringLiteral("Core") : regGroup.groupName;
+            for (const auto& cmd : regGroup.commands) {
+                if (cmd.subcommands.isEmpty()) {
+                    const QString path = cmd.name;
+                    const QString domain = classifyDomainTitle(path, cmd.description);
+                    builtins[os][domain][gname][path] = qMakePair(cmd, source);
+                } else {
+                    for (const auto& sc : cmd.subcommands) {
+                        const QString path = cmd.name + " " + sc.name;
+                        const QString domain = classifyDomainTitle(path, sc.description);
+                        builtins[os][domain][gname][path] = qMakePair(sc, source);
+                    }
+                }
+            }
+        }
+
+        const QVector<CommandsGroup>& axGroups = regAgent.commander->GetAxCommandsGroups();
+        for (const auto& g : axGroups) {
+            const QString gname = g.groupName.isEmpty() ? QStringLiteral("Misc") : g.groupName;
+            for (const auto& cmd : g.commands) {
+                if (cmd.subcommands.isEmpty()) {
+                    const QString path = cmd.name;
+                    const QString domain = classifyDomainTitle(path, cmd.description);
+                    exts[os][domain][gname][path] = qMakePair(cmd, source);
+                } else {
+                    for (const auto& sc : cmd.subcommands) {
+                        const QString path = cmd.name + " " + sc.name;
+                        const QString domain = classifyDomainTitle(path, sc.description);
+                        exts[os][domain][gname][path] = qMakePair(sc, source);
+                    }
+                }
+            }
+        }
+    }
+
+    auto osName = [](int os) -> QString {
+        if (os == OS_WINDOWS) return QStringLiteral("Windows");
+        if (os == OS_LINUX) return QStringLiteral("Linux");
+        if (os == OS_MAC) return QStringLiteral("macOS");
+        return QStringLiteral("Any");
+    };
+
+    auto buildTree = [&](QStandardItem* root, const QMap<int, QMap<QString, QMap<QString, QMap<QString, QPair<Command, QString>>>>>& data) {
+        for (auto itOs = data.begin(); itOs != data.end(); ++itOs) {
+            const int os = itOs.key();
+            QStandardItem* osCat = ensureChildCategory(root, osName(os));
+            if (!osCat)
+                continue;
+            for (auto itDomain = itOs.value().begin(); itDomain != itOs.value().end(); ++itDomain) {
+                const QString domainTitle = itDomain.key();
+                const QString domainDesc = domainDescByTitle.value(domainTitle);
+                QStandardItem* domainCat = ensureChildCategory(osCat, domainTitle, domainDesc);
+                if (!domainCat)
+                    continue;
+                for (auto itGroup = itDomain.value().begin(); itGroup != itDomain.value().end(); ++itGroup) {
+                    QStandardItem* grpCat = ensureChildCategory(domainCat, itGroup.key());
+                    if (!grpCat)
+                        continue;
+                    for (auto itCmd = itGroup.value().begin(); itCmd != itGroup.value().end(); ++itCmd) {
+                        const QString path = itCmd.key();
+                        const Command& c = itCmd.value().first;
+                        const QString source = itCmd.value().second;
+                        const QString raw = commandToRaw(path, c);
+                        const QString desc = (c.description.isEmpty() ? QString() : c.description) + (source.isEmpty() ? QString() : (QStringLiteral(" | Source: ") + source));
+                        addCommandItem(grpCat, path, raw, desc, os);
+                    }
+                }
+            }
+        }
+    };
+
+    buildTree(builtinsRoot, builtins);
+    buildTree(extsRoot, exts);
+
+    libraryView->expandAll();
+    saveLibrary();
 }
 
 void TacticalGuidanceWidget::createLibraryUI()
@@ -215,7 +686,7 @@ void TacticalGuidanceWidget::createLibraryUI()
     libraryLayout->setContentsMargins(4, 4, 4, 4);
     libraryLayout->setSpacing(4);
 
-    libraryPanel->setMinimumWidth(340);
+    libraryPanel->setMinimumWidth(300);
 
     // --- Agent Selection Section ---
     libraryLayout->addWidget(new QLabel("<b>Target Agents</b>"));
@@ -292,14 +763,14 @@ void TacticalGuidanceWidget::createComposerUI()
     pbLayout->addWidget(playbookSelector, 1);
 
     QPushButton* btnNewPb = new QPushButton(composerPanel);
-    btnNewPb->setIcon(QIcon(":/icons/file_open_64dp.png"));
+    btnNewPb->setIcon(QIcon(":/icons/file_open"));
     btnNewPb->setToolTip("New Playbook");
     btnNewPb->setMaximumWidth(30);
     connect(btnNewPb, &QPushButton::clicked, this, &TacticalGuidanceWidget::onAddPlaybookClicked);
     pbLayout->addWidget(btnNewPb);
 
     QPushButton* btnDelPb = new QPushButton(composerPanel);
-    btnDelPb->setIcon(QIcon(":/icons/close_dp64.png"));
+    btnDelPb->setIcon(QIcon(":/icons/close"));
     btnDelPb->setToolTip("Delete Playbook");
     btnDelPb->setMaximumWidth(30);
     connect(btnDelPb, &QPushButton::clicked, this, [this](){
@@ -325,7 +796,7 @@ void TacticalGuidanceWidget::createComposerUI()
     pbLayout->addWidget(btnDelPb);
 
     QPushButton* btnOptsPb = new QPushButton(composerPanel);
-    btnOptsPb->setIcon(QIcon(":/icons/arrow_drop_down_64dp.png"));
+    btnOptsPb->setIcon(QIcon(":/icons/arrow_drop_down"));
     btnOptsPb->setToolTip("Playbook Options");
     btnOptsPb->setMaximumWidth(30);
     QMenu* pbMenu = new QMenu(btnOptsPb);
@@ -423,6 +894,8 @@ void TacticalGuidanceWidget::createComposerUI()
     composerTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(composerTree, &QTreeWidget::customContextMenuRequested, this, &TacticalGuidanceWidget::onComposerContextMenu);
 
+    composerTree->setItemDelegateForColumn(2, new RawCommandEditorDelegate(composerTree));
+
     composerTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     connect(composerTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int column) {
         if (!item || !composerTree)
@@ -432,12 +905,14 @@ void TacticalGuidanceWidget::createComposerUI()
         const QString type = item->data(4, Qt::UserRole).toString();
         if (type != "command")
             return;
+        // Reduce chance of visual artifacts by forcing a repaint before editor creation
+        composerTree->viewport()->update(composerTree->visualItemRect(item));
         composerTree->editItem(item, 2);
     });
 
-    composerTree->setColumnWidth(0, 260);
-    composerTree->setColumnWidth(1, 340);
-    composerTree->setColumnWidth(2, 520);
+    composerTree->setColumnWidth(0, 240);
+    composerTree->setColumnWidth(1, 300);
+    composerTree->setColumnWidth(2, 480);
     composerTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     composerTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     composerTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
@@ -475,14 +950,14 @@ void TacticalGuidanceWidget::createComposerUI()
     actionsLayout->addWidget(btnPushServer);
 
     auto* btnUp = new QPushButton(composerActionsRow);
-    btnUp->setIcon(QIcon(":/icons/arrow_drop_up_64dp.png"));
+    btnUp->setIcon(QIcon(":/icons/arrow_drop_up"));
     btnUp->setToolTip("Move Up");
     btnUp->setMaximumWidth(30);
     connect(btnUp, &QPushButton::clicked, this, [this](){ moveSelectedComposerItem(-1); });
     actionsLayout->addWidget(btnUp);
 
     auto* btnDown = new QPushButton(composerActionsRow);
-    btnDown->setIcon(QIcon(":/icons/arrow_drop_down_64dp.png"));
+    btnDown->setIcon(QIcon(":/icons/arrow_drop_down"));
     btnDown->setToolTip("Move Down");
     btnDown->setMaximumWidth(30);
     connect(btnDown, &QPushButton::clicked, this, [this](){ moveSelectedComposerItem(1); });
@@ -1970,10 +2445,11 @@ void TacticalGuidanceWidget::saveLibrary()
 {
     QJsonArray rootArr = serializeLibraryTree(nullptr);
     QJsonDocument doc(rootArr);
-    
-    QDir dir(QCoreApplication::applicationDirPath());
-    if (!dir.exists("data")) dir.mkdir("data");
-    
+
+    QDir dir(QDir::home().filePath(".adaptix"));
+    if (!dir.exists("data"))
+        dir.mkpath("data");
+
     QFile file(dir.absoluteFilePath("data/tactical_library.json"));
     if (file.open(QIODevice::WriteOnly)) {
         file.write(doc.toJson());
@@ -2056,8 +2532,35 @@ void TacticalGuidanceWidget::rebuildLibraryFromJSON(const QJsonArray& nodes)
 
 void TacticalGuidanceWidget::loadLibrary()
 {
-    QDir dir(QCoreApplication::applicationDirPath());
-    QString path = dir.absoluteFilePath("data/tactical_library.json");
+    QDir dir(QDir::home().filePath(".adaptix"));
+    if (!dir.exists("data"))
+        dir.mkpath("data");
+
+    const QString newPath = dir.absoluteFilePath("data/tactical_library.json");
+
+    QDir oldDir(QCoreApplication::applicationDirPath());
+    const QString oldPath = oldDir.absoluteFilePath("data/tactical_library.json");
+
+    if (!QFile::exists(newPath) && QFile::exists(oldPath)) {
+        if (!QFile::rename(oldPath, newPath)) {
+            QFile::copy(oldPath, newPath);
+            QFile::remove(oldPath);
+        }
+    }
+
+    if (!QFile::exists(newPath)) {
+        QFile res(":/tactical/default_library");
+        if (res.open(QIODevice::ReadOnly)) {
+            QFile out(newPath);
+            if (out.open(QIODevice::WriteOnly)) {
+                out.write(res.readAll());
+                out.close();
+            }
+            res.close();
+        }
+    }
+
+    QString path = newPath;
     qDebug() << "[Tactical] Loading library from:" << path;
     
     QFile file(path);
@@ -2289,9 +2792,9 @@ void TacticalGuidanceWidget::saveComposer()
 
     QJsonDocument doc(root);
 
-    QDir dir(QCoreApplication::applicationDirPath());
+    QDir dir(QDir::home().filePath(".adaptix"));
     if (!dir.exists("data"))
-        dir.mkdir("data");
+        dir.mkpath("data");
 
     QFile file(dir.absoluteFilePath("data/tactical_composer.json"));
     if (file.open(QIODevice::WriteOnly)) {
@@ -2311,8 +2814,23 @@ void TacticalGuidanceWidget::loadComposer()
     playbooks = QJsonArray();
     currentPlaybookId.clear();
 
-    QDir dir(QCoreApplication::applicationDirPath());
-    QFile file(dir.absoluteFilePath("data/tactical_composer.json"));
+    QDir dir(QDir::home().filePath(".adaptix"));
+    if (!dir.exists("data"))
+        dir.mkpath("data");
+
+    const QString newPath = dir.absoluteFilePath("data/tactical_composer.json");
+
+    QDir oldDir(QCoreApplication::applicationDirPath());
+    const QString oldPath = oldDir.absoluteFilePath("data/tactical_composer.json");
+
+    if (!QFile::exists(newPath) && QFile::exists(oldPath)) {
+        if (!QFile::rename(oldPath, newPath)) {
+            QFile::copy(oldPath, newPath);
+            QFile::remove(oldPath);
+        }
+    }
+
+    QFile file(newPath);
     if (file.exists() && file.open(QIODevice::ReadOnly)) {
         QByteArray data = file.readAll();
         QJsonDocument doc = QJsonDocument::fromJson(data);
@@ -2343,17 +2861,17 @@ void TacticalGuidanceWidget::loadComposer()
     composerIsLoading = false;
 }
 
-// Helper to access protected members
-class AccessTreeWidget : public QTreeWidget {
-public:
-    using QTreeWidget::dropIndicatorPosition;
-    using QAbstractItemView::OnItem;
-    using QAbstractItemView::AboveItem;
-    using QAbstractItemView::BelowItem;
-};
-
 bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
 {
+    if (!composerTree || !libraryView)
+        return DockTab::eventFilter(obj, event);
+
+    enum class DropPos {
+        OnItem,
+        AboveItem,
+        BelowItem,
+    };
+
     if (obj == libraryView->viewport()) {
         if (event->type() == QEvent::MouseButtonPress) {
             auto* mouseEvent = static_cast<QMouseEvent*>(event);
@@ -2411,7 +2929,21 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
                     return true;
 
                 QTreeWidgetItem* targetItem = composerTree->itemAt(dropEvent->position().toPoint());
-                auto indicator = static_cast<AccessTreeWidget*>(composerTree)->dropIndicatorPosition();
+                const QPoint pos = dropEvent->position().toPoint();
+                DropPos indicator = DropPos::OnItem;
+                if (targetItem) {
+                    const QRect rect = composerTree->visualItemRect(targetItem);
+                    const int y = pos.y();
+                    const int third = qMax(1, rect.height() / 3);
+                    if (y < rect.top() + third)
+                        indicator = DropPos::AboveItem;
+                    else if (y > rect.bottom() - third)
+                        indicator = DropPos::BelowItem;
+                    else
+                        indicator = DropPos::OnItem;
+                } else {
+                    indicator = DropPos::BelowItem;
+                }
 
                 const auto& cmd = commandMap[commandId];
                 QTreeWidgetItem* item = new QTreeWidgetItem();
@@ -2435,14 +2967,14 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
                     return true;
                 }
 
-                if (indicator == AccessTreeWidget::OnItem && targetItem->data(4, Qt::UserRole).toString() == "group") {
+                if (indicator == DropPos::OnItem && targetItem->data(4, Qt::UserRole).toString() == "group") {
                     targetItem->addChild(item);
                     targetItem->setExpanded(true);
                     dropEvent->acceptProposedAction();
                     return true;
                 }
 
-                if (indicator == AccessTreeWidget::OnItem) {
+                if (indicator == DropPos::OnItem) {
                     QTreeWidgetItem* p = targetItem->parent();
                     if (p) p->insertChild(p->indexOfChild(targetItem) + 1, item);
                     else composerTree->insertTopLevelItem(composerTree->indexOfTopLevelItem(targetItem) + 1, item);
@@ -2451,10 +2983,10 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
                 }
 
                 QTreeWidgetItem* p = targetItem->parent();
-                if (indicator == AccessTreeWidget::AboveItem) {
+                if (indicator == DropPos::AboveItem) {
                     if (p) p->insertChild(p->indexOfChild(targetItem), item);
                     else composerTree->insertTopLevelItem(composerTree->indexOfTopLevelItem(targetItem), item);
-                } else if (indicator == AccessTreeWidget::BelowItem) {
+                } else if (indicator == DropPos::BelowItem) {
                     if (p) p->insertChild(p->indexOfChild(targetItem) + 1, item);
                     else composerTree->insertTopLevelItem(composerTree->indexOfTopLevelItem(targetItem) + 1, item);
                 } else {

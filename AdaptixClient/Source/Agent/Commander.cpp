@@ -85,6 +85,16 @@ Commander::Commander()
 
 Commander::~Commander() = default;
 
+const CommandsGroup& Commander::GetRegCommandsGroup() const
+{
+    return regCommandsGroup;
+}
+
+const QVector<CommandsGroup>& Commander::GetAxCommandsGroups() const
+{
+    return axCommandsGroup;
+}
+
 void Commander::AddRegCommands(const CommandsGroup &group) { regCommandsGroup = group; }
 
 void Commander::AddAxCommands(const CommandsGroup &group)

@@ -1,0 +1,811 @@
+[
+  {
+    "id": "cat_basics",
+    "name": "基础信息 (Basics)",
+    "type": "category",
+    "description": "快速确认当前主机身份、系统版本、时间与环境信息。",
+    "parent_id": "",
+    "children": [
+      {
+        "id": "cat_basics_win",
+        "name": "Windows",
+        "type": "category",
+        "description": "Windows 基础信息采集（低风险）。",
+        "parent_id": "cat_basics",
+        "children": [
+          {
+            "id": "cmd_win_whoami",
+            "name": "当前用户与组",
+            "type": "command",
+            "description": "显示当前用户、组与权限信息。",
+            "parent_id": "cat_basics_win",
+            "command": {
+              "id": "cmd_win_whoami",
+              "name": "当前用户与组",
+              "cmd": "whoami /all",
+              "os": 1,
+              "risk": 1,
+              "description": "显示当前用户、组与权限信息。",
+              "arch": 0,
+              "usage": "用于快速确认权限上下文与组成员关系。"
+            }
+          },
+          {
+            "id": "cmd_win_systeminfo",
+            "name": "系统版本概览",
+            "type": "command",
+            "description": "显示系统版本、补丁、启动时间等基础信息。",
+            "parent_id": "cat_basics_win",
+            "command": {
+              "id": "cmd_win_systeminfo",
+              "name": "系统版本概览",
+              "cmd": "systeminfo",
+              "os": 1,
+              "risk": 1,
+              "description": "显示系统版本、补丁、启动时间等基础信息。",
+              "arch": 0,
+              "usage": "用于快速定位 OS 版本、域信息、系统启动时间等。"
+            }
+          },
+          {
+            "id": "cmd_win_hostname",
+            "name": "主机名",
+            "type": "command",
+            "description": "显示主机名。",
+            "parent_id": "cat_basics_win",
+            "command": {
+              "id": "cmd_win_hostname",
+              "name": "主机名",
+              "cmd": "hostname",
+              "os": 1,
+              "risk": 1,
+              "description": "显示主机名。",
+              "arch": 0,
+              "usage": "用于快速确认当前机器标识。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_basics_linux",
+        "name": "Linux",
+        "type": "category",
+        "description": "Linux 基础信息采集（低风险）。",
+        "parent_id": "cat_basics",
+        "children": [
+          {
+            "id": "cmd_lin_id",
+            "name": "当前用户与组",
+            "type": "command",
+            "description": "显示当前用户 UID/GID 与组信息。",
+            "parent_id": "cat_basics_linux",
+            "command": {
+              "id": "cmd_lin_id",
+              "name": "当前用户与组",
+              "cmd": "id",
+              "os": 2,
+              "risk": 1,
+              "description": "显示当前用户 UID/GID 与组信息。",
+              "arch": 0,
+              "usage": "用于快速确认权限上下文。"
+            }
+          },
+          {
+            "id": "cmd_lin_uname",
+            "name": "内核与架构",
+            "type": "command",
+            "description": "显示内核版本与架构信息。",
+            "parent_id": "cat_basics_linux",
+            "command": {
+              "id": "cmd_lin_uname",
+              "name": "内核与架构",
+              "cmd": "uname -a",
+              "os": 2,
+              "risk": 1,
+              "description": "显示内核版本与架构信息。",
+              "arch": 0,
+              "usage": "用于快速确认内核版本、发行版环境线索。"
+            }
+          },
+          {
+            "id": "cmd_lin_os_release",
+            "name": "发行版信息",
+            "type": "command",
+            "description": "读取 /etc/os-release 获取发行版信息。",
+            "parent_id": "cat_basics_linux",
+            "command": {
+              "id": "cmd_lin_os_release",
+              "name": "发行版信息",
+              "cmd": "cat /etc/os-release",
+              "os": 2,
+              "risk": 1,
+              "description": "读取 /etc/os-release 获取发行版信息。",
+              "arch": 0,
+              "usage": "用于快速确认发行版名称与版本。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_basics_macos",
+        "name": "macOS",
+        "type": "category",
+        "description": "macOS 基础信息采集（低风险）。",
+        "parent_id": "cat_basics",
+        "children": [
+          {
+            "id": "cmd_mac_id",
+            "name": "当前用户与组",
+            "type": "command",
+            "description": "显示当前用户 UID/GID 与组信息。",
+            "parent_id": "cat_basics_macos",
+            "command": {
+              "id": "cmd_mac_id",
+              "name": "当前用户与组",
+              "cmd": "id",
+              "os": 3,
+              "risk": 1,
+              "description": "显示当前用户 UID/GID 与组信息。",
+              "arch": 0,
+              "usage": "用于快速确认权限上下文。"
+            }
+          },
+          {
+            "id": "cmd_mac_sw_vers",
+            "name": "系统版本",
+            "type": "command",
+            "description": "显示 macOS 系统版本信息。",
+            "parent_id": "cat_basics_macos",
+            "command": {
+              "id": "cmd_mac_sw_vers",
+              "name": "系统版本",
+              "cmd": "sw_vers",
+              "os": 3,
+              "risk": 1,
+              "description": "显示 macOS 系统版本信息。",
+              "arch": 0,
+              "usage": "用于确认 macOS 版本与构建号。"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "cat_network",
+    "name": "网络与连通性 (Network)",
+    "type": "category",
+    "description": "网络配置、路由、连接与基础连通性检查。",
+    "parent_id": "",
+    "children": [
+      {
+        "id": "cat_network_win",
+        "name": "Windows",
+        "type": "category",
+        "description": "Windows 网络信息与连接状态。",
+        "parent_id": "cat_network",
+        "children": [
+          {
+            "id": "cmd_win_ipconfig",
+            "name": "IP 配置",
+            "type": "command",
+            "description": "查看网卡 IP/DNS/Gateway 配置。",
+            "parent_id": "cat_network_win",
+            "command": {
+              "id": "cmd_win_ipconfig",
+              "name": "IP 配置",
+              "cmd": "ipconfig /all",
+              "os": 1,
+              "risk": 1,
+              "description": "查看网卡 IP/DNS/Gateway 配置。",
+              "arch": 0,
+              "usage": "用于定位 DNS、网段、网关等网络基础信息。"
+            }
+          },
+          {
+            "id": "cmd_win_route",
+            "name": "路由表",
+            "type": "command",
+            "description": "查看路由表与网关。",
+            "parent_id": "cat_network_win",
+            "command": {
+              "id": "cmd_win_route",
+              "name": "路由表",
+              "cmd": "route print",
+              "os": 1,
+              "risk": 1,
+              "description": "查看路由表与网关。",
+              "arch": 0,
+              "usage": "用于确认默认路由与可达网段。"
+            }
+          },
+          {
+            "id": "cmd_win_netstat",
+            "name": "连接与监听端口",
+            "type": "command",
+            "description": "查看当前连接、监听端口及 PID。",
+            "parent_id": "cat_network_win",
+            "command": {
+              "id": "cmd_win_netstat",
+              "name": "连接与监听端口",
+              "cmd": "netstat -ano",
+              "os": 1,
+              "risk": 1,
+              "description": "查看当前连接、监听端口及 PID。",
+              "arch": 0,
+              "usage": "用于排查端口占用、确认对外连接与监听服务。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_network_linux",
+        "name": "Linux",
+        "type": "category",
+        "description": "Linux 网络信息与连接状态。",
+        "parent_id": "cat_network",
+        "children": [
+          {
+            "id": "cmd_lin_ip_a",
+            "name": "IP 配置",
+            "type": "command",
+            "description": "查看接口 IP 与地址信息。",
+            "parent_id": "cat_network_linux",
+            "command": {
+              "id": "cmd_lin_ip_a",
+              "name": "IP 配置",
+              "cmd": "ip a",
+              "os": 2,
+              "risk": 1,
+              "description": "查看接口 IP 与地址信息。",
+              "arch": 0,
+              "usage": "用于确认当前网卡与 IP。"
+            }
+          },
+          {
+            "id": "cmd_lin_ip_route",
+            "name": "路由表",
+            "type": "command",
+            "description": "查看路由表。",
+            "parent_id": "cat_network_linux",
+            "command": {
+              "id": "cmd_lin_ip_route",
+              "name": "路由表",
+              "cmd": "ip route",
+              "os": 2,
+              "risk": 1,
+              "description": "查看路由表。",
+              "arch": 0,
+              "usage": "用于确认默认路由与可达网段。"
+            }
+          },
+          {
+            "id": "cmd_lin_ss",
+            "name": "连接与监听端口",
+            "type": "command",
+            "description": "查看监听端口与连接（需要权限时可加 sudo）。",
+            "parent_id": "cat_network_linux",
+            "command": {
+              "id": "cmd_lin_ss",
+              "name": "连接与监听端口",
+              "cmd": "ss -tulpn",
+              "os": 2,
+              "risk": 1,
+              "description": "查看监听端口与连接（需要权限时可加 sudo）。",
+              "arch": 0,
+              "usage": "用于排查端口占用与服务监听情况。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_network_macos",
+        "name": "macOS",
+        "type": "category",
+        "description": "macOS 网络信息与连接状态。",
+        "parent_id": "cat_network",
+        "children": [
+          {
+            "id": "cmd_mac_ifconfig",
+            "name": "接口信息",
+            "type": "command",
+            "description": "查看接口与 IP 信息。",
+            "parent_id": "cat_network_macos",
+            "command": {
+              "id": "cmd_mac_ifconfig",
+              "name": "接口信息",
+              "cmd": "ifconfig",
+              "os": 3,
+              "risk": 1,
+              "description": "查看接口与 IP 信息。",
+              "arch": 0,
+              "usage": "用于确认网卡、IP、MAC 等。"
+            }
+          },
+          {
+            "id": "cmd_mac_netstat_rn",
+            "name": "路由表",
+            "type": "command",
+            "description": "查看路由表。",
+            "parent_id": "cat_network_macos",
+            "command": {
+              "id": "cmd_mac_netstat_rn",
+              "name": "路由表",
+              "cmd": "netstat -rn",
+              "os": 3,
+              "risk": 1,
+              "description": "查看路由表。",
+              "arch": 0,
+              "usage": "用于确认默认网关与路由。"
+            }
+          },
+          {
+            "id": "cmd_mac_scutil_dns",
+            "name": "DNS 配置",
+            "type": "command",
+            "description": "查看 DNS 解析配置。",
+            "parent_id": "cat_network_macos",
+            "command": {
+              "id": "cmd_mac_scutil_dns",
+              "name": "DNS 配置",
+              "cmd": "scutil --dns",
+              "os": 3,
+              "risk": 1,
+              "description": "查看 DNS 解析配置。",
+              "arch": 0,
+              "usage": "用于排查 DNS 相关网络问题。"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "cat_accounts",
+    "name": "用户与权限 (Accounts & Privileges)",
+    "type": "category",
+    "description": "用户/组/权限上下文核对、账号盘点与基础权限检查（偏审计/排障用途）。",
+    "parent_id": "",
+    "children": [
+      {
+        "id": "cat_accounts_win",
+        "name": "Windows",
+        "type": "category",
+        "description": "Windows 本机用户/组/权限信息。",
+        "parent_id": "cat_accounts",
+        "children": [
+          {
+            "id": "cmd_win_whoami_priv",
+            "name": "当前权限列表",
+            "type": "command",
+            "description": "列出当前令牌权限（Privileges）。",
+            "parent_id": "cat_accounts_win",
+            "command": {
+              "id": "cmd_win_whoami_priv",
+              "name": "当前权限列表",
+              "cmd": "whoami /priv",
+              "os": 1,
+              "risk": 1,
+              "description": "列出当前令牌权限（Privileges）。",
+              "arch": 0,
+              "usage": "用于审计当前会话权限开关与可用权限。"
+            }
+          },
+          {
+            "id": "cmd_win_net_user",
+            "name": "本机用户列表",
+            "type": "command",
+            "description": "列出本机用户账号。",
+            "parent_id": "cat_accounts_win",
+            "command": {
+              "id": "cmd_win_net_user",
+              "name": "本机用户列表",
+              "cmd": "net user",
+              "os": 1,
+              "risk": 1,
+              "description": "列出本机用户账号。",
+              "arch": 0,
+              "usage": "用于快速盘点本机账号。"
+            }
+          },
+          {
+            "id": "cmd_win_local_admins",
+            "name": "本机管理员组成员",
+            "type": "command",
+            "description": "查看 Administrators 组成员。",
+            "parent_id": "cat_accounts_win",
+            "command": {
+              "id": "cmd_win_local_admins",
+              "name": "本机管理员组成员",
+              "cmd": "net localgroup administrators",
+              "os": 1,
+              "risk": 1,
+              "description": "查看 Administrators 组成员。",
+              "arch": 0,
+              "usage": "用于审计本机管理员授权。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_accounts_linux",
+        "name": "Linux",
+        "type": "category",
+        "description": "Linux 用户/组与 sudo 配置检查。",
+        "parent_id": "cat_accounts",
+        "children": [
+          {
+            "id": "cmd_lin_whoami_groups",
+            "name": "当前用户与组",
+            "type": "command",
+            "description": "显示当前用户与所属组。",
+            "parent_id": "cat_accounts_linux",
+            "command": {
+              "id": "cmd_lin_whoami_groups",
+              "name": "当前用户与组",
+              "cmd": "whoami && groups",
+              "os": 2,
+              "risk": 1,
+              "description": "显示当前用户与所属组。",
+              "arch": 0,
+              "usage": "用于快速确认权限上下文与组归属。"
+            }
+          },
+          {
+            "id": "cmd_lin_sudo_l",
+            "name": "sudo 权限（可能需要输入密码）",
+            "type": "command",
+            "description": "查看当前用户 sudo 允许的命令列表。",
+            "parent_id": "cat_accounts_linux",
+            "command": {
+              "id": "cmd_lin_sudo_l",
+              "name": "sudo 权限（可能需要输入密码）",
+              "cmd": "sudo -l",
+              "os": 2,
+              "risk": 1,
+              "description": "查看当前用户 sudo 允许的命令列表。",
+              "arch": 0,
+              "usage": "用于审计 sudo 授权策略（注意可能交互输入密码）。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_accounts_macos",
+        "name": "macOS",
+        "type": "category",
+        "description": "macOS 用户/组与 sudo 配置检查。",
+        "parent_id": "cat_accounts",
+        "children": [
+          {
+            "id": "cmd_mac_groups",
+            "name": "当前用户与组",
+            "type": "command",
+            "description": "显示当前用户与所属组。",
+            "parent_id": "cat_accounts_macos",
+            "command": {
+              "id": "cmd_mac_groups",
+              "name": "当前用户与组",
+              "cmd": "whoami && groups",
+              "os": 3,
+              "risk": 1,
+              "description": "显示当前用户与所属组。",
+              "arch": 0,
+              "usage": "用于快速确认权限上下文与组归属。"
+            }
+          },
+          {
+            "id": "cmd_mac_sudo_l",
+            "name": "sudo 权限（可能需要输入密码）",
+            "type": "command",
+            "description": "查看当前用户 sudo 允许的命令列表。",
+            "parent_id": "cat_accounts_macos",
+            "command": {
+              "id": "cmd_mac_sudo_l",
+              "name": "sudo 权限（可能需要输入密码）",
+              "cmd": "sudo -l",
+              "os": 3,
+              "risk": 1,
+              "description": "查看当前用户 sudo 允许的命令列表。",
+              "arch": 0,
+              "usage": "用于审计 sudo 授权策略（注意可能交互输入密码）。"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "cat_process",
+    "name": "进程与服务 (Process)",
+    "type": "category",
+    "description": "进程列表与基础运行状态查看（低风险）。",
+    "parent_id": "",
+    "children": [
+      {
+        "id": "cat_process_win",
+        "name": "Windows",
+        "type": "category",
+        "description": "Windows 进程与服务查看。",
+        "parent_id": "cat_process",
+        "children": [
+          {
+            "id": "cmd_win_tasklist",
+            "name": "进程列表",
+            "type": "command",
+            "description": "查看详细进程列表。",
+            "parent_id": "cat_process_win",
+            "command": {
+              "id": "cmd_win_tasklist",
+              "name": "进程列表",
+              "cmd": "tasklist /v",
+              "os": 1,
+              "risk": 1,
+              "description": "查看详细进程列表。",
+              "arch": 0,
+              "usage": "用于快速定位可疑进程/服务与命令行信息。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_process_linux",
+        "name": "Linux",
+        "type": "category",
+        "description": "Linux 进程查看。",
+        "parent_id": "cat_process",
+        "children": [
+          {
+            "id": "cmd_lin_ps",
+            "name": "进程列表",
+            "type": "command",
+            "description": "查看进程树/命令行信息。",
+            "parent_id": "cat_process_linux",
+            "command": {
+              "id": "cmd_lin_ps",
+              "name": "进程列表",
+              "cmd": "ps auxf",
+              "os": 2,
+              "risk": 1,
+              "description": "查看进程树/命令行信息。",
+              "arch": 0,
+              "usage": "用于观察父子关系与启动参数。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_process_macos",
+        "name": "macOS",
+        "type": "category",
+        "description": "macOS 进程查看。",
+        "parent_id": "cat_process",
+        "children": [
+          {
+            "id": "cmd_mac_ps",
+            "name": "进程列表",
+            "type": "command",
+            "description": "查看进程与命令行信息。",
+            "parent_id": "cat_process_macos",
+            "command": {
+              "id": "cmd_mac_ps",
+              "name": "进程列表",
+              "cmd": "ps aux",
+              "os": 3,
+              "risk": 1,
+              "description": "查看进程与命令行信息。",
+              "arch": 0,
+              "usage": "用于快速查看当前运行进程。"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "cat_filesystem",
+    "name": "文件与磁盘 (File System)",
+    "type": "category",
+    "description": "文件浏览与磁盘空间查看（低风险）。",
+    "parent_id": "",
+    "children": [
+      {
+        "id": "cat_fs_win",
+        "name": "Windows",
+        "type": "category",
+        "description": "Windows 文件/磁盘查看。",
+        "parent_id": "cat_filesystem",
+        "children": [
+          {
+            "id": "cmd_win_dir",
+            "name": "列目录（当前目录）",
+            "type": "command",
+            "description": "查看当前目录文件列表。",
+            "parent_id": "cat_fs_win",
+            "command": {
+              "id": "cmd_win_dir",
+              "name": "列目录（当前目录）",
+              "cmd": "dir",
+              "os": 1,
+              "risk": 1,
+              "description": "查看当前目录文件列表。",
+              "arch": 0,
+              "usage": "用于快速确认当前目录内容。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_fs_linux",
+        "name": "Linux",
+        "type": "category",
+        "description": "Linux 文件/磁盘查看。",
+        "parent_id": "cat_filesystem",
+        "children": [
+          {
+            "id": "cmd_lin_ls",
+            "name": "列目录（当前目录）",
+            "type": "command",
+            "description": "列出当前目录文件（含隐藏）。",
+            "parent_id": "cat_fs_linux",
+            "command": {
+              "id": "cmd_lin_ls",
+              "name": "列目录（当前目录）",
+              "cmd": "ls -la",
+              "os": 2,
+              "risk": 1,
+              "description": "列出当前目录文件（含隐藏）。",
+              "arch": 0,
+              "usage": "用于快速确认当前目录内容与权限。"
+            }
+          },
+          {
+            "id": "cmd_lin_df",
+            "name": "磁盘空间",
+            "type": "command",
+            "description": "查看磁盘使用情况。",
+            "parent_id": "cat_fs_linux",
+            "command": {
+              "id": "cmd_lin_df",
+              "name": "磁盘空间",
+              "cmd": "df -h",
+              "os": 2,
+              "risk": 1,
+              "description": "查看磁盘使用情况。",
+              "arch": 0,
+              "usage": "用于判断磁盘是否有空间问题。"
+            }
+          }
+        ]
+      },
+      {
+        "id": "cat_fs_macos",
+        "name": "macOS",
+        "type": "category",
+        "description": "macOS 文件/磁盘查看。",
+        "parent_id": "cat_filesystem",
+        "children": [
+          {
+            "id": "cmd_mac_ls",
+            "name": "列目录（当前目录）",
+            "type": "command",
+            "description": "列出当前目录文件（含隐藏）。",
+            "parent_id": "cat_fs_macos",
+            "command": {
+              "id": "cmd_mac_ls",
+              "name": "列目录（当前目录）",
+              "cmd": "ls -la",
+              "os": 3,
+              "risk": 1,
+              "description": "列出当前目录文件（含隐藏）。",
+              "arch": 0,
+              "usage": "用于快速确认当前目录内容与权限。"
+            }
+          },
+          {
+            "id": "cmd_mac_df",
+            "name": "磁盘空间",
+            "type": "command",
+            "description": "查看磁盘使用情况。",
+            "parent_id": "cat_fs_macos",
+            "command": {
+              "id": "cmd_mac_df",
+              "name": "磁盘空间",
+              "cmd": "df -h",
+              "os": 3,
+              "risk": 1,
+              "description": "查看磁盘使用情况。",
+              "arch": 0,
+              "usage": "用于判断磁盘是否有空间问题。"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "cat_reference",
+    "name": "参考与备忘 (Reference)",
+    "type": "category",
+    "description": "仅用于备忘/索引的参考条目（不直接提供可滥用的命令模板）。",
+    "parent_id": "",
+    "children": [
+      {
+        "id": "cat_ref_lolbas",
+        "name": "LOLBAS（参考入口）",
+        "type": "category",
+        "description": "LOLBAS 是 Windows 合法二进制/脚本的安全研究索引。这里仅保留参考入口，具体用法请结合授权范围与变更流程自行维护。",
+        "parent_id": "cat_reference",
+        "children": [
+          {
+            "id": "cmd_ref_lolbas_url",
+            "name": "打开 LOLBAS 项目主页（输出链接）",
+            "type": "command",
+            "description": "输出 LOLBAS 项目主页链接，用于备忘。",
+            "parent_id": "cat_ref_lolbas",
+            "command": {
+              "id": "cmd_ref_lolbas_url",
+              "name": "打开 LOLBAS 项目主页（输出链接）",
+              "cmd": "echo https://lolbas-project.github.io/",
+              "os": 1,
+              "risk": 1,
+              "description": "输出 LOLBAS 项目主页链接，用于备忘。",
+              "arch": 0,
+              "usage": "这是参考条目；你可以在本地把常用条目整理成自己的命令模板。"
+            }
+          },
+          {
+            "id": "cmd_ref_lolbas_binaries",
+            "name": "LOLBAS Binaries 索引（输出链接）",
+            "type": "command",
+            "description": "输出 LOLBAS 二进制索引页面链接。",
+            "parent_id": "cat_ref_lolbas",
+            "command": {
+              "id": "cmd_ref_lolbas_binaries",
+              "name": "LOLBAS Binaries 索引（输出链接）",
+              "cmd": "echo https://lolbas-project.github.io/#/",
+              "os": 1,
+              "risk": 1,
+              "description": "输出 LOLBAS 二进制索引页面链接。",
+              "arch": 0,
+              "usage": "参考索引用途。具体条目请在浏览器中检索。"
+            }
+          },
+          {
+            "id": "cmd_ref_lolbas_mitad",
+            "name": "LOLBAS 与 ATT&CK 映射（输出链接）",
+            "type": "command",
+            "description": "输出 LOLBAS 项目主页链接（用于进一步查映射/分类）。",
+            "parent_id": "cat_ref_lolbas",
+            "command": {
+              "id": "cmd_ref_lolbas_mitad",
+              "name": "LOLBAS 与 ATT&CK 映射（输出链接）",
+              "cmd": "echo https://lolbas-project.github.io/",
+              "os": 1,
+              "risk": 1,
+              "description": "输出 LOLBAS 项目主页链接（用于进一步查映射/分类）。",
+              "arch": 0,
+              "usage": "参考索引用途。"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "cat_commander_builtins",
+    "name": "内置命令库 (Built-in Commands)",
+    "type": "category",
+    "description": "本区内容由 Client 根据 Commander 自动生成并刷新，用于展示系统内置可用命令与子命令。",
+    "parent_id": "",
+    "children": []
+  },
+  {
+    "id": "cat_commander_ext",
+    "name": "扩展命令库 (Extension-Kit Commands)",
+    "type": "category",
+    "description": "本区内容由 Client 根据 Extension-Kit 注册的 CommandsGroup 自动生成并刷新。",
+    "parent_id": "",
+    "children": []
+  }
+]

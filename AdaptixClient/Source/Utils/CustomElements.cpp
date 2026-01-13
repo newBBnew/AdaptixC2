@@ -12,6 +12,30 @@ CardListWidget::CardListWidget(QWidget *parent) : QListWidget(parent)
     setMouseTracking(true);
     setSpacing(1);
     setItemDelegate(new CardListDelegate(this));
+
+    setAutoFillBackground(true);
+
+    QPalette pal = palette();
+    const QColor base = pal.color(QPalette::Base);
+    const QColor text = pal.color(QPalette::Text);
+    const QColor highlight = pal.color(QPalette::Highlight);
+    const QColor highlightedText = pal.color(QPalette::HighlightedText);
+
+    m_itemBackground = base;
+    m_itemBackground.setAlpha(0);
+
+    m_itemBackgroundHover = base;
+    m_itemBackgroundHover.setAlpha(40);
+
+    m_itemBackgroundSelected = highlight;
+
+    m_titleColor = text;
+    m_titleColorSelected = highlightedText;
+
+    m_subtitleColor = text;
+    m_subtitleColor.setAlpha(160);
+    m_subtitleColorSelected = highlightedText;
+    m_subtitleColorSelected.setAlpha(220);
 }
 
 void CardListWidget::addCard(const QString &title, const QString &text)
