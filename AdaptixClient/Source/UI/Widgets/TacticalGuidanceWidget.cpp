@@ -30,6 +30,7 @@
 #include <QSignalBlocker>
 #include <QDebug>
 #include <QTimer>
+#include <QMouseEvent>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QCoreApplication>
@@ -45,6 +46,45 @@ namespace {
     constexpr int ROLE_NODE_ID  = Qt::UserRole;
     constexpr int ROLE_NODE_TYPE = Qt::UserRole + 1;
     constexpr int ROLE_COMMAND_OS = Qt::UserRole + 2;
+
+    class StickyCheckMenu final : public QMenu {
+    public:
+        explicit StickyCheckMenu(QWidget* parent = nullptr)
+            : QMenu(parent)
+        {
+            closeTimer.setSingleShot(true);
+            closeTimer.setInterval(350);
+            connect(&closeTimer, &QTimer::timeout, this, &QMenu::close);
+        }
+
+    protected:
+        void mouseReleaseEvent(QMouseEvent* e) override
+        {
+            QAction* act = actionAt(e->pos());
+            if (act && act->isEnabled() && act->isCheckable()) {
+                act->trigger();
+                setActiveAction(act);
+                e->accept();
+                return;
+            }
+            QMenu::mouseReleaseEvent(e);
+        }
+
+        void enterEvent(QEnterEvent* e) override
+        {
+            closeTimer.stop();
+            QMenu::enterEvent(e);
+        }
+
+        void leaveEvent(QEvent* e) override
+        {
+            closeTimer.start();
+            QMenu::leaveEvent(e);
+        }
+
+    private:
+        QTimer closeTimer;
+    };
 
     class TacticalLibraryProxyModel final : public QSortFilterProxyModel {
     public:
@@ -167,7 +207,7 @@ void TacticalGuidanceWidget::createLibraryUI()
     libraryLayout->addWidget(new QLabel("<b>Target Agents</b>"));
     
     agentSelectBtn = new QPushButton("Select Agents (0)", libraryPanel);
-    agentSelectMenu = new QMenu(this);
+    agentSelectMenu = new StickyCheckMenu(this);
     agentSelectBtn->setMenu(agentSelectMenu);
     libraryLayout->addWidget(agentSelectBtn);
 
@@ -369,9 +409,9 @@ void TacticalGuidanceWidget::createComposerUI()
 
     composerTree->setColumnWidth(0, 260);
     composerTree->setColumnWidth(1, 90);
-    composerTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    composerTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    composerTree->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    composerTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    composerTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    composerTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
     composerTree->header()->setStretchLastSection(false);
 
     connect(composerTree->model(), &QAbstractItemModel::rowsInserted, this, &TacticalGuidanceWidget::onComposerChanged);
@@ -473,18 +513,20 @@ void TacticalGuidanceWidget::createResultsUI()
     resultsLayout->setContentsMargins(4, 4, 4, 4);
     resultsLayout->setSpacing(4);
 
+    resultsPanel->setMinimumWidth(280);
+
     resultsTree = new QTreeWidget(resultsPanel);
     resultsTree->setHeaderLabels({"Agent", "Step", "TaskId", "Status"});
     resultsTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     resultsTree->setAlternatingRowColors(true);
-    resultsTree->setColumnWidth(0, 120);  // Agent column
-    resultsTree->setColumnWidth(1, 200);  // Step column
-    resultsTree->setColumnWidth(2, 160);  // TaskId column
-    resultsTree->setColumnWidth(3, 80);   // Status column
-    resultsTree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    resultsTree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
-    resultsTree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    resultsTree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    resultsTree->setColumnWidth(0, 90);   // Agent column
+    resultsTree->setColumnWidth(1, 220);  // Step column
+    resultsTree->setColumnWidth(2, 140);  // TaskId column
+    resultsTree->setColumnWidth(3, 70);   // Status column
+    resultsTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    resultsTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    resultsTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+    resultsTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
     resultsTree->header()->setStretchLastSection(false);
 
     resultsLayout->addWidget(new QLabel("<b>Results</b>"));
@@ -788,6 +830,114 @@ void TacticalGuidanceWidget::stopExecution()
     agentQueues.clear();
 }
 
+void TacticalGuidanceWidget::finalizeExecutionIfDone()
+{
+    if (!executionRunning)
+        return;
+
+    for (auto it = agentQueues.begin(); it != agentQueues.end(); ++it) {
+        const AgentExecutionQueue& q = it.value();
+        if (q.isWaitingForTask)
+            return;
+        if (q.currentCommand != nullptr)
+            return;
+        if (!q.currentTaskId.isEmpty())
+            return;
+        if (!q.commandQueue.isEmpty())
+            return;
+    }
+
+    qDebug() << "[TG] All agent queues finished. Stopping execution.";
+    stopExecution();
+}
+
+void TacticalGuidanceWidget::startExecutionWithSteps(const QList<QTreeWidgetItem*>& steps)
+{
+    if (executionRunning) {
+        qDebug() << "[TG] Execution already running, ignoring request";
+        return;
+    }
+
+    executionTargetAgents = collectSelectedAgentIds();
+    if (executionTargetAgents.isEmpty()) {
+        QMessageBox::information(this, "Tactical", "Please select at least one agent.");
+        return;
+    }
+
+    if (steps.isEmpty()) {
+        QMessageBox::information(this, "Tactical", "No command steps in playbook.");
+        return;
+    }
+
+    qDebug() << "[TG] === Starting Tactical Guidance Execution ===";
+    qDebug() << "[TG] Selected agents:" << executionTargetAgents;
+    qDebug() << "[TG] Found" << steps.size() << "command steps to execute";
+
+    // Initialize per-agent queues
+    initializeAgentQueues();
+
+    // Clear old mappings
+    taskIdToComposerItem.clear();
+    resultsAgentItems.clear();
+
+    if (resultsTree)
+        resultsTree->clear();
+
+    // Create agent groups in results tree
+    for (const QString& agentId : executionTargetAgents) {
+        QTreeWidgetItem* agentItem = new QTreeWidgetItem(resultsTree);
+        agentItem->setText(0, agentId);
+        agentItem->setText(1, "Pending");
+        agentItem->setText(2, "");
+        agentItem->setText(3, "");
+
+        // Store agent item for easy access
+        resultsAgentItems[agentId] = agentItem;
+        agentItem->setExpanded(true);
+    }
+
+    // Build command queues for each agent
+    for (QTreeWidgetItem* stepItem : steps) {
+        if (!stepItem)
+            continue;
+        stepItem->setText(1, "Pending");
+
+        const QString stepInstanceId = stepItem->data(0, Qt::UserRole).toString();
+        if (!stepInstanceId.isEmpty()) {
+            // Add this step to each agent's queue
+            for (const QString& agentId : executionTargetAgents) {
+                AgentExecutionQueue& queue = agentQueues[agentId];
+                queue.commandQueue.append(stepItem);
+
+                // Create result items for this step under each agent
+                QTreeWidgetItem* agentItem = resultsAgentItems.value(agentId, nullptr);
+                if (agentItem) {
+                    QTreeWidgetItem* taskItem = new QTreeWidgetItem(agentItem);
+                    taskItem->setText(0, "");
+                    taskItem->setText(1, stepItem->text(0));
+                    taskItem->setText(2, "");
+                    taskItem->setText(3, "Pending");
+
+                    const QString agentKey = stepInstanceId + "|" + agentId;
+                    resultsAgentItems[agentKey] = taskItem;
+                }
+            }
+        }
+    }
+
+    if (resultsTree)
+        resultsTree->expandAll();
+
+    executionRunning = true;
+
+    // Start execution for all agents
+    qDebug() << "[TG] Starting execution for" << executionTargetAgents.size() << "agents";
+    for (const QString& agentId : executionTargetAgents) {
+        qDebug() << "[TG] Starting execution for agent:" << agentId;
+        executeNextCommandForAgent(agentId);
+    }
+}
+
 void TacticalGuidanceWidget::initializeAgentQueues()
 {
     agentQueues.clear();
@@ -817,6 +967,10 @@ void TacticalGuidanceWidget::executeNextCommandForAgent(const QString& agentId)
 
     if (queue.commandQueue.isEmpty()) {
         qDebug() << "[TG] No more commands for agent:" << agentId;
+        queue.currentCommand = nullptr;
+        queue.currentTaskId.clear();
+        queue.isWaitingForTask = false;
+        finalizeExecutionIfDone();
         return;
     }
 
@@ -836,6 +990,24 @@ void TacticalGuidanceWidget::executeNextCommandForAgent(const QString& agentId)
     qDebug() << "[TG] Queue size after taking command:" << queue.commandQueue.size() << "for agent:" << agentId;
     qDebug() << "[TG] =================";
 
+    const int intervalSec = workflowInterval ? workflowInterval->value() : 0;
+    const int delayMs = intervalSec * 1000;
+    const bool applyDelay = (delayMs > 0 && queue.currentStepIndex > 1);
+    if (applyDelay) {
+        qDebug() << "[TG] Applying interval delay (ms):" << delayMs << "agent:" << agentId;
+        QTimer::singleShot(delayMs, this, [this, agentId, nextCommand]() {
+            if (!executionRunning)
+                return;
+            if (!agentQueues.contains(agentId))
+                return;
+            AgentExecutionQueue& q = agentQueues[agentId];
+            if (q.currentCommand != nextCommand)
+                return;
+            submitCommandForAgent(agentId, nextCommand);
+        });
+        return;
+    }
+
     submitCommandForAgent(agentId, nextCommand);
 }
 
@@ -843,18 +1015,35 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
 {
     if (!adaptixWidget || !adaptixWidget->AgentsMap.contains(agentId)) {
         qDebug() << "[TG] Agent not found:" << agentId;
+        if (agentQueues.contains(agentId)) {
+            AgentExecutionQueue& queue = agentQueues[agentId];
+            queue.isWaitingForTask = false;
+            queue.currentTaskId.clear();
+            queue.currentCommand = nullptr;
+            finalizeExecutionIfDone();
+        }
         return;
     }
 
     Agent* agent = adaptixWidget->AgentsMap[agentId];
     if (!agent || !agent->commander) {
         qDebug() << "[TG] Agent or commander not initialized:" << agentId;
+        AgentExecutionQueue& queue = agentQueues[agentId];
+        queue.isWaitingForTask = false;
+        queue.currentTaskId.clear();
+        queue.currentCommand = nullptr;
+        finalizeExecutionIfDone();
         return;
     }
 
     const QString commandId = commandItem->data(2, Qt::UserRole).toString();
     if (!commandMap.contains(commandId)) {
         qDebug() << "[TG] Command not found:" << commandId;
+        AgentExecutionQueue& queue = agentQueues[agentId];
+        queue.isWaitingForTask = false;
+        queue.currentTaskId.clear();
+        queue.currentCommand = nullptr;
+        finalizeExecutionIfDone();
         return;
     }
 
@@ -885,13 +1074,20 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
         qDebug() << "[TG] Console is not initialized for agent:" << agentId;
         AgentExecutionQueue& queue = agentQueues[agentId];
         queue.isWaitingForTask = false;
+        queue.currentTaskId.clear();
+        queue.currentCommand = nullptr;
         if (agentResItem) {
             agentResItem->setText(3, "Submit Error");
         }
-        QTimer::singleShot(0, this, [this, agentId]() {
-            if (executionRunning)
-                executeNextCommandForAgent(agentId);
-        });
+        if (chkStopOnError && chkStopOnError->isChecked()) {
+            stopExecution();
+        } else {
+            QTimer::singleShot(0, this, [this, agentId]() {
+                if (executionRunning)
+                    executeNextCommandForAgent(agentId);
+            });
+            finalizeExecutionIfDone();
+        }
         return;
     }
 
@@ -908,6 +1104,8 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
 
         if (!info.ok) {
             queue.isWaitingForTask = false;
+            queue.currentTaskId.clear();
+            queue.currentCommand = nullptr;
 
             QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
             if (agentResItem) {
@@ -915,9 +1113,15 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
             }
 
             QTimer::singleShot(0, this, [this, agentId]() {
-                if (executionRunning)
-                    executeNextCommandForAgent(agentId);
+                if (!executionRunning)
+                    return;
+                if (chkStopOnError && chkStopOnError->isChecked()) {
+                    stopExecution();
+                    return;
+                }
+                executeNextCommandForAgent(agentId);
             });
+            finalizeExecutionIfDone();
             return;
         }
 
@@ -983,10 +1187,18 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
 
         AgentExecutionQueue& queue = agentQueues[agentId];
         queue.isWaitingForTask = false;
-        QTimer::singleShot(0, this, [this, agentId]() {
-            if (executionRunning)
-                executeNextCommandForAgent(agentId);
-        });
+        queue.currentTaskId.clear();
+        queue.currentCommand = nullptr;
+
+        if (cmdResult.error && chkStopOnError && chkStopOnError->isChecked()) {
+            stopExecution();
+        } else {
+            QTimer::singleShot(0, this, [this, agentId]() {
+                if (executionRunning)
+                    executeNextCommandForAgent(agentId);
+            });
+            finalizeExecutionIfDone();
+        }
         return;
     }
 
@@ -1030,6 +1242,7 @@ void TacticalGuidanceWidget::notifyTaskSuccess(const QString& taskId)
 
     // Execute next command for this agent
     executeNextCommandForAgent(agentId);
+    finalizeExecutionIfDone();
 }
 
 void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
@@ -1074,12 +1287,38 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
     const TaskData& uiTask = adaptixWidget->TasksMap[taskId];
     qDebug() << "[TG] UI Task Status:" << uiTask.Status << "vs Task Status:" << task.Status;
 
-    if (uiTask.Status != "Success") {
-        qDebug() << "[TG] UI Task not successful:" << taskId << "UI Status:" << uiTask.Status;
+    const QString finalStatus = uiTask.Status;
+    if (agentResItem) {
+        agentResItem->setText(3, finalStatus);
     }
 
-    // NOTE: Tactical Guidance execution is driven by per-agent queues via notifyTaskSuccess.
-    // Do not call advanceExecution() here; otherwise we can unintentionally advance in parallel.
+    // Success path: advance normally (idempotent even if TasksWidget also calls notifyTaskSuccess)
+    if (finalStatus == "Success") {
+        notifyTaskSuccess(taskId);
+        return;
+    }
+
+    // Non-success completion: clear the agent queue's waiting state, otherwise last step can stay "Running".
+    if (agentQueues.contains(task.AgentId)) {
+        AgentExecutionQueue& queue = agentQueues[task.AgentId];
+        if (queue.currentTaskId == taskId) {
+            queue.isWaitingForTask = false;
+            queue.currentTaskId.clear();
+            queue.currentCommand = nullptr;
+        }
+    }
+
+    if (chkStopOnError && chkStopOnError->isChecked()) {
+        stopExecution();
+        return;
+    }
+
+    // Continue with next step for this agent
+    QTimer::singleShot(0, this, [this, agentId = task.AgentId]() {
+        if (executionRunning)
+            executeNextCommandForAgent(agentId);
+    });
+    finalizeExecutionIfDone();
 }
 
 void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, const QMap<QString, QString>& params)
@@ -2191,95 +2430,8 @@ void TacticalGuidanceWidget::onAddGroupClicked()
 
 void TacticalGuidanceWidget::runActivePlaybook()
 {
-    if (executionRunning) {
-        qDebug() << "[TG] Execution already running, ignoring request";
-        return;
-    }
-
-    qDebug() << "[TG] === Starting Tactical Guidance Execution ===";
-    qDebug() << "[TG] Target agents:" << executionTargetAgents;
-
-    executionTargetAgents = collectSelectedAgentIds();
-    if (executionTargetAgents.isEmpty()) {
-        QMessageBox::information(this, "Tactical", "Please select at least one agent.");
-        return;
-    }
-
-    qDebug() << "[TG] Selected agents:" << executionTargetAgents;
-
     const QList<QTreeWidgetItem*> steps = collectCommandSteps();
-    if (steps.isEmpty()) {
-        QMessageBox::information(this, "Tactical", "No command steps in playbook.");
-        return;
-    }
-
-    qDebug() << "[TG] Found" << steps.size() << "command steps to execute";
-
-    // Initialize per-agent queues
-    initializeAgentQueues();
-
-    // Clear old mappings
-    taskIdToComposerItem.clear();
-    resultsAgentItems.clear();
-
-    if (resultsTree)
-        resultsTree->clear();
-
-    // Create agent groups in results tree
-    for (const QString& agentId : executionTargetAgents) {
-        QTreeWidgetItem* agentItem = new QTreeWidgetItem(resultsTree);
-        agentItem->setText(0, agentId);
-        agentItem->setText(1, "Pending");
-        agentItem->setText(2, "");
-        agentItem->setText(3, "");
-        
-        // Store agent item for easy access
-        resultsAgentItems[agentId] = agentItem;
-        agentItem->setExpanded(true);
-    }
-
-    // Build command queues for each agent
-    for (QTreeWidgetItem* stepItem : steps) {
-        if (!stepItem)
-            continue;
-        stepItem->setText(1, "Pending");
-
-        const QString stepInstanceId = stepItem->data(0, Qt::UserRole).toString();
-        if (!stepInstanceId.isEmpty()) {
-            // Add this step to each agent's queue
-            for (const QString& agentId : executionTargetAgents) {
-                AgentExecutionQueue& queue = agentQueues[agentId];
-                queue.commandQueue.append(stepItem);
-                
-                // Create result items for this step under each agent
-                QTreeWidgetItem* agentItem = resultsAgentItems.value(agentId, nullptr);
-                if (agentItem) {
-                    QTreeWidgetItem* taskItem = new QTreeWidgetItem(agentItem);
-                    taskItem->setText(0, "");  // Agent column (empty since it's under agent)
-                    taskItem->setText(1, stepItem->text(0));  // Step name
-                    taskItem->setText(2, "");  // TaskId (will be set when submitted)
-                    taskItem->setText(3, "Pending");  // Status
-                    
-                    const QString agentKey = stepInstanceId + "|" + agentId;
-                    resultsAgentItems[agentKey] = taskItem;
-                }
-            }
-        }
-    }
-    
-    qDebug() << "[TG] Agent queues initialized, starting execution for" << executionTargetAgents.size() << "agents";
-    
-    if (resultsTree)
-        resultsTree->expandAll();
-
-    executionRunning = true;
-    
-    // Start execution for all agents
-    qDebug() << "[TG] Starting execution for" << executionTargetAgents.size() << "agents";
-    for (const QString& agentId : executionTargetAgents) {
-        qDebug() << "[TG] Starting execution for agent:" << agentId;
-        executeNextCommandForAgent(agentId);
-    }
+    startExecutionWithSteps(steps);
 }
 
 void TacticalGuidanceWidget::onComposerContextMenu(const QPoint& pos)
@@ -2292,10 +2444,25 @@ void TacticalGuidanceWidget::onComposerContextMenu(const QPoint& pos)
         const bool isCommand = (type == "command");
 
         QMenu* execMenu = menu.addMenu("Execute");
-        QAction* actDisabled = execMenu->addAction("Execution Disabled");
-        actDisabled->setEnabled(false);
+        QAction* actRunFromHere = execMenu->addAction("Run From Here");
+        actRunFromHere->setEnabled(isCommand && !executionRunning);
+        connect(actRunFromHere, &QAction::triggered, this, [this, item](){
+            QList<QTreeWidgetItem*> all = collectCommandSteps();
+            QList<QTreeWidgetItem*> tail;
+            bool found = false;
+            for (QTreeWidgetItem* it : all) {
+                if (it == item)
+                    found = true;
+                if (found)
+                    tail.push_back(it);
+            }
+            startExecutionWithSteps(tail);
+        });
 
-        Q_UNUSED(isCommand);
+        if (!isCommand) {
+            QAction* actDisabled = execMenu->addAction("Select a command step to execute");
+            actDisabled->setEnabled(false);
+        }
 
         menu.addSeparator();
 

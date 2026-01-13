@@ -210,6 +210,8 @@ private:
     QList<QTreeWidgetItem*> collectCommandSteps() const;
     QStringList collectSelectedAgentIds() const;
     void stopExecution();
+    void finalizeExecutionIfDone();
+    void startExecutionWithSteps(const QList<QTreeWidgetItem*>& steps);
 
     // Serialization helpers
     QJsonArray serializeLibraryTree(QStandardItem* parent = nullptr);
