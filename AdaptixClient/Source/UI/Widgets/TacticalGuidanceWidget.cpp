@@ -906,21 +906,31 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
         return;
     }
 
+    // CRITICAL: Verify the task status matches what's displayed in TasksWidget
+    // This ensures we only advance when the UI actually shows "Success"
+    if (!adaptixWidget->TasksMap.contains(taskId)) {
+        qDebug() << "[TG] Task not found in TasksMap, waiting:" << taskId;
+        return;
+    }
+
+    const TaskData& uiTask = adaptixWidget->TasksMap[taskId];
+    qDebug() << "[TG] UI Task Status:" << uiTask.Status << "vs Task Status:" << task.Status;
+
     // Track per-agent success/failure
     const QString agentErrorKey = stepInstanceId + "|error|" + task.AgentId;
-    if (task.Status != "Success") {
+    if (uiTask.Status != "Success") {
         // Mark this specific agent as having an error
         composerItemHasError[agentErrorKey] = true;
         // Also mark the step as having errors (for UI display)
         composerItemHasError[stepInstanceId] = true;
-        qDebug() << "[TG] Task failed:" << taskId << "Status:" << task.Status;
+        qDebug() << "[TG] UI Task not successful:" << taskId << "UI Status:" << uiTask.Status;
     }
 
-    // Only decrement pending count and advance if task is completed AND successful
-    if (task.Completed && task.Status == "Success") {
+    // Only decrement pending count and advance if UI task shows "Success"
+    if (uiTask.Status == "Success") {
         composerItemPendingCount[stepInstanceId] = qMax(0, composerItemPendingCount.value(stepInstanceId, 0) - 1);
         
-        qDebug() << "[TG] Task succeeded, decrementing pending:" << taskId 
+        qDebug() << "[TG] UI Task shows Success, decrementing pending:" << taskId 
                  << "New pending:" << composerItemPendingCount.value(stepInstanceId, 0);
         
         if (!executionAdvanceScheduled && composerItemPendingCount.value(stepInstanceId, 0) == 0) {
@@ -931,7 +941,7 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
             });
         }
     }
-    // If task failed or not completed, keep pending count as is to prevent advancement
+    // If UI task doesn't show Success, keep pending count as is to prevent advancement
 }
 
 void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, const QMap<QString, QString>& params)
