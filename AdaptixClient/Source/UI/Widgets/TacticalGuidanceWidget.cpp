@@ -411,7 +411,7 @@ void TacticalGuidanceWidget::createComposerUI()
     composerLayout->addLayout(settingsLayout);
 
     composerTree = new QTreeWidget(composerPanel);
-    composerTree->setHeaderLabels({"Step Name", "Status", "Details"});
+    composerTree->setHeaderLabels({"Step Name", "Details", "Raw Command"});
     composerTree->setDragEnabled(true);
     composerTree->setAcceptDrops(true);
     composerTree->setDropIndicatorShown(true);
@@ -423,9 +423,21 @@ void TacticalGuidanceWidget::createComposerUI()
     composerTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(composerTree, &QTreeWidget::customContextMenuRequested, this, &TacticalGuidanceWidget::onComposerContextMenu);
 
+    composerTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    connect(composerTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int column) {
+        if (!item || !composerTree)
+            return;
+        if (column != 2)
+            return;
+        const QString type = item->data(4, Qt::UserRole).toString();
+        if (type != "command")
+            return;
+        composerTree->editItem(item, 2);
+    });
+
     composerTree->setColumnWidth(0, 260);
-    composerTree->setColumnWidth(1, 90);
-    composerTree->setColumnWidth(2, 380);
+    composerTree->setColumnWidth(1, 340);
+    composerTree->setColumnWidth(2, 520);
     composerTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     composerTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     composerTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
@@ -933,7 +945,6 @@ void TacticalGuidanceWidget::startExecutionWithSteps(const QList<QTreeWidgetItem
     for (QTreeWidgetItem* stepItem : steps) {
         if (!stepItem)
             continue;
-        stepItem->setText(1, "Pending");
         for (const QString& agentId : executionTargetAgents) {
             AgentExecutionQueue& queue = agentQueues[agentId];
             queue.commandQueue.append(stepItem);
@@ -1094,7 +1105,9 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
     }
 
     const auto& cmd = commandMap[commandId];
-    const QString commandLine = cmd.rawCommand;
+    QString commandLine = commandItem ? commandItem->text(2) : QString();
+    if (commandLine.trimmed().isEmpty())
+        commandLine = cmd.rawCommand;
 
     QTreeWidgetItem* agentResItem = nullptr;
     if (agentQueues.contains(agentId))
@@ -1148,13 +1161,14 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
             return;
 
         if (!info.ok) {
+            QTreeWidgetItem* resItem = queue.currentResultsItem;
             queue.isWaitingForTask = false;
             queue.currentResultsItem = nullptr;
             queue.currentTaskId.clear();
             queue.currentCommand = nullptr;
 
-            if (queue.currentResultsItem)
-                queue.currentResultsItem->setText(3, "Submit Error");
+            if (resItem)
+                resItem->setText(3, "Submit Error");
 
             QTimer::singleShot(0, this, [this, agentId]() {
                 if (!executionRunning)
@@ -1390,7 +1404,7 @@ void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, c
     if (!commandMap.contains(commandId))
         return;
 
-    QTreeWidgetItem* selected = composerTree->currentItem();
+    QTreeWidgetItem* selected = composerTree ? composerTree->currentItem() : nullptr;
     QTreeWidgetItem* parent = nullptr;
     int insertIndex = -1;
 
@@ -1403,7 +1417,7 @@ void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, c
             parent = selected->parent();
             if (parent)
                 insertIndex = parent->indexOfChild(selected) + 1;
-            else
+            else if (composerTree)
                 insertIndex = composerTree->indexOfTopLevelItem(selected) + 1;
         }
     }
@@ -1413,16 +1427,19 @@ void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, c
         item = new QTreeWidgetItem();
         parent->insertChild(insertIndex, item);
         parent->setExpanded(true);
-    } else {
+    } else if (composerTree) {
         item = new QTreeWidgetItem();
         composerTree->insertTopLevelItem(insertIndex < 0 ? composerTree->topLevelItemCount() : insertIndex, item);
     }
 
+    if (!item)
+        return;
+
     const auto& cmd = commandMap[commandId];
 
     item->setText(0, cmd.name);
-    item->setText(1, "Pending");
-    item->setText(2, cmd.description);
+    item->setText(1, cmd.description);
+    item->setText(2, cmd.rawCommand);
 
     item->setData(0, Qt::UserRole, QUuid::createUuid().toString());
     item->setData(2, Qt::UserRole, commandId);
@@ -1433,17 +1450,13 @@ void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, c
         paramsVar.insert(it.key(), it.value());
     item->setData(3, Qt::UserRole, paramsVar);
 
-    QVariantMap taskIdsVar;
-    item->setData(5, Qt::UserRole, taskIdsVar);
-
-    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
+    item->setData(5, Qt::UserRole, QVariantMap());
+    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled | Qt::ItemIsEditable);
 
     if (cmd.os == 1) item->setIcon(0, QIcon(":/icons/os_win_blue"));
     else if (cmd.os == 2) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
     else if (cmd.os == 3) item->setIcon(0, QIcon(":/icons/os_mac_blue"));
     else item->setIcon(0, QIcon(":/icons/code_blocks"));
-
-    // L4 + A mode: no playbook persistence.
 }
 
 void TacticalGuidanceWidget::clearWorkflow()
@@ -2133,6 +2146,7 @@ QJsonObject TacticalGuidanceWidget::serializeComposerItem(QTreeWidgetItem* item)
         obj["children"] = children;
     } else if (type == "command") {
         obj["command_id"] = item->data(2, Qt::UserRole).toString();
+        obj["raw_command"] = item->text(2);
         const QVariantMap params = item->data(3, Qt::UserRole).toMap();
         if (!params.isEmpty())
             obj["params"] = QJsonObject::fromVariantMap(params);
@@ -2152,7 +2166,7 @@ QTreeWidgetItem* TacticalGuidanceWidget::deserializeComposerItem(const QJsonObje
 
     QTreeWidgetItem* item = new QTreeWidgetItem();
     item->setText(0, name);
-    item->setText(1, "Pending");
+    item->setText(1, "");
     item->setText(2, "");
     item->setData(0, Qt::UserRole, instanceId.isEmpty() ? QUuid::createUuid().toString() : instanceId);
     item->setData(4, Qt::UserRole, type);
@@ -2176,7 +2190,7 @@ QTreeWidgetItem* TacticalGuidanceWidget::deserializeComposerItem(const QJsonObje
     if (type == "command") {
         const QString commandId = obj["command_id"].toString();
         item->setData(2, Qt::UserRole, commandId);
-        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled | Qt::ItemIsEditable);
 
         if (obj.contains("params") && obj["params"].isObject()) {
             const QVariantMap params = obj["params"].toObject().toVariantMap();
@@ -2189,7 +2203,9 @@ QTreeWidgetItem* TacticalGuidanceWidget::deserializeComposerItem(const QJsonObje
         if (commandMap.contains(commandId)) {
             const auto& cmd = commandMap[commandId];
             item->setText(0, cmd.name);
-            item->setText(2, cmd.description);
+            item->setText(1, cmd.description);
+            const QString raw = obj.contains("raw_command") ? obj["raw_command"].toString() : QString();
+            item->setText(2, raw.isEmpty() ? cmd.rawCommand : raw);
 
             if (cmd.os == 1) item->setIcon(0, QIcon(":/icons/os_win_blue"));
             else if (cmd.os == 2) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
@@ -2400,14 +2416,14 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
                 const auto& cmd = commandMap[commandId];
                 QTreeWidgetItem* item = new QTreeWidgetItem();
                 item->setText(0, cmd.name);
-                item->setText(1, "Pending");
-                item->setText(2, cmd.description);
+                item->setText(1, cmd.description);
+                item->setText(2, cmd.rawCommand);
                 item->setData(0, Qt::UserRole, QUuid::createUuid().toString());
                 item->setData(2, Qt::UserRole, commandId);
                 item->setData(4, Qt::UserRole, "command");
                 item->setData(3, Qt::UserRole, QVariantMap());
                 item->setData(5, Qt::UserRole, QVariantMap());
-                item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
+                item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled | Qt::ItemIsEditable);
                 if (cmd.os == 1) item->setIcon(0, QIcon(":/icons/os_win_blue"));
                 else if (cmd.os == 2) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
                 else if (cmd.os == 3) item->setIcon(0, QIcon(":/icons/os_mac_blue"));
@@ -2483,7 +2499,7 @@ void TacticalGuidanceWidget::onAddGroupClicked()
     else item = new QTreeWidgetItem(composerTree);
 
     item->setText(0, text);
-    item->setText(1, "Pending");
+    item->setText(1, "");
     item->setIcon(0, QIcon(":/icons/folder"));
     item->setData(0, Qt::UserRole, QUuid::createUuid().toString()); // instanceId
     item->setData(4, Qt::UserRole, "group"); // Type
