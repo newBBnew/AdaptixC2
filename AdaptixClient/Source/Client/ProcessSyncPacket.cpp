@@ -20,6 +20,7 @@
 #include <UI/Graph/SessionsGraph.h>
 #include <UI/Dialogs/DialogSyncPacket.h>
 #include <Client/Requestor.h>
+#include <Client/CommandSubmitter.h>
 
 namespace {
     QIcon getTargetOsIcon(int os, bool owned, bool alive) {
@@ -585,6 +586,8 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
             auto oldData = agent->data;
             agent->Update(jsonObj);
             SessionsTableDock->UpdateAgentItem(oldData, agent);
+            if (synchronized)
+                Q_EMIT eventAgentUpdate(agentId);
         }
         break;
     }
@@ -622,10 +625,52 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
 
     case TYPE_AGENT_TASK_SYNC:
         TasksDock->AddTaskItem(parseTaskData(jsonObj));
+        if ( jsonObj.contains("a_handler_id") && jsonObj["a_handler_id"].isString() ) {
+            QString handlerId = jsonObj["a_handler_id"].toString();
+            if (!handlerId.isEmpty()) {
+                QString taskId = jsonObj["a_task_id"].toString();
+                CommandSubmitter::ResolveTaskId(handlerId, taskId);
+                // Try post handler if task is already completed (unlikely for Sync, but possible)
+                if ( jsonObj["a_completed"].toBool() && PostHandlersJS.contains(handlerId)) {
+                    TaskData t = parseTaskData(jsonObj); // Re-parse or fetch from map
+                    this->PostHandlerProcess(handlerId, t);
+                }
+            }
+        }
         break;
 
     case TYPE_AGENT_TASK_UPDATE: {
         QString taskId = jsonObj["a_task_id"].toString();
+        
+        // 1. Resolve Handler ID first (if present) to establish mappings (Step, ResultItem, ActiveTasks)
+        {
+            QString handlerId;
+            if (jsonObj.contains("a_handler_id") && jsonObj["a_handler_id"].isString())
+                handlerId = jsonObj["a_handler_id"].toString();
+            else if (jsonObj.contains("ax_handler_id") && jsonObj["ax_handler_id"].isString())
+                handlerId = jsonObj["ax_handler_id"].toString();
+            else if (jsonObj.contains("a_ax_handler_id") && jsonObj["a_ax_handler_id"].isString())
+                handlerId = jsonObj["a_ax_handler_id"].toString();
+            else if (jsonObj.contains("handler_id") && jsonObj["handler_id"].isString())
+                handlerId = jsonObj["handler_id"].toString();
+
+            if (!handlerId.isEmpty()) {
+                CommandSubmitter::ResolveTaskId(handlerId, taskId);
+                // Try post handler if task is already completed
+                if ( jsonObj["a_completed"].toBool() && PostHandlersJS.contains(handlerId)) {
+                    // We need task data for post handler. 
+                    // If it's not in map yet, we might need to parse it now.
+                    // But TasksMap is updated below. 
+                    // Let's defer PostHandlerProcess until after TasksMap update, 
+                    // but ResolveTaskId MUST be before handleTaskUpdate.
+                }
+            }
+        }
+
+        if (!TasksMap.contains(taskId)) {
+            // Some servers may send TASK_UPDATE without a prior TASK_SYNC.
+            TasksDock->AddTaskItem(parseTaskData(jsonObj));
+        }
         if (TasksMap.contains(taskId)) {
             TaskData* task = &TasksMap[taskId];
             task->Completed = jsonObj["a_completed"].toBool();
@@ -658,10 +703,20 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
             if (TacticalGuidanceDock)
                 TacticalGuidanceDock->handleTaskUpdate(*task);
 
-            if ( task->Completed && jsonObj.contains("a_handler_id") && jsonObj["a_handler_id"].isString() ) {
-                QString handlerId = jsonObj["a_handler_id"].toString();
-                if (!handlerId.isEmpty() && PostHandlersJS.contains(handlerId))
-                    this->PostHandlerProcess(handlerId, *task);
+            {
+                QString handlerId;
+                if (jsonObj.contains("a_handler_id") && jsonObj["a_handler_id"].isString())
+                    handlerId = jsonObj["a_handler_id"].toString();
+                else if (jsonObj.contains("ax_handler_id") && jsonObj["ax_handler_id"].isString())
+                    handlerId = jsonObj["ax_handler_id"].toString();
+                else if (jsonObj.contains("a_ax_handler_id") && jsonObj["a_ax_handler_id"].isString())
+                    handlerId = jsonObj["a_ax_handler_id"].toString();
+                else if (jsonObj.contains("handler_id") && jsonObj["handler_id"].isString())
+                    handlerId = jsonObj["handler_id"].toString();
+
+                if (!handlerId.isEmpty() && task->Completed && PostHandlersJS.contains(handlerId)) {
+                     this->PostHandlerProcess(handlerId, *task);
+                }
             }
         }
         break;
@@ -739,8 +794,6 @@ void AdaptixWidget::processSyncPacket(QJsonObject jsonObj)
         QString username = jsonObj["c_username"].toString();
         QString message = jsonObj["c_message"].toString();
         double timestamp = jsonObj["c_date"].toDouble();
-
-        LogInfo("[Chat] Received message from %s: %s", username.toUtf8().constData(), message.toUtf8().constData());
 
         ChatDock->AddChatMessage(
             timestamp,

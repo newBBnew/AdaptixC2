@@ -50,6 +50,11 @@ namespace Commands {
     const QString TACTICAL_CHAT_RESPONSE = "tactical_chat_response";
     const QString SEND_TEAM_CHAT = "send_team_chat";
 
+    // Session Management Commands
+    const QString ARCHIVE_SESSION = "archive_session";
+    const QString LIST_SESSIONS = "list_sessions";
+    const QString GET_SESSION_CONTENT = "read_session";
+
     // God View / Autonomous Intelligence Commands
     const QString GOD_VIEW_QUERY_STATUS = "god_view_query_status";   // AI queries full C2 status
     const QString GOD_VIEW_SUGGEST_ACTION = "god_view_suggest_action"; // AI suggests an action to team

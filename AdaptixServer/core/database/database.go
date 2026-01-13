@@ -52,8 +52,27 @@ func (dbms *DBMS) DatabaseInit() error {
     	"Id" INTEGER PRIMARY KEY AUTOINCREMENT,
     	"Username" TEXT NOT NULL,
     	"Message" TEXT NOT NULL,
-    	"Date" BIGINT
+    	"Date" BIGINT,
+		"SessionId" TEXT
     );`
+	_, err = dbms.database.Exec(createTableQuery)
+
+	// Migration: Check if SessionId column exists in Chat, if not add it
+	// This is a simple migration check for SQLite
+	var sessionIdExists string
+	err = dbms.database.QueryRow("SELECT SessionId FROM Chat LIMIT 1").Scan(&sessionIdExists)
+	if err != nil && err != sql.ErrNoRows {
+		// Column likely doesn't exist
+		_, _ = dbms.database.Exec(`ALTER TABLE Chat ADD COLUMN "SessionId" TEXT;`)
+	}
+
+	createTableQuery = `CREATE TABLE IF NOT EXISTS "ChatSessions" (
+		"SessionId" TEXT NOT NULL UNIQUE,
+		"Name" TEXT,
+		"StartTime" BIGINT,
+		"EndTime" BIGINT,
+		"Status" TEXT
+	);`
 	_, err = dbms.database.Exec(createTableQuery)
 
 	createTableQuery = `CREATE TABLE IF NOT EXISTS "Downloads" (

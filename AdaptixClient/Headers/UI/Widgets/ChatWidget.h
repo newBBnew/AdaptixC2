@@ -5,12 +5,26 @@
 #include <UI/Widgets/AbstractDock.h>
 #include <Utils/CustomElements.h>
 #include <QPlainTextEdit>
+#include <QSplitter>
+#include <QListWidget>
 
 class AdaptixWidget;
 
 class ChatWidget : public DockTab
 {
     AdaptixWidget*   adaptixWidget  = nullptr;
+    
+    // Splitter for History | Chat
+    QSplitter*       mainSplitter   = nullptr;
+    
+    // Left Side: History
+    QWidget*         historyWidget  = nullptr;
+    QVBoxLayout*     historyLayout  = nullptr;
+    QLabel*          historyLabel   = nullptr;
+    QListWidget*     historyList    = nullptr;
+    
+    // Right Side: Active Chat
+    QWidget*         chatContainer  = nullptr;
     QLabel*          usernameLabel  = nullptr;
     QPlainTextEdit*  chatInput      = nullptr;
     TextEditConsole* chatTextEdit   = nullptr;
@@ -32,6 +46,7 @@ class ChatWidget : public DockTab
     void createUI();
     void findAndHighlightAll(const QString& pattern);
     void highlightCurrent() const;
+    void loadSessionList();
 
 public:
     explicit ChatWidget(AdaptixWidget* w);
@@ -52,6 +67,8 @@ public Q_SLOTS:
     void handleSearchBackward();
     void onExtendContextMenu(QMenu* menu);
     void handleArchiveChat();
+    void onSessionClicked(QListWidgetItem* item);
+    void onHistoryContextMenu(const QPoint& pos);
 };
 
 #endif //ADAPTIXCLIENT_CHATWIDGET_H

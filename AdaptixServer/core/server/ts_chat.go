@@ -14,7 +14,7 @@ func (ts *Teamserver) TsChatSendMessage(username string, message string) {
 		Date:     time.Now().UTC().Unix(),
 	}
 	ts.messages.Put(chatData)
-	err := ts.DBMS.DbChatInsert(chatData)
+	err := ts.DBMS.DbChatInsert(chatData, "")
 	if err != nil {
 		logs.Error("", "%s", err.Error())
 	}

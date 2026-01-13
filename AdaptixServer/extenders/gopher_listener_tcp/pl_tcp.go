@@ -471,6 +471,11 @@ func (handler *TCP) Stop() error {
 		return true
 	})
 
+	// Safety Check: Ensure we are only deleting within the data/listener directory
+	if !strings.Contains(listenerPath, "/data/listener/") {
+		return fmt.Errorf("safety check failed: refusing to delete path %s", listenerPath)
+	}
+
 	_, err = os.Stat(listenerPath)
 	if err == nil {
 		err = os.RemoveAll(listenerPath)

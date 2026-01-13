@@ -79,6 +79,9 @@ public Q_SLOTS:
     void handleSearch();
     void handleSearchBackward();
     void handleShowHistory();
+
+private:
+    void performSearch(bool backward);
 };
 
 #endif

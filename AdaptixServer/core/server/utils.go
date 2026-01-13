@@ -77,8 +77,6 @@ type Teamserver struct {
 	pivots      *safe.Slice // 			           : PivotData
 	otps        safe.Map    // otp string		   : Id string
 
-	TacticalCatalog safe.Map // category string : []TacticalBlock
-
 	CurrentWorkflow      []connector.TacticalWorkflowStep
 	WorkflowTargetAgents string
 	WorkflowMutex        sync.Mutex

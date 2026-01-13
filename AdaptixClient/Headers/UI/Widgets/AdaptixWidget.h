@@ -69,6 +69,7 @@ Q_OBJECT
     QPushButton*    screensButton     = nullptr;
     QPushButton*    keysButton        = nullptr;
     QPushButton*    reconnectButton   = nullptr;
+    QPushButton*    aiStatusButton    = nullptr;
     QSpacerItem*    horizontalSpacer1 = nullptr;
     QFrame*         line_1            = nullptr;
     QFrame*         line_2            = nullptr;
@@ -174,6 +175,8 @@ Q_SIGNALS:
     void UnloadGlobalScriptSignal(QString path);
 
     void eventNewAgent(QString agentId);
+    void eventRemoveAgent(QString agentId);
+    void eventAgentUpdate(QString agentId);
     void eventFileBrowserDisks(QString agentId);
     void eventFileBrowserList(QString agentId, QString path);
     void eventFileBrowserUpload(QString agentId, QString path, QString localFilename);

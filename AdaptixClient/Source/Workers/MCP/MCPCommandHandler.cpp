@@ -56,6 +56,12 @@ MCP::MCPResponse MCPCommandHandler::handleCommand(const MCP::MCPRequest& request
     if (request.type == TACTICAL_BROADCAST_SUGGESTION) return handleTacticalBroadcastSuggestion(request);
     if (request.type == SEND_TEAM_CHAT)            return handleSendTeamChat(request);
     if (request.type == TACTICAL_CHAT_RESPONSE)    return handleTacticalChatResponse(request);
+    
+    // Session Management
+    if (request.type == ARCHIVE_SESSION)           return handleArchiveSession(request);
+    if (request.type == LIST_SESSIONS)             return handleListSessions(request);
+    if (request.type == GET_SESSION_CONTENT)       return handleReadSession(request);
+
     if (request.type == GOD_VIEW_QUERY_STATUS)    return handleGodViewQueryStatus(request);
     if (request.type == GOD_VIEW_SUGGEST_ACTION)  return handleGodViewSuggestAction(request);
     if (request.type == AI_AUTONOMOUS_CONTROL)     return handleAiAutonomousControl(request);
@@ -146,7 +152,7 @@ MCP::MCPResponse MCPCommandHandler::handleTacticalModifyWorkflow(const MCP::MCPR
         for (auto it = paramsObj.begin(); it != paramsObj.end(); ++it) {
             params[it.key()] = it.value().toString();
         }
-        adaptixWidget->TacticalGuidanceDock->addStepToWorkflow(variantId, params);
+        adaptixWidget->TacticalGuidanceDock->addStepToActivePlaybook(variantId, params);
         return MCP::MCPResponse::success(req.requestId, "Step added to workflow");
     } else if (action == "clear") {
         adaptixWidget->TacticalGuidanceDock->clearWorkflow();
@@ -161,7 +167,7 @@ MCP::MCPResponse MCPCommandHandler::handleTacticalExecuteSequence(const MCP::MCP
     if (!adaptixWidget->TacticalGuidanceDock)
         return MCP::MCPResponse::error(req.requestId, "Tactical module not found");
 
-    adaptixWidget->TacticalGuidanceDock->executeWorkflow();
+    adaptixWidget->TacticalGuidanceDock->runActivePlaybook();
     return MCP::MCPResponse::success(req.requestId, "Tactical execution triggered");
 }
 
@@ -180,35 +186,10 @@ MCP::MCPResponse MCPCommandHandler::handleTacticalModifyLibrary(const MCP::MCPRe
         return MCP::MCPResponse::error(req.requestId, "Tactical module not found");
 
     QString action = req.params["action"].toString();
-    if (action == "update_block") {
-        QString category = req.params["category"].toString();
-        QJsonObject blockObj = req.params["block"].toObject();
-        
-        // Push to server
-        QJsonObject syncData;
-        syncData["category"] = category;
-        syncData["block"] = blockObj;
-        
-        HttpReqTacticalLibraryUpdateAsync(QJsonDocument(syncData).toJson(), *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
-            if (success)
-                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Library block updated"));
-            else
-                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
-        });
-        return MCP::MCPResponse::deferred();
-    } else if (action == "delete_block") {
-        QString blockId = req.params["block_id"].toString();
-        
-        HttpReqTacticalLibraryDeleteAsync(blockId, *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
-            if (success)
-                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Library block deleted"));
-            else
-                adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
-        });
-        return MCP::MCPResponse::deferred();
-    }
-
-    return MCP::MCPResponse::error(req.requestId, "Unsupported library action: " + action);
+    // Library modification is now local-only and handled via UI context menus or local API if implemented.
+    // Server sync logic has been removed.
+    
+    return MCP::MCPResponse::error(req.requestId, "Library modification via MCP is currently disabled (Local Mode only).");
 }
 
 MCP::MCPResponse MCPCommandHandler::handleTacticalBroadcastSuggestion(const MCP::MCPRequest& req)
@@ -232,11 +213,11 @@ MCP::MCPResponse MCPCommandHandler::handleSendTeamChat(const MCP::MCPRequest& re
     if (content.isEmpty())
         return MCP::MCPResponse::error(req.requestId, "Missing content parameter");
 
-    LogInfo("[MCP] AI sending team chat: %s", content.toUtf8().constData());
+    // LogInfo("[MCP] AI sending team chat: %s", content.toUtf8().constData());
 
     HttpReqChatSendMessageAsync(content, *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject&) {
         if (success) {
-            LogInfo("[MCP] AI team chat message sent successfully to server");
+            // LogInfo("[MCP] AI team chat message sent successfully to server");
             adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Message sent to team chat"));
         } else {
             LogError("[MCP] Failed to send AI team chat: %s", message.toUtf8().constData());
@@ -964,6 +945,46 @@ MCP::MCPResponse MCPCommandHandler::handleTacticalChatResponse(const MCP::MCPReq
         }
     });
 
+    return MCP::MCPResponse::deferred();
+}
+
+MCP::MCPResponse MCPCommandHandler::handleArchiveSession(const MCP::MCPRequest& req)
+{
+    HttpReqSessionArchiveAsync(*adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject& data) {
+        if (success) {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "Session archived", data));
+        } else {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        }
+    });
+    return MCP::MCPResponse::deferred();
+}
+
+MCP::MCPResponse MCPCommandHandler::handleListSessions(const MCP::MCPRequest& req)
+{
+    HttpReqSessionListAsync(*adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject& data) {
+        if (success) {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "", data));
+        } else {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        }
+    });
+    return MCP::MCPResponse::deferred();
+}
+
+MCP::MCPResponse MCPCommandHandler::handleReadSession(const MCP::MCPRequest& req)
+{
+    QString sessionId = req.params["session_id"].toString();
+    if (sessionId.isEmpty())
+        return MCP::MCPResponse::error(req.requestId, "Missing session_id parameter");
+
+    HttpReqSessionContentAsync(sessionId, *adaptixWidget->GetProfile(), [this, req](bool success, const QString& message, const QJsonObject& data) {
+        if (success) {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::success(req.requestId, "", data));
+        } else {
+            adaptixWidget->McpBridge->sendResponse(MCP::MCPResponse::error(req.requestId, message));
+        }
+    });
     return MCP::MCPResponse::deferred();
 }
 

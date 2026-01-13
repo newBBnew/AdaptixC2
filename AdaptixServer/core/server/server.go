@@ -46,17 +46,10 @@ func NewTeamserver() *Teamserver {
 		terminals:   safe.NewMap(),
 		pivots:      safe.NewSlice(),
 		otps:        safe.NewMap(),
-
-		TacticalCatalog: safe.NewMap(),
 	}
 	ts.TaskManager = NewTaskManager(ts)
 	ts.TunnelManager = NewTunnelManager(ts)
 	ts.Extender = extender.NewExtender(ts)
-
-	err = ts.LoadTacticalLibrary()
-	if err != nil {
-		logs.Error("TACTICAL", "Failed to load tactical library: %s", err.Error())
-	}
 
 	return ts
 }

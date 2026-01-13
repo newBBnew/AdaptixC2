@@ -421,6 +421,31 @@ void HttpReqChatSendMessageAsync(const QString &text, AuthProfile& profile, Http
     HttpRequestManager::instance().post(profile.GetURL(), "/chat/send", profile.GetAccessToken(), jsonData, callback);
 }
 
+void HttpReqSessionArchiveAsync(AuthProfile& profile, HttpCallback callback)
+{
+    QJsonObject dataJson;
+    QByteArray jsonData = QJsonDocument(dataJson).toJson();
+    HttpRequestManager::instance().post(profile.GetURL(), "/chat/session/archive", profile.GetAccessToken(), jsonData, callback);
+}
+
+void HttpReqSessionDeleteAsync(const QString& sessionId, AuthProfile& profile, HttpCallback callback)
+{
+    QJsonObject dataJson;
+    dataJson["session_id"] = sessionId;
+    QByteArray jsonData = QJsonDocument(dataJson).toJson();
+    HttpRequestManager::instance().post(profile.GetURL(), "/chat/session/delete", profile.GetAccessToken(), jsonData, callback);
+}
+
+void HttpReqSessionListAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().get(profile.GetURL(), "/chat/session/list", profile.GetAccessToken(), callback);
+}
+
+void HttpReqSessionContentAsync(const QString& sessionId, AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().get(profile.GetURL(), "/chat/session/content/" + sessionId, profile.GetAccessToken(), callback);
+}
+
 void HttpReqTacticalWorkflowUpdateAsync(const QByteArray &jsonData, AuthProfile& profile, HttpCallback callback)
 {
     HttpRequestManager::instance().post(profile.GetURL(), "/tactical/workflow/update", profile.GetAccessToken(), jsonData, callback);
@@ -428,20 +453,7 @@ void HttpReqTacticalWorkflowUpdateAsync(const QByteArray &jsonData, AuthProfile&
 
 void HttpReqTacticalWorkflowClearAsync(AuthProfile& profile, HttpCallback callback)
 {
-    HttpRequestManager::instance().post(profile.GetURL(), "/tactical/workflow/clear", profile.GetAccessToken(), "", callback);
-}
-
-void HttpReqTacticalLibraryUpdateAsync(const QByteArray &jsonData, AuthProfile& profile, HttpCallback callback)
-{
-    HttpRequestManager::instance().post(profile.GetURL(), "/tactical/library/update", profile.GetAccessToken(), jsonData, callback);
-}
-
-void HttpReqTacticalLibraryDeleteAsync(const QString &blockId, AuthProfile& profile, HttpCallback callback)
-{
-    QJsonObject data;
-    data["block_id"] = blockId;
-    QByteArray jsonData = QJsonDocument(data).toJson();
-    HttpRequestManager::instance().post(profile.GetURL(), "/tactical/library/delete", profile.GetAccessToken(), jsonData, callback);
+    HttpRequestManager::instance().post(profile.GetURL(), "/tactical/workflow/clear", profile.GetAccessToken(), QByteArray(), callback);
 }
 
 void HttpReqTacticalSuggestionSendAsync(const QString &content, AuthProfile& profile, HttpCallback callback)

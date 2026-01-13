@@ -34,64 +34,71 @@ MainAdaptix::~MainAdaptix()
     delete extender;
 }
 
-void MainAdaptix::Start() const
+bool MainAdaptix::ConnectToServer(AuthProfile*& outProfile, QThread*& outThread, WebSocketWorker*& outWorker) const
 {
-    QThread* ChannelThread = nullptr;
-    WebSocketWorker* ChannelWsWorker = nullptr;
-    AuthProfile* authProfile = nullptr;
-
     while (true) {
-        authProfile = this->Login();
-        if (!authProfile) {
-            this->Exit();
-            return;
+        outProfile = this->Login();
+        if (!outProfile) {
+            return false;
         }
 
-        ChannelThread   = new QThread;
-        ChannelWsWorker = new WebSocketWorker(authProfile);
-        ChannelWsWorker->moveToThread( ChannelThread );
+        outThread   = new QThread;
+        outWorker = new WebSocketWorker(outProfile);
+        outWorker->moveToThread( outThread );
 
         QEventLoop loop;
         QTimer timeoutTimer;
         timeoutTimer.setSingleShot(true);
 
-        connect( ChannelWsWorker, &WebSocketWorker::connected, &loop, &QEventLoop::quit);
-        connect( ChannelWsWorker, &WebSocketWorker::ws_error,  &loop, &QEventLoop::quit);
+        connect( outWorker, &WebSocketWorker::connected, &loop, &QEventLoop::quit);
+        connect( outWorker, &WebSocketWorker::ws_error,  &loop, &QEventLoop::quit);
         connect( &timeoutTimer,   &QTimer::timeout,            &loop, &QEventLoop::quit);
-        connect( ChannelThread,   &QThread::started, ChannelWsWorker, &WebSocketWorker::run);
+        connect( outThread,   &QThread::started, outWorker, &WebSocketWorker::run);
 
-        ChannelThread->start();
+        outThread->start();
 
         timeoutTimer.start(5000);
         loop.exec();
 
         if (!timeoutTimer.isActive()) {
             MessageError("Server is unreachable");
-            if (ChannelThread->isRunning()) {
-                ChannelThread->quit();
-                ChannelThread->wait();
+            if (outThread->isRunning()) {
+                outThread->quit();
+                outThread->wait();
             }
-            delete ChannelWsWorker;
-            delete ChannelThread;
-            delete authProfile;
+            delete outWorker;
+            delete outThread;
+            delete outProfile;
             continue;
         }
 
         timeoutTimer.stop();
 
-        if (!ChannelWsWorker->ok) {
-            MessageError(ChannelWsWorker->message);
-            if (ChannelThread->isRunning()) {
-                ChannelThread->quit();
-                ChannelThread->wait();
+        if (!outWorker->ok) {
+            MessageError(outWorker->message);
+            if (outThread->isRunning()) {
+                outThread->quit();
+                outThread->wait();
             }
-            delete ChannelWsWorker;
-            delete ChannelThread;
-            delete authProfile;
+            delete outWorker;
+            delete outThread;
+            delete outProfile;
             continue;
         }
 
-        break;
+        return true;
+    }
+}
+
+void MainAdaptix::Start() const
+{
+    QThread* ChannelThread = nullptr;
+    WebSocketWorker* ChannelWsWorker = nullptr;
+    AuthProfile* authProfile = nullptr;
+
+    if (!ConnectToServer(authProfile, ChannelThread, ChannelWsWorker)) {
+        const_cast<MainAdaptix*>(this)->Exit();
+        return;
     }
 
     mainUI->setMinimumSize(500, 500);
@@ -110,60 +117,9 @@ void MainAdaptix::NewProject() const
     WebSocketWorker* ChannelWsWorker = nullptr;
     AuthProfile* authProfile = nullptr;
 
-    while (true) {
-        authProfile = this->Login();
-        if (!authProfile)
-            return;
-
-        ChannelThread   = new QThread;
-        ChannelWsWorker = new WebSocketWorker(authProfile);
-        ChannelWsWorker->moveToThread( ChannelThread );
-
-        QEventLoop loop;
-        QTimer timeoutTimer;
-        timeoutTimer.setSingleShot(true);
-
-        connect( ChannelWsWorker, &WebSocketWorker::connected, &loop, &QEventLoop::quit);
-        connect( ChannelWsWorker, &WebSocketWorker::ws_error,  &loop, &QEventLoop::quit);
-        connect( &timeoutTimer,   &QTimer::timeout,            &loop, &QEventLoop::quit);
-        connect( ChannelThread,   &QThread::started, ChannelWsWorker, &WebSocketWorker::run);
-
-        ChannelThread->start();
-
-        timeoutTimer.start(5000);
-        loop.exec();
-
-        if (!timeoutTimer.isActive()) {
-            MessageError("Server is unreachable");
-            if (ChannelThread->isRunning()) {
-                ChannelThread->quit();
-                ChannelThread->wait();
-            }
-
-            delete ChannelWsWorker;
-            delete ChannelThread;
-            delete authProfile;
-            continue;
-        }
-
-        timeoutTimer.stop();
-
-        if (!ChannelWsWorker->ok) {
-            MessageError(ChannelWsWorker->message);
-            if (ChannelThread->isRunning()) {
-                ChannelThread->quit();
-                ChannelThread->wait();
-            }
-            delete ChannelWsWorker;
-            delete ChannelThread;
-            delete authProfile;
-            continue;
-        }
-
-        break;
+    if (ConnectToServer(authProfile, ChannelThread, ChannelWsWorker)) {
+        mainUI->AddNewProject(authProfile, ChannelThread, ChannelWsWorker);
     }
-
-    mainUI->AddNewProject(authProfile, ChannelThread, ChannelWsWorker);
 }
 
 AuthProfile* MainAdaptix::Login()

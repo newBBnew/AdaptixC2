@@ -44,6 +44,54 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
 
     ScriptManager = new AxScriptManager(this, this);
     McpTerminalManager = new MCPTerminalManager(this);
+
+    // Initialize MCP Bridge (Port 9999)
+    McpBridge = new MCPBridgeWorker(this, 9999, this);
+    if (McpBridge->start()) {
+        LogInfo("MCP Bridge started on port %d", McpBridge->getPort());
+    } else {
+        LogError("Failed to start MCP Bridge");
+    }
+
+    // Connect AI Status Signals
+    connect(McpBridge, &MCPBridgeWorker::activityStatusChanged, this, [this](bool active) {
+        bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
+        bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
+        bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
+        
+        QColor statusColor;
+        if (active) {
+            statusColor = QColor(COLOR_NeonRed); // Busy
+            aiStatusButton->setToolTip("AI Status: Thinking/Executing...");
+        } else {
+            statusColor = QColor(COLOR_NeonGreen); // Idle/Standby
+            aiStatusButton->setToolTip("AI Status: Connected (Standby)");
+        }
+        
+        QIcon icon = aiStatusButton->icon();
+        aiStatusButton->setIcon(RecolorIcon(icon, statusColor));
+    });
+
+    connect(McpBridge, &MCPBridgeWorker::connectionEstablished, this, [this](const QString& peer) {
+        LogInfo("MCP Connected: %s", peer.toUtf8().constData());
+        aiStatusButton->setEnabled(true);
+        aiStatusButton->setToolTip("AI Status: Connected (Standby)");
+        
+        // Default to Green (Idle)
+        QIcon icon = aiStatusButton->icon();
+        aiStatusButton->setIcon(RecolorIcon(icon, QColor(COLOR_NeonGreen)));
+    });
+
+    connect(McpBridge, &MCPBridgeWorker::connectionClosed, this, [this]() {
+        LogInfo("MCP Disconnected");
+        aiStatusButton->setEnabled(false);
+        aiStatusButton->setToolTip("AI Status: Disconnected");
+        
+        // Default to Grey (Disconnected)
+        QIcon icon = aiStatusButton->icon();
+        aiStatusButton->setIcon(RecolorIcon(icon, QColor(128, 128, 128)));
+    });
+
     connect(this, &AdaptixWidget::eventNewAgent,           ScriptManager, &AxScriptManager::emitNewAgent);
     connect(this, &AdaptixWidget::eventFileBrowserDisks,   ScriptManager, &AxScriptManager::emitFileBrowserDisks);
     connect(this, &AdaptixWidget::eventFileBrowserList,    ScriptManager, &AxScriptManager::emitFileBrowserList);
@@ -178,9 +226,9 @@ void AdaptixWidget::createUI()
     auto themedIcon = [isDarkIce, isGlass, isHackerTech, isBreathing](const QString& path) {
         QIcon icon(path);
         if (isDarkIce || isGlass || isBreathing)
-            icon = RecolorIcon(icon, COLOR_IceBlue);
+            icon = RecolorIcon(icon, QColor(COLOR_IceBlue));
         else if (isHackerTech)
-            icon = RecolorIcon(icon, COLOR_IceBlue);
+            icon = RecolorIcon(icon, QColor(COLOR_IceBlue));
         return icon;
     };
 
@@ -274,8 +322,18 @@ void AdaptixWidget::createUI()
     reconnectButton->setIconSize( QSize( 24,24 ));
     reconnectButton->setFixedSize(37, 28);
     reconnectButton->setToolTip("Reconnect to C2");
-    QIcon onReconnectButton = RecolorIcon(reconnectButton->icon(), (isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen);
+    QIcon onReconnectButton = RecolorIcon(reconnectButton->icon(), QColor((isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen));
     reconnectButton->setIcon(onReconnectButton);
+
+    // AI Status Light
+    // Using code_blocks icon as generic AI/Brain representation since assistant icon is missing
+    aiStatusButton = new QPushButton(themedIcon(":/icons/code_blocks"), ""); 
+    aiStatusButton->setIconSize(QSize(24, 24));
+    aiStatusButton->setFixedSize(37, 28);
+    aiStatusButton->setToolTip("AI Status: Disconnected");
+    // Default to Grey (Disconnected)
+    aiStatusButton->setIcon(RecolorIcon(aiStatusButton->icon(), QColor(128, 128, 128)));
+    aiStatusButton->setEnabled(false); // Read-only status for now
 
     horizontalSpacer1 = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
 
@@ -303,6 +361,7 @@ void AdaptixWidget::createUI()
     topHLayout->addWidget(keysButton);
     topHLayout->addWidget(line_4);
     topHLayout->addWidget(reconnectButton);
+    topHLayout->addWidget(aiStatusButton); // Add AI status
     topHLayout->addItem(horizontalSpacer1);
 
     dockTop = new KDDockWidgets::QtWidgets::DockWidget(this->profile->GetProject()+"-Dock-Top", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
@@ -876,7 +935,7 @@ void AdaptixWidget::ShowTunnelCreator(const QString &AgentId, const bool socks4,
 
 void AdaptixWidget::ChannelClose() const
 {
-    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/unlink"), COLOR_ChiliPepper);
+    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/unlink"), QColor(COLOR_ChiliPepper));
     reconnectButton->setIcon(onReconnectButton);
     ChannelThread->quit();
 }
@@ -929,12 +988,38 @@ void AdaptixWidget::OnSynced()
     // Start MCP Bridge
     if (!McpBridge) {
         McpBridge = new MCPBridgeWorker(this, 9999, this);
+        
         connect(McpBridge, &MCPBridgeWorker::started, this, [](quint16 port) {
             LogInfo("[MCP] Bridge started on port %d", port);
         });
+        
         connect(McpBridge, &MCPBridgeWorker::errorOccurred, this, [](const QString& err) {
             LogError("[MCP] %s", err.toUtf8().constData());
         });
+
+        // AI Status UI Logic
+        connect(McpBridge, &MCPBridgeWorker::connectionEstablished, this, [this](QString peer) {
+             LogInfo("[MCP] Connection established: %s", peer.toUtf8().constData());
+             this->aiStatusButton->setIcon(RecolorIcon(this->aiStatusButton->icon(), QColor(COLOR_NeonGreen)));
+             this->aiStatusButton->setToolTip("AI Status: Connected (Idle)");
+        });
+
+        connect(McpBridge, &MCPBridgeWorker::connectionClosed, this, [this]() {
+             LogInfo("[MCP] Connection closed");
+             this->aiStatusButton->setIcon(RecolorIcon(this->aiStatusButton->icon(), QColor(128, 128, 128)));
+             this->aiStatusButton->setToolTip("AI Status: Disconnected");
+        });
+
+        connect(McpBridge, &MCPBridgeWorker::activityStatusChanged, this, [this](bool isBusy) {
+             if (isBusy) {
+                 this->aiStatusButton->setIcon(RecolorIcon(this->aiStatusButton->icon(), QColor(COLOR_NeonRed)));
+                 this->aiStatusButton->setToolTip("AI Status: Busy (Thinking...)");
+             } else {
+                 this->aiStatusButton->setIcon(RecolorIcon(this->aiStatusButton->icon(), QColor(COLOR_NeonGreen)));
+                 this->aiStatusButton->setToolTip("AI Status: Connected (Idle)");
+             }
+        });
+
         McpBridge->start();
     }
 
@@ -1017,7 +1102,7 @@ void AdaptixWidget::OnReconnect()
                     bool isDarkIce = (GlobalClient->settings->data.MainTheme == "Dark_Ice");
                     bool isGlass = (GlobalClient->settings->data.MainTheme == "Glass_Morph");
                     bool isHackerTech = (GlobalClient->settings->data.MainTheme == "Hacker_Tech");
-                    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/link"), (isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen);
+                    QIcon onReconnectButton = RecolorIcon(QIcon(":/icons/link"), QColor((isDarkIce || isGlass || isHackerTech) ? COLOR_IceBlue : COLOR_NeonGreen));
                     reconnectButton->setIcon(onReconnectButton);
                 }
 

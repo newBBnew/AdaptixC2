@@ -1,0 +1,415 @@
+[*] Building AdaptixClient...
+[  0%] Built target kddockwidgets_autogen_timestamp_deps
+[  1%] Built target kddockwidgets_autogen
+[ 45%] Built target kddockwidgets
+[ 45%] Built target AdaptixClient_autogen_timestamp_deps
+[ 45%] Built target AdaptixClient_autogen
+[ 46%] Building CXX object CMakeFiles/AdaptixClient.dir/Source/UI/Widgets/AdaptixWidget.cpp.o
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:8:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ConsoleWidget.h:85:10: error: class member cannot be redeclared
+   85 |     void createUI();
+      |          ^
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ConsoleWidget.h:53:10: note: previous declaration is here
+   53 |     void createUI();
+      |          ^
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ConsoleWidget.h:86:10: error: class member cannot be redeclared
+   86 |     void upgradeCompleter() const;
+      |          ^
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ConsoleWidget.h:75:10: note: previous declaration is here
+   75 |     void upgradeCompleter() const;
+      |          ^
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ConsoleWidget.h:87:10: error: class member cannot be redeclared
+   87 |     void highlightCurrent() const;
+      |          ^
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ConsoleWidget.h:55:10: note: previous declaration is here
+   55 |     void highlightCurrent() const;
+      |          ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:13:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/SessionsTableWidget.h:115:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  115 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:13:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/SessionsTableWidget.h:120:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  120 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:13:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/SessionsTableWidget.h:125:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  125 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:13:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/SessionsTableWidget.h:130:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  130 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:13:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/SessionsTableWidget.h:133:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  133 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:16:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ListenersWidget.h:98:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+   98 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:17:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/DownloadsWidget.h:102:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  102 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:17:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/DownloadsWidget.h:108:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  108 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:17:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/DownloadsWidget.h:114:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  114 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:18:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/FileDeliveryWidget.h:36:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+   36 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:18:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/FileDeliveryWidget.h:42:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+   42 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:19:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ScreenshotsWidget.h:94:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+   94 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:19:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/ScreenshotsWidget.h:100:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  100 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:20:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/CredentialsWidget.h:102:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  102 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:20:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/CredentialsWidget.h:108:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  108 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:20:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/CredentialsWidget.h:114:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  114 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:20:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/CredentialsWidget.h:120:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  120 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:21:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/TargetsWidget.h:97:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+   97 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:21:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/TargetsWidget.h:103:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  103 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:22:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/TasksWidget.h:121:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  121 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:22:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/TasksWidget.h:125:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  125 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:22:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/TasksWidget.h:129:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  129 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:22:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/TasksWidget.h:133:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  133 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+In file included from /Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Source/UI/Widgets/AdaptixWidget.cpp:24:
+/Users/blackman/netattack/c2/adaptixC2_1.0/AdaptixClient/Headers/UI/Widgets/TunnelsWidget.h:101:9: warning: 'invalidateFilter' is deprecated: Use begin/endFilterChange() instead [-Wdeprecated-declarations]
+  101 |         invalidateFilter();
+      |         ^
+/opt/homebrew/lib/QtCore.framework/Headers/qsortfilterproxymodel.h:127:5: note: 'invalidateFilter' has been explicitly marked deprecated here
+  127 |     QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")
+      |     ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:245:45: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_13'
+  245 | # define QT_DEPRECATED_VERSION_X_6_13(text) QT_DEPRECATED_X(text)
+      |                                             ^
+/opt/homebrew/lib/QtCore.framework/Headers/qtdeprecationmarkers.h:29:33: note: expanded from macro 'QT_DEPRECATED_X'
+   29 | #  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+      |                                 ^
+/opt/homebrew/lib/QtCore.framework/Headers/qcompilerdetection.h:1011:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+ 1011 | #  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+      |                                    ^
+24 warnings and 3 errors generated.
+make[3]: *** [CMakeFiles/AdaptixClient.dir/Source/UI/Widgets/AdaptixWidget.cpp.o] Error 1
+make[2]: *** [CMakeFiles/AdaptixClient.dir/all] Error 2
+make[1]: *** [all] Error 2
+make: *** [client] Error 2

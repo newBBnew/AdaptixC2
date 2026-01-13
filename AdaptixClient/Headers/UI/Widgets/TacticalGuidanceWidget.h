@@ -7,16 +7,20 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QSplitter>
 #include <QStandardItemModel>
 #include <QSortFilterProxyModel>
+#include <QHash>
+#include <QSet>
 #include <QTreeView>
 #include <QTextBrowser>
 #include <QVBoxLayout>
 #include <UI/Widgets/AbstractDock.h>
 
 class AdaptixWidget;
+class QTreeWidgetItem;
 
 #define MIME_TACTICAL_BLOCK "application/x-adaptix-tactical-block"
 
@@ -29,107 +33,158 @@ protected:
     AdaptixWidget* adaptixWidget = nullptr;
 
     // --- New Tactical Data Structures ---
-    struct TacticalVariantData {
+    struct TacticalCommandData {
         QString id;
-        QString name;
-        QString commandTemplate;
-        int os; // OS_WINDOWS, etc.
-        int risk;
-        QString opsecNotes;
-        QString aiGuidance;
-    };
-
-    struct TacticalBlockData {
-        QString id;
-        QString name;
-        QString category;
+        QString name;           // Function Description (displayed in tree)
+        QString rawCommand;     // Original Command (tooltip)
+        QString usage;          // Usage & Explanation
+        int os;                 // 1: Win, 2: Linux, 3: Mac
+        int arch;               // 0: Any, 1: x86, 2: x64
+        int risk;               // 1: Low, 2: Medium, 3: High
         QString description;
-        QVector<TacticalVariantData> variants;
     };
 
-    struct TacticalNodeInstanceData {
-        QString instanceId;
-        QString blockId;
-        QString variantId;
-        QMap<QString, QString> parameters;
-        int status; // 0: Pending, 1: Running, 2: Success, 3: Failed
-    };
-
-    struct TacticalWorkflowData {
-        QString workflowId;
+    struct TacticalNodeData {
+        QString id;
+        QString parentId;
         QString name;
-        QVector<TacticalNodeInstanceData> nodes;
-        QStringList targetAgents;
+        QString type; // "category", "command"
+        QString description;
+        
+        // If command
+        TacticalCommandData command;
+        
+        // Children (for UI construction)
+        QVector<TacticalNodeData> children;
     };
 
     // Column 1: Library
     QWidget* libraryPanel = nullptr;
     QVBoxLayout* libraryLayout = nullptr;
+    
+    // Agent Selection
+    QPushButton* agentSelectBtn = nullptr; // Multi-select dropdown button
+    QMenu* agentSelectMenu = nullptr;      // Menu for agents
+    QComboBox* agentOsFilter = nullptr;    // Filter library by OS manually or auto
+
     QLineEdit* librarySearch = nullptr;
     QTreeView* libraryView = nullptr;
     QStandardItemModel* libraryModel = nullptr;
     QSortFilterProxyModel* libraryProxyModel = nullptr;
 
-    // Column 2: Composer
+    // Column 2: Composer (Playbooks)
     QWidget* composerPanel = nullptr;
     QVBoxLayout* composerLayout = nullptr;
-    QTreeWidget* composerTree = nullptr;
+    QComboBox* playbookSelector = nullptr; // Select active playbook
+    QTreeWidget* composerTree = nullptr; // Root items = Playbooks, Children = Steps
     QWidget* composerActionsRow = nullptr;
-    QLineEdit* composerTargetAgents = nullptr;
+    
+    // Workflow Settings
+    QSpinBox* workflowInterval = nullptr; // Execution interval (seconds)
+    QCheckBox* chkStopOnError = nullptr;
+    QPushButton* btnAddPlaybook = nullptr;
+    QPushButton* btnSaveLocal = nullptr;
+    QPushButton* btnPushServer = nullptr; // Sync current state
 
     QSplitter* mainHSplitter = nullptr;
 
     // Column 3: Results
     QWidget* resultsPanel = nullptr;
     QVBoxLayout* resultsLayout = nullptr;
-    QTreeWidget* resultsTree = nullptr;
+    QTreeWidget* resultsTree = nullptr; // Agent -> Step -> Output
+    QPushButton* btnClearResults = nullptr;
 
-    QVector<TacticalWorkflowData> workflows;
-    int currentWorkflowIndex = -1;
+    QMap<QString, TacticalCommandData> commandMap; // commandId -> data
+    QMap<QString, TacticalNodeData> nodeMap;       // nodeId -> data
 
-    QMap<QString, TacticalBlockData> catalogMap; // blockId -> data
-    QMap<QString, TacticalVariantData> variantMap; // variantId -> data
-    QMap<QString, QTreeWidgetItem*> taskToStepMap; // taskId -> composer step item
+    bool executionRunning = false;
+    bool executionAdvanceScheduled = false;
+    QList<QTreeWidgetItem*> executionQueue;
+    QTreeWidgetItem* currentExecutingItem = nullptr;
+    QStringList executionTargetAgents;
+    QHash<QString, QTreeWidgetItem*> taskIdToComposerItem;
+    QHash<QString, int> composerItemPendingCount;
+    QHash<QString, bool> composerItemHasError;
+    QHash<QString, QTreeWidgetItem*> resultsStepItems;
+    QHash<QString, QTreeWidgetItem*> resultsAgentItems;
 
     void createLibraryUI();
     void createComposerUI();
     void createResultsUI();
     void initDefaultLibrary();
+    void refreshAgentList();
+    void refreshPlaybookList();
+    void buildLibraryTree(QStandardItem* parentItem, const QVector<TacticalNodeData>& nodes);
+
+    // Helper for Add/Edit Command
+    bool showCommandDialog(TacticalCommandData& data, QString& parentId, const QString& title);
+    
+    // Helpers for Management
+    void cleanupNodeData(QStandardItem* item);
+    QStandardItem* findItemById(const QString& id, QStandardItem* parent = nullptr);
+    QMap<QString, QString> getAllCategories(QStandardItem* parent = nullptr, QString prefix = "");
+
+private:
+    QJsonObject serializeNode(QStandardItem* item);
 
 private Q_SLOTS:
     // Library slots
     void onLibraryBlockSelected();
     void onLibrarySearchChanged(const QString& text);
     void onLibraryContextMenu(const QPoint& pos);
+    void onAgentSelectionChanged();
+    void onAgentMenuTriggered(QAction* action);
+
+    // Agent Events
+    void onNewAgent(QString agentId);
+    void onRemoveAgent(QString agentId);
+    void onAgentUpdate(QString agentId);
+    void onSynced();
 
     // Composer slots
-    void onWorkflowSelected();
-    void onWorkflowStepClicked(QTreeWidgetItem* item, int column);
-    void onRunWorkflowClicked();
-
+    void onComposerContextMenu(const QPoint& pos);
+    void onAddPlaybookClicked();
+    void onPushWorkflowClicked();
+    void onSaveLocalClicked();
+    
     // Results slots
     void onResultsItemClicked(QTreeWidgetItem* item, int column);
+    void onClearResultsClicked();
 
 public:
     QJsonObject getLibraryAsJson() const;
     QJsonObject getResultsAsJson() const;
 
-    void handleCatalogSync(const QJsonObject& json);
+    // Local persistence
+    void saveLibrary();
+    void loadLibrary();
+    
     void handleWorkflowSync(const QJsonObject& json);
     void handleTaskUpdate(const TaskData& task);
 
-    void addStepToWorkflow(const QString& variantId, const QMap<QString, QString>& params);
+    void addStepToActivePlaybook(const QString& commandId, const QMap<QString, QString>& params);
     void clearWorkflow();
-    void executeWorkflow();
+
+    void runActivePlaybook();
 
 private Q_SLOTS:
     void onComposerChanged();
     void onTargetAgentsChanged();
     void syncWorkflowToServer();
+    void onAddGroupClicked();
+    void onWorkflowSelected();
 
 private:
-    QString renderCommand(const QString& templ, const AgentData& agentData, const QMap<QString, QString>& params) const;
     QString riskLabel(const int risk) const;
+
+    QList<QTreeWidgetItem*> collectCommandSteps() const;
+    QStringList collectSelectedAgentIds() const;
+    void advanceExecution();
+    void stopExecution();
+
+    // Serialization helpers
+    QJsonArray serializeLibraryTree(QStandardItem* parent = nullptr);
+    void rebuildLibraryFromJSON(const QJsonArray& nodes);
 
 public:
     explicit TacticalGuidanceWidget(AdaptixWidget* w);

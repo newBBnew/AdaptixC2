@@ -57,6 +57,12 @@ private:
     MCP::MCPResponse handleTacticalBroadcastSuggestion(const MCP::MCPRequest& req);
     MCP::MCPResponse handleSendTeamChat(const MCP::MCPRequest& req);
     MCP::MCPResponse handleTacticalChatResponse(const MCP::MCPRequest& req);
+    
+    // Session Management
+    MCP::MCPResponse handleArchiveSession(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleListSessions(const MCP::MCPRequest& req);
+    MCP::MCPResponse handleReadSession(const MCP::MCPRequest& req);
+
     MCP::MCPResponse handleGodViewQueryStatus(const MCP::MCPRequest& req);
     MCP::MCPResponse handleGodViewSuggestAction(const MCP::MCPRequest& req);
     MCP::MCPResponse handleAiAutonomousControl(const MCP::MCPRequest& req);

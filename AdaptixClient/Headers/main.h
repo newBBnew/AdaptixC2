@@ -171,6 +171,7 @@
 
 #define COLOR_Black           "#000000"     /// black
 #define COLOR_NeonGreen       "#39FF14"     /// green
+#define COLOR_NeonRed         "#FF073A"     /// neon red
 #define COLOR_KellyGreen      "#4CBB17"     /// green
 #define COLOR_Green           "#008000"     /// green
 #define COLOR_Berry           "#A01641"     /// red

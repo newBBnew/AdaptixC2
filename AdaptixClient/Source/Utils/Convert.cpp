@@ -301,6 +301,21 @@ QIcon RecolorIcon(QIcon originalIcon, const QString &colorString)
     return QIcon(pixmap);
 }
 
+QIcon RecolorIcon(QIcon originalIcon, const QColor &color)
+{
+    if ( !color.isValid() )
+        return originalIcon;
+
+    QPixmap pixmap = originalIcon.pixmap(originalIcon.actualSize(QSize(128, 128)));
+
+    QPainter painter(&pixmap);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(pixmap.rect(), color);
+    painter.end();
+
+    return QIcon(pixmap);
+}
+
 QString GenerateRandomString(const int length, const QString &setName)
 {
     QString characters;

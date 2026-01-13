@@ -118,6 +118,9 @@ void MCPBridgeWorker::onNewConnection()
 
 void MCPBridgeWorker::onTextMessageReceived(const QString& message)
 {
+    // Signal that AI is busy processing a request
+    Q_EMIT activityStatusChanged(true);
+
     QJsonParseError error;
     QJsonDocument doc = QJsonDocument::fromJson(message.toUtf8(), &error);
     
@@ -195,18 +198,19 @@ void MCPBridgeWorker::sendResponse(const MCP::MCPResponse& response)
 void MCPBridgeWorker::internalSendResponse(const MCP::MCPResponse& response)
 {
     QMutexLocker locker(&connectionMutex);
-    if (!mcpConnection)
-        return;
+    if (mcpConnection && mcpConnection->isValid()) {
+        QJsonDocument doc(response.toJson());
+        mcpConnection->sendTextMessage(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+    }
     
-    QJsonDocument doc(response.toJson());
-    mcpConnection->sendTextMessage(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+    // AI has responded, so it's back to standby/idle
+    Q_EMIT activityStatusChanged(false);
 }
 
 void MCPBridgeWorker::sendMessage(const QString& type, const QJsonObject& params)
 {
-    QMetaObject::invokeMethod(this, [this, type, params]() {
-        internalSendMessage(type, params);
-    }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, "internalSendMessage", Qt::QueuedConnection, 
+                           Q_ARG(QString, type), Q_ARG(QJsonObject, params));
 }
 
 void MCPBridgeWorker::internalSendMessage(const QString& type, const QJsonObject& params)

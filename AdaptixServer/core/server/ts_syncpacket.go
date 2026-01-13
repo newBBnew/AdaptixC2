@@ -729,20 +729,6 @@ func CreateSpFileDeliveryDelete(fileId []string) SyncPackerFileDeliveryDelete {
 
 /// TACTICAL
 
-type SyncPackerTacticalCatalog struct {
-	SpType     int                          `json:"type"`
-	Action     string                       `json:"action"`
-	Categories []connector.TacticalCategory `json:"categories"`
-}
-
-func CreateSpTacticalCatalogSync(categories []connector.TacticalCategory) SyncPackerTacticalCatalog {
-	return SyncPackerTacticalCatalog{
-		SpType:     TYPE_TACTICAL_CATALOG_SYNC,
-		Action:     "sync_all",
-		Categories: categories,
-	}
-}
-
 type SyncPackerTacticalWorkflow struct {
 	SpType       int                              `json:"type"`
 	Action       string                           `json:"action"` // "update", "clear"

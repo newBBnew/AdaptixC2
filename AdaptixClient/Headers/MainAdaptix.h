@@ -8,6 +8,7 @@ class Settings;
 class Storage;
 class MainUI;
 class AuthProfile;
+class WebSocketWorker;
 
 class MainAdaptix : public QWidget {
 
@@ -31,6 +32,9 @@ public:
     void SetApplicationTheme();
 
     static AuthProfile* Login();
+
+private:
+    bool ConnectToServer(AuthProfile*& outProfile, QThread*& outThread, WebSocketWorker*& outWorker) const;
 };
 
 extern MainAdaptix* GlobalClient;

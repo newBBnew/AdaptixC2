@@ -17,35 +17,14 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type TacticalVariant struct {
-	Id              string `json:"id"`
-	Name            string `json:"name"`
-	Cmd             string `json:"cmd"`
-	Os              int    `json:"os"`
-	Risk            int    `json:"risk"`
-	Opsec           string `json:"opsec"`
-	AiGuidance      string `json:"ai_guidance"`
-	CommandTemplate string `json:"command_template"`
-}
-
-type TacticalBlock struct {
-	Id          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Variants    []TacticalVariant `json:"variants"`
-}
-
-type TacticalCategory struct {
-	Name   string          `json:"name"`
-	Blocks []TacticalBlock `json:"blocks"`
-}
-
 type TacticalWorkflowStep struct {
-	InstanceId string            `json:"instance_id"`
-	BlockId    string            `json:"block_id"`
-	VariantId  string            `json:"variant_id"`
-	Name       string            `json:"name"`
-	Params     map[string]string `json:"params"`
+	InstanceId string                 `json:"instance_id"`
+	BlockId    string                 `json:"block_id"`
+	VariantId  string                 `json:"variant_id"`
+	Name       string                 `json:"name"`
+	Type       string                 `json:"type"` // "command" or "group"
+	Params     map[string]string      `json:"params"`
+	Children   []TacticalWorkflowStep `json:"children"` // Recursive children
 }
 
 type Teamserver interface {
@@ -69,7 +48,7 @@ type Teamserver interface {
 	TsAgentCreate(agentCrc string, agentId string, beat []byte, listenerName string, ExternalIP string, Async bool) (adaptix.AgentData, error)
 	TsAgentProcessData(agentId string, bodyData []byte) error
 	TsAgentGetHostedAll(agentId string, maxDataSize int) ([]byte, error)
-	TsAgentCommand(agentName string, agentId string, clientName string, hookId string, handlerId string, cmdline string, ui bool, args map[string]any) error
+	TsAgentCommand(agentName string, agentId string, clientName string, hookId string, handlerId string, cmdline string, ui bool, args map[string]any) (string, error)
 	TsAgentGenerate(agentName string, config string, listenerWM string, listenerProfile []byte) ([]byte, string, error)
 
 	TsAgentUpdateData(newAgentData adaptix.AgentData) error
@@ -93,11 +72,14 @@ type Teamserver interface {
 
 	TsChatSendMessage(username string, message string)
 
+	TsSessionArchiveCurrent() (string, error)
+	TsSessionDelete(sessionId string) error
+	TsSessionList() []map[string]interface{}
+	TsSessionGetContent(sessionId string) []adaptix.ChatData
+
 	TsTacticalWorkflowUpdate(steps []TacticalWorkflowStep, targets string)
 	TsTacticalWorkflowClear()
 
-	TsTacticalLibraryUpdate(category string, block TacticalBlock) error
-	TsTacticalLibraryDelete(blockId string) error
 	TsTacticalAiSuggestion(content string)
 
 	TsPivotList() (string, error)
@@ -288,12 +270,13 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 		api_group.POST("/agent/task/save", connector.TcAgentTaskSave)
 
 		api_group.POST("/chat/send", connector.TcChatSendMessage)
+		api_group.POST("/chat/session/archive", connector.TcSessionArchiveCurrent)
+		api_group.POST("/chat/session/delete", connector.TcSessionDelete)
+		api_group.GET("/chat/session/list", connector.TcSessionList)
+		api_group.GET("/chat/session/content/:id", connector.TcSessionGetContent)
 
 		api_group.POST("/tactical/workflow/update", connector.TcTacticalWorkflowUpdate)
 		api_group.POST("/tactical/workflow/clear", connector.TcTacticalWorkflowClear)
-
-		api_group.POST("/tactical/library/update", connector.TcTacticalLibraryUpdate)
-		api_group.POST("/tactical/library/delete", connector.TcTacticalLibraryDelete)
 		api_group.POST("/tactical/suggestion/send", connector.TcTacticalAiSuggestion)
 
 		api_group.GET("/pivot/list", connector.TcPivotList)

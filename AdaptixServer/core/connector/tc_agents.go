@@ -4,7 +4,6 @@ import (
 	"AdaptixServer/core/utils/logs"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -40,7 +39,7 @@ func (tc *TsConnector) TcAgentGenerate(ctx *gin.Context) {
 
 	err = ctx.ShouldBindJSON(&agentConfig)
 	if err != nil {
-		_ = ctx.Error(errors.New("invalid agent config"))
+		ctx.JSON(http.StatusOK, gin.H{"message": "invalid agent config", "ok": false})
 		return
 	}
 
@@ -103,13 +102,19 @@ func (tc *TsConnector) TcAgentCommandExecute(ctx *gin.Context) {
 		logs.Debug("", "Error parsing commands JSON: %s\n", err.Error())
 	}
 
-	err = tc.teamserver.TsAgentCommand(commandData.AgentName, commandData.AgentId, username, commandData.HookId, commandData.HandlerId, commandData.CmdLine, commandData.UI, args)
+	taskId, err := tc.teamserver.TsAgentCommand(commandData.AgentName, commandData.AgentId, username, commandData.HookId, commandData.HandlerId, commandData.CmdLine, commandData.UI, args)
 	if err != nil {
 		ctx.JSON(http.StatusOK, gin.H{"message": err.Error(), "ok": false})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"message": "", "ok": true})
+	ctx.JSON(http.StatusOK, gin.H{
+		"message":    "",
+		"ok":         true,
+		"agent_id":   commandData.AgentId,
+		"handler_id": commandData.HandlerId,
+		"task_id":    taskId,
+	})
 }
 
 type CommandData2 struct {
@@ -161,13 +166,19 @@ func (tc *TsConnector) TcAgentCommandFile(ctx *gin.Context) {
 		logs.Debug("", "Error parsing commands JSON: %s\n", err.Error())
 	}
 
-	err = tc.teamserver.TsAgentCommand(commandData.AgentName, commandData.AgentId, username, commandData.HookId, commandData.HandlerId, commandData.CmdLine, commandData.UI, args)
+	taskId, err := tc.teamserver.TsAgentCommand(commandData.AgentName, commandData.AgentId, username, commandData.HookId, commandData.HandlerId, commandData.CmdLine, commandData.UI, args)
 	if err != nil {
 		ctx.JSON(http.StatusOK, gin.H{"message": err.Error(), "ok": false})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"message": "", "ok": true})
+	ctx.JSON(http.StatusOK, gin.H{
+		"message":    "",
+		"ok":         true,
+		"agent_id":   commandData.AgentId,
+		"handler_id": commandData.HandlerId,
+		"task_id":    taskId,
+	})
 }
 
 type AgentRemove struct {

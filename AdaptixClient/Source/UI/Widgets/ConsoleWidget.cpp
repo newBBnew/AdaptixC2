@@ -4,6 +4,7 @@
 #include <UI/Widgets/ConsoleWidget.h>
 #include <UI/Widgets/DockWidgetRegister.h>
 #include <UI/Dialogs/DialogUploader.h>
+#include <Client/CommandSubmitter.h>
 #include <Client/Requestor.h>
 #include <Client/Settings.h>
 #include <Client/AuthProfile.h>
@@ -322,121 +323,17 @@ void ConsoleWidget::ProcessCmdResult(const QString &commandLine, const Commander
         return;
     }
 
-    QString hookId = "";
-    if (cmdResult.post_hook.isSet) {
-        hookId = GenerateRandomString(8, "hex");
-        while (adaptixWidget->PostHooksJS.contains(hookId))
-            hookId = GenerateRandomString(8, "hex");
-
-        adaptixWidget->PostHooksJS[hookId] = cmdResult.post_hook;
-    }
-
-    QString handlerId = "";
-    if (cmdResult.handler.isSet) {
-        handlerId = GenerateRandomString(8, "hex");
-        while (adaptixWidget->PostHandlersJS.contains(handlerId))
-            handlerId = GenerateRandomString(8, "hex");
-
-        adaptixWidget->PostHandlersJS[handlerId] = cmdResult.handler;
-    }
-
-    QJsonDocument jsonDoc(cmdResult.data);
-    QString commandData = jsonDoc.toJson();
-
-    QJsonObject dataJson;
-    dataJson["name"]          = agent->data.Name;
-    dataJson["id"]            = agent->data.Id;
-    dataJson["ui"]            = UI;
-    dataJson["cmdline"]       = commandLine;
-    dataJson["data"]          = commandData;
-    dataJson["ax_hook_id"]    = hookId;
-    dataJson["ax_handler_id"] = handlerId;
-    QByteArray jsonData = QJsonDocument(dataJson).toJson();
-
-    /// 5 Mb
-    if (commandData.size() < 0x500000) {
-        HttpReqAgentCommandAsync(jsonData, *(agent->adaptixWidget->GetProfile()), [this, cmdResult, hookId, handlerId, commandLine](bool success, const QString &message, const QJsonObject&) {
-            if (!success) {
-                if (cmdResult.post_hook.isSet && adaptixWidget->PostHooksJS.contains(hookId))
-                    adaptixWidget->PostHooksJS.remove(hookId);
-                if (cmdResult.handler.isSet && adaptixWidget->PostHandlersJS.contains(handlerId))
-                    adaptixWidget->PostHandlersJS.remove(handlerId);
-                this->ConsoleOutputPrompt(0, "", "", commandLine);
-                this->ConsoleOutputMessage(0, "", CONSOLE_OUT_LOCAL_ERROR, message, "", true);
-            }
-        });
-    }
-    else {
-
-        /// 1. Get OTP
-
-        QString message = QString();
-        bool ok = false;
-        QString objId = GenerateRandomString(8, "hex");
-        bool result = HttpReqGetOTP("tmp_upload", objId, *(agent->adaptixWidget->GetProfile()), &message, &ok);
-        if (!result) {
-            if (cmdResult.post_hook.isSet && adaptixWidget->PostHooksJS.contains(hookId))
-                adaptixWidget->PostHooksJS.remove(hookId);
-            if (cmdResult.handler.isSet && adaptixWidget->PostHandlersJS.contains(handlerId))
-                adaptixWidget->PostHandlersJS.remove(handlerId);
-            MessageError("Response timeout");
-            return;
+    // Delegate strict size check and large payload handling to CommandSubmitter.
+    // We provide a callback that handles normal (small payload) errors.
+    CommandSubmitter::Submit(adaptixWidget, agent, commandLine, cmdResult, UI, this, true,
+                              [this, commandLine](const CommandSubmitInfo& info) {
+        // Only print error for small payloads here because large payload upload
+        // might have its own async error handling/display or we just want to suppress it here.
+        if (!info.ok && !info.usedLargePayload) {
+            this->ConsoleOutputPrompt(0, "", "", commandLine);
+            this->ConsoleOutputMessage(0, "", CONSOLE_OUT_LOCAL_ERROR, info.message, "", true);
         }
-        if (!ok) {
-            if (cmdResult.post_hook.isSet && adaptixWidget->PostHooksJS.contains(hookId))
-                adaptixWidget->PostHooksJS.remove(hookId);
-            if (cmdResult.handler.isSet && adaptixWidget->PostHandlersJS.contains(handlerId))
-                adaptixWidget->PostHandlersJS.remove(handlerId);
-            MessageError(message);
-            return;
-        }
-        QString otp = message;
-
-        /// 2. Upload with OTP
-
-        QString sUrl = agent->adaptixWidget->GetProfile()->GetURL() + "/otp/upload/temp";
-
-        auto* uploaderDialog = new DialogUploader(sUrl, otp, jsonData);
-        uploaderDialog->setAttribute(Qt::WA_DeleteOnClose);
-
-        connect(uploaderDialog, &DialogUploader::finished, [&](const bool success) {
-            if (!success) {
-                if (cmdResult.post_hook.isSet && adaptixWidget->PostHooksJS.contains(hookId))
-                    adaptixWidget->PostHooksJS.remove(hookId);
-                if (cmdResult.handler.isSet && adaptixWidget->PostHandlersJS.contains(handlerId))
-                    adaptixWidget->PostHandlersJS.remove(handlerId);
-                return;
-            }
-
-            /// 3. Send Command
-
-            QJsonObject data2Json;
-            data2Json["object_id"] = objId;
-            QByteArray json2Data = QJsonDocument(data2Json).toJson();
-
-            sUrl = agent->adaptixWidget->GetProfile()->GetURL() + "/agent/command/file";
-            QJsonObject jsonObject = HttpReq(sUrl, json2Data, agent->adaptixWidget->GetProfile()->GetAccessToken(), 0);
-            if ( jsonObject.contains("message") && jsonObject.contains("ok") ) {
-                if (jsonObject["ok"].toBool() == false) {
-                    if (cmdResult.post_hook.isSet && adaptixWidget->PostHooksJS.contains(hookId))
-                        adaptixWidget->PostHooksJS.remove(hookId);
-                    if (cmdResult.handler.isSet && adaptixWidget->PostHandlersJS.contains(handlerId))
-                        adaptixWidget->PostHandlersJS.remove(handlerId);
-                    MessageError( jsonObject["message"].toString());
-                }
-            }
-            else {
-                if (cmdResult.post_hook.isSet && adaptixWidget->PostHooksJS.contains(hookId))
-                    adaptixWidget->PostHooksJS.remove(hookId);
-                if (cmdResult.handler.isSet && adaptixWidget->PostHandlersJS.contains(handlerId))
-                    adaptixWidget->PostHandlersJS.remove(handlerId);
-                MessageError("Response timeout");
-                return;
-            }
-        });
-
-        uploaderDialog->exec();
-    }
+    });
 }
 
 /// SLOTS
@@ -480,29 +377,7 @@ void ConsoleWidget::toggleSearchPanel()
     }
 }
 
-void ConsoleWidget::handleSearch()
-{
-    const QString pattern = searchLineEdit->text();
-    if ( pattern.isEmpty() && allSelections.size() ) {
-        allSelections.clear();
-        currentIndex = -1;
-        searchLabel->setText("0 of 0");
-        OutputTextEdit->setExtraSelections({});
-        return;
-    }
-
-    if (currentIndex < 0 || allSelections.isEmpty() || allSelections[0].cursor.selectedText().compare( pattern, Qt::CaseInsensitive) != 0 ) {
-        findAndHighlightAll(pattern);
-        currentIndex = 0;
-    }
-    else {
-        currentIndex = (currentIndex + 1) % allSelections.size();
-    }
-
-    highlightCurrent();
-}
-
-void ConsoleWidget::handleSearchBackward()
+void ConsoleWidget::performSearch(bool backward)
 {
     const QString pattern = searchLineEdit->text();
     if (pattern.isEmpty() && allSelections.size()) {
@@ -513,15 +388,28 @@ void ConsoleWidget::handleSearchBackward()
         return;
     }
 
-    if (currentIndex < 0 || allSelections.isEmpty() || allSelections[0].cursor.selectedText().compare( pattern, Qt::CaseInsensitive) != 0 ) {
+    if (currentIndex < 0 || allSelections.isEmpty() || allSelections[0].cursor.selectedText().compare(pattern, Qt::CaseInsensitive) != 0) {
         findAndHighlightAll(pattern);
-        currentIndex = allSelections.size() - 1;
+        currentIndex = backward ? allSelections.size() - 1 : 0;
     }
     else {
-        currentIndex = (currentIndex - 1 + allSelections.size()) % allSelections.size();
+        if (backward)
+            currentIndex = (currentIndex - 1 + allSelections.size()) % allSelections.size();
+        else
+            currentIndex = (currentIndex + 1) % allSelections.size();
     }
 
     highlightCurrent();
+}
+
+void ConsoleWidget::handleSearch()
+{
+    performSearch(false);
+}
+
+void ConsoleWidget::handleSearchBackward()
+{
+    performSearch(true);
 }
 
 void ConsoleWidget::handleShowHistory()

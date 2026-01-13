@@ -63,11 +63,14 @@ void HttpReqTunnelSetInfoAsync(const QString &tunnelId, const QString &info, Aut
 
 void HttpReqChatSendMessageAsync(const QString &text, AuthProfile& profile, HttpCallback callback);
 
+void HttpReqSessionArchiveAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqSessionDeleteAsync(const QString& sessionId, AuthProfile& profile, HttpCallback callback);
+void HttpReqSessionListAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqSessionContentAsync(const QString& sessionId, AuthProfile& profile, HttpCallback callback);
+
 void HttpReqTacticalWorkflowUpdateAsync(const QByteArray &jsonData, AuthProfile& profile, HttpCallback callback);
 void HttpReqTacticalWorkflowClearAsync(AuthProfile& profile, HttpCallback callback);
 
-void HttpReqTacticalLibraryUpdateAsync(const QByteArray &jsonData, AuthProfile& profile, HttpCallback callback);
-void HttpReqTacticalLibraryDeleteAsync(const QString &blockId, AuthProfile& profile, HttpCallback callback);
 void HttpReqTacticalSuggestionSendAsync(const QString &content, AuthProfile& profile, HttpCallback callback);
 
 #endif

@@ -41,8 +41,6 @@ func getPacketCategory(packet interface{}) string {
 		return "credentials"
 	case SyncPackerTargetsAdd:
 		return "targets"
-	case SyncPackerTacticalCatalog:
-		return "tactical"
 	default:
 		return "misc"
 	}
@@ -75,7 +73,6 @@ func (ts *Teamserver) TsSyncStored(client *ClientHandler) {
 	packets = append(packets, ts.TsPresyncPivots()...)
 	packets = append(packets, ts.TsPresyncCredentials()...)
 	packets = append(packets, ts.TsPresyncTargets()...)
-	packets = append(packets, ts.TsPresyncTacticalCatalog()...)
 	packets = append(packets, ts.TsPresyncTacticalWorkflow()...)
 
 	startPacket := CreateSpSyncStart(len(packets), ts.Parameters.Interfaces)

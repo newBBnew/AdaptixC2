@@ -12,6 +12,7 @@
 #include <UI/Widgets/ConsoleWidget.h>
 #include <UI/Widgets/CredentialsWidget.h>
 #include <UI/Widgets/TargetsWidget.h>
+#include <Utils/Logs.h>
 
 namespace {
 
@@ -820,7 +821,14 @@ QJSValue BridgeApp::screenshots()
     return this->scriptEngine->engine()->toScriptValue(list);
 }
 
-void BridgeApp::show_message(const QString &title, const QString &text) { QMessageBox::information(nullptr, title, text); }
+void BridgeApp::show_message(const QString &title, const QString &text)
+{
+    if (title.contains("error", Qt::CaseInsensitive)) {
+        MessageError(text);
+        return;
+    }
+    LogInfo("%s: %s", title.toUtf8().constData(), text.toUtf8().constData());
+}
 
 QJSValue BridgeApp::targets() const
 {

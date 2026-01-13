@@ -223,6 +223,14 @@ func (s *MCPServer) handleToolsCall(req JSONRPCRequest) *JSONRPCResponse {
 		})
 	}
 
+	// Inject system_instruction for AI Resident Mode
+	var resultMap map[string]interface{}
+	tempJSON, _ := json.Marshal(result)
+	if err := json.Unmarshal(tempJSON, &resultMap); err == nil {
+		resultMap["system_instruction"] = "You are in AI Resident Mode. Analyze the messages. If action is needed, use tools. If not, wait. ALWAYS call listen_intelligence again to keep monitoring."
+		result = resultMap
+	}
+
 	text, _ := json.MarshalIndent(result, "", "  ")
 	return s.successResponse(req.ID, map[string]interface{}{
 		"content": []map[string]interface{}{
@@ -233,6 +241,10 @@ func (s *MCPServer) handleToolsCall(req JSONRPCRequest) *JSONRPCResponse {
 
 func (s *MCPServer) handlePromptsList(req JSONRPCRequest) *JSONRPCResponse {
 	prompts := []map[string]interface{}{
+		{
+			"name":        "mission_briefing",
+			"description": "Standard initialization briefing for Adaptix AI agents. Call this first.",
+		},
 		{
 			"name":        "setup_socks5",
 			"description": "Quickly set up a SOCKS5 tunnel on a specified agent",
@@ -262,6 +274,17 @@ func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) *JSONRPCResponse {
 
 	var promptText string
 	switch name {
+	case "mission_briefing":
+		promptText = `You are an elite tactical AI agent operating within the AdaptixC2 framework.
+Your primary interface is the "Team War Room". 
+Upon connection, your status is STANDBY. 
+INSTRUCTIONS:
+1. Enter the Team War Room immediately.
+2. Monitor the tactical chat using the 'listen_intelligence' tool (type='chat').
+3. **HELP & DISCOVERY**: Use the 'inspect_extensions' tool to list all available system commands and plugins. Think of this as your 'help' command.
+4. Do NOT execute operations without authorization unless 'autonomous' mode is explicitly enabled.
+5. Report status and await operator commands.
+6. All communications must be in English unless otherwise specified by the operator.`
 	case "setup_socks5":
 		port := "1080"
 		if p, ok := args["port"].(string); ok {
@@ -340,31 +363,30 @@ func (s *MCPServer) handleClientNotification(notif client.Notification) {
 		}
 		s.notifyResourcesUpdated()
 	} else if notif.Type == "tactical_archive" {
-		// Archive current chat log
-		if len(s.chatLog) > 0 {
-			archiveEntry := map[string]interface{}{
-				"timestamp": time.Now().Unix(),
-				"messages":  s.chatLog,
-			}
-			s.archivedLog = append(s.archivedLog, archiveEntry)
-			s.chatLog = []map[string]interface{}{} // Clear active log
+		// Clear current chat log as it is now archived on the server
+		s.chatLog = []map[string]interface{}{}
 
-			// Notify AI system event
-			msg := map[string]interface{}{
-				"role":      "system",
-				"content":   "[SYSTEM] Chat context has been archived by operator. Active memory cleared.",
-				"username":  "System",
-				"type":      "system",
-				"timestamp": time.Now().Unix(),
-			}
-			s.chatLog = append(s.chatLog, msg)
-
-			select {
-			case s.chatChan <- msg:
-			default:
-			}
-			s.notifyResourcesUpdated()
+		sessionId, _ := notif.Params["session_id"].(string)
+		content := "[SYSTEM] Chat context has been archived by operator. Active memory cleared."
+		if sessionId != "" {
+			content += fmt.Sprintf(" Archived to session: %s", sessionId)
 		}
+
+		// Notify AI system event
+		msg := map[string]interface{}{
+			"role":      "system",
+			"content":   content,
+			"username":  "System",
+			"type":      "system",
+			"timestamp": time.Now().Unix(),
+		}
+		s.chatLog = append(s.chatLog, msg)
+
+		select {
+		case s.chatChan <- msg:
+		default:
+		}
+		s.notifyResourcesUpdated()
 	}
 }
 

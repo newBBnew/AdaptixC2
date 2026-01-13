@@ -7,19 +7,28 @@
 #include <Workers/MCP/MCPBridgeWorker.h>
 
 #include <Client/AuthProfile.h>
+#include <Client/CommandSubmitter.h>
 #include <Client/Requestor.h>
+
+#include <Agent/Commander.h>
+#include <Utils/Convert.h>
+
+#include <functional>
 
 #include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageBox>
 #include <QMenu>
 #include <QSignalBlocker>
+#include <QDebug>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
@@ -38,10 +47,21 @@ TacticalGuidanceWidget::TacticalGuidanceWidget(AdaptixWidget* w)
     mainHSplitter = new QSplitter(Qt::Horizontal, this);
     mainHSplitter->setHandleWidth(3);
 
+    connect(adaptixWidget, &AdaptixWidget::eventNewAgent, this, &TacticalGuidanceWidget::onNewAgent);
+    connect(adaptixWidget, &AdaptixWidget::eventRemoveAgent, this, &TacticalGuidanceWidget::onRemoveAgent);
+    connect(adaptixWidget, &AdaptixWidget::eventAgentUpdate, this, &TacticalGuidanceWidget::onAgentUpdate);
+    connect(adaptixWidget, &AdaptixWidget::SyncedSignal, this, &TacticalGuidanceWidget::onSynced);
+
     this->createLibraryUI();
     this->createComposerUI();
     this->createResultsUI();
-    this->initDefaultLibrary();
+    
+    // Try to load local library, if empty/fail, init default
+    this->loadLibrary();
+    if (libraryModel->rowCount() == 0) {
+        this->initDefaultLibrary();
+        this->saveLibrary();
+    }
 
     mainHSplitter->setStretchFactor(0, 1);
     mainHSplitter->setStretchFactor(1, 2);
@@ -57,6 +77,26 @@ TacticalGuidanceWidget::TacticalGuidanceWidget(AdaptixWidget* w)
 
 TacticalGuidanceWidget::~TacticalGuidanceWidget() = default;
 
+void TacticalGuidanceWidget::onNewAgent(QString agentId)
+{
+    refreshAgentList();
+}
+
+void TacticalGuidanceWidget::onRemoveAgent(QString agentId)
+{
+    refreshAgentList();
+}
+
+void TacticalGuidanceWidget::onAgentUpdate(QString agentId)
+{
+    refreshAgentList();
+}
+
+void TacticalGuidanceWidget::onSynced()
+{
+    refreshAgentList();
+}
+
 void TacticalGuidanceWidget::createLibraryUI()
 {
     libraryPanel = new QWidget(this);
@@ -64,8 +104,31 @@ void TacticalGuidanceWidget::createLibraryUI()
     libraryLayout->setContentsMargins(4, 4, 4, 4);
     libraryLayout->setSpacing(4);
 
+    // --- Agent Selection Section ---
+    libraryLayout->addWidget(new QLabel("<b>Target Agents</b>"));
+    
+    agentSelectBtn = new QPushButton("Select Agents (0)", libraryPanel);
+    agentSelectMenu = new QMenu(this);
+    agentSelectBtn->setMenu(agentSelectMenu);
+    libraryLayout->addWidget(agentSelectBtn);
+
+    connect(agentSelectMenu, &QMenu::triggered, this, &TacticalGuidanceWidget::onAgentMenuTriggered);
+
+    QHBoxLayout* filterLayout = new QHBoxLayout();
+    filterLayout->addWidget(new QLabel("OS Filter:"));
+    agentOsFilter = new QComboBox(libraryPanel);
+    agentOsFilter->addItems({"Auto (Based on Selection)", "Windows", "Linux", "macOS", "All"});
+    filterLayout->addWidget(agentOsFilter);
+    libraryLayout->addLayout(filterLayout);
+
+    connect(agentOsFilter, &QComboBox::currentTextChanged, this, &TacticalGuidanceWidget::onAgentSelectionChanged); // Re-filter on change
+
+    // --- Library Section ---
+    libraryLayout->addWidget(new QLabel("<b>Tactical Library</b>"));
+    
     librarySearch = new QLineEdit(libraryPanel);
-    librarySearch->setPlaceholderText("Search Library...");
+    librarySearch->setPlaceholderText("Search Command...");
+    libraryLayout->addWidget(librarySearch);
 
     libraryView = new QTreeView(libraryPanel);
     libraryView->setHeaderHidden(true);
@@ -84,14 +147,15 @@ void TacticalGuidanceWidget::createLibraryUI()
     
     libraryView->setModel(libraryProxyModel);
 
-    libraryLayout->addWidget(new QLabel("<b>Command Library</b>"));
-    libraryLayout->addWidget(librarySearch);
     libraryLayout->addWidget(libraryView, 1);
 
     mainHSplitter->addWidget(libraryPanel);
 
     connect(librarySearch, &QLineEdit::textChanged, this, &TacticalGuidanceWidget::onLibrarySearchChanged);
     connect(libraryView->selectionModel(), &QItemSelectionModel::selectionChanged, this, &TacticalGuidanceWidget::onLibraryBlockSelected);
+    
+    // Initial population of agents (if any)
+    refreshAgentList();
 }
 
 void TacticalGuidanceWidget::createComposerUI()
@@ -101,48 +165,150 @@ void TacticalGuidanceWidget::createComposerUI()
     composerLayout->setContentsMargins(4, 4, 4, 4);
     composerLayout->setSpacing(4);
 
+    composerLayout->addWidget(new QLabel("<b>Playbook Composer</b>"));
+
+    // --- Playbook Selection Row ---
+    QHBoxLayout* pbLayout = new QHBoxLayout();
+    pbLayout->addWidget(new QLabel("Playbook:"));
+    
+    playbookSelector = new QComboBox(composerPanel);
+    playbookSelector->setEditable(false);
+    connect(playbookSelector, &QComboBox::currentTextChanged, this, &TacticalGuidanceWidget::onWorkflowSelected);
+    pbLayout->addWidget(playbookSelector, 1);
+
+    QPushButton* btnNewPb = new QPushButton(composerPanel);
+    btnNewPb->setIcon(QIcon(":/icons/file_open_64dp.png"));
+    btnNewPb->setToolTip("New Playbook");
+    btnNewPb->setMaximumWidth(30);
+    connect(btnNewPb, &QPushButton::clicked, this, &TacticalGuidanceWidget::onAddPlaybookClicked);
+    pbLayout->addWidget(btnNewPb);
+
+    QPushButton* btnDelPb = new QPushButton(composerPanel);
+    btnDelPb->setIcon(QIcon(":/icons/close_dp64.png"));
+    btnDelPb->setToolTip("Delete Playbook");
+    btnDelPb->setMaximumWidth(30);
+    connect(btnDelPb, &QPushButton::clicked, this, [this](){
+        QMessageBox::information(this, "Tactical", "Playbook management is disabled in this mode.");
+    });
+    pbLayout->addWidget(btnDelPb);
+
+    QPushButton* btnOptsPb = new QPushButton(composerPanel);
+    btnOptsPb->setIcon(QIcon(":/icons/arrow_drop_down_64dp.png"));
+    btnOptsPb->setToolTip("Playbook Options");
+    btnOptsPb->setMaximumWidth(30);
+    QMenu* pbMenu = new QMenu(btnOptsPb);
+    
+    pbMenu->addAction("Rename Playbook", this, [this](){
+        QMessageBox::information(this, "Tactical", "Playbook management is disabled in this mode.");
+    });
+    
+    pbMenu->addAction("Duplicate Playbook", this, [this](){
+        QMessageBox::information(this, "Tactical", "Playbook management is disabled in this mode.");
+    });
+    
+    btnOptsPb->setMenu(pbMenu);
+    pbLayout->addWidget(btnOptsPb);
+
+    composerLayout->addLayout(pbLayout);
+
+    // L4 + A mode: keep UI but disable playbook persistence/switching features.
+    playbookSelector->clear();
+    playbookSelector->addItem("Active", "active");
+    playbookSelector->setCurrentIndex(0);
+    playbookSelector->setEnabled(false);
+    btnNewPb->setEnabled(false);
+    btnDelPb->setEnabled(false);
+    btnOptsPb->setEnabled(false);
+
+    // Playbook Settings
+    QHBoxLayout* settingsLayout = new QHBoxLayout();
+    settingsLayout->addWidget(new QLabel("Interval (s):"));
+    workflowInterval = new QSpinBox(composerPanel);
+    workflowInterval->setRange(0, 3600);
+    workflowInterval->setValue(1);
+    settingsLayout->addWidget(workflowInterval);
+    
+    // Stop on Error Checkbox
+    chkStopOnError = new QCheckBox("Stop on Error", composerPanel);
+    chkStopOnError->setChecked(true);
+    settingsLayout->addWidget(chkStopOnError);
+    
+    settingsLayout->addStretch();
+    composerLayout->addLayout(settingsLayout);
+
     composerTree = new QTreeWidget(composerPanel);
-    composerTree->setHeaderLabels({"Workflow Steps", "Status"});
+    composerTree->setHeaderLabels({"Step Name", "Status", "Details"});
     composerTree->setDragEnabled(true);
     composerTree->setAcceptDrops(true);
     composerTree->setDropIndicatorShown(true);
-    composerTree->setDragDropMode(QAbstractItemView::DragDrop);
+    // Disable standard DragDrop mode to prevent internal conflict with manual eventFilter handling
+    // composerTree->setDragDropMode(QAbstractItemView::DragDrop); 
+    // We handle drops manually, so we don't want QTreeWidget to try to parse mime data itself
+    
     composerTree->setDefaultDropAction(Qt::MoveAction);
     composerTree->viewport()->installEventFilter(this);
+    composerTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(composerTree, &QTreeWidget::customContextMenuRequested, this, &TacticalGuidanceWidget::onComposerContextMenu);
 
     connect(composerTree->model(), &QAbstractItemModel::rowsInserted, this, &TacticalGuidanceWidget::onComposerChanged);
     connect(composerTree->model(), &QAbstractItemModel::rowsRemoved, this, &TacticalGuidanceWidget::onComposerChanged);
     connect(composerTree->model(), &QAbstractItemModel::modelReset, this, &TacticalGuidanceWidget::onComposerChanged);
+    // Also track data changes (e.g. edits)
+    connect(composerTree->model(), &QAbstractItemModel::dataChanged, this, &TacticalGuidanceWidget::onComposerChanged);
 
+    composerLayout->addWidget(composerTree, 1);
+
+    // Actions
     composerActionsRow = new QWidget(composerPanel);
     auto* actionsLayout = new QHBoxLayout(composerActionsRow);
     actionsLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto* btnRun = new QPushButton("Run Workflow", composerActionsRow);
-    connect(btnRun, &QPushButton::clicked, this, &TacticalGuidanceWidget::onRunWorkflowClicked);
+    auto* btnRun = new QPushButton("Run Playbook", composerActionsRow);
+    connect(btnRun, &QPushButton::clicked, this, &TacticalGuidanceWidget::runActivePlaybook);
 
-    auto* btnClear = new QPushButton("Clear", composerActionsRow);
+    auto* btnClear = new QPushButton("Clear Playbook", composerActionsRow);
     connect(btnClear, &QPushButton::clicked, this, &TacticalGuidanceWidget::clearWorkflow);
+    
+    btnSaveLocal = new QPushButton("Save Local", composerActionsRow);
+    connect(btnSaveLocal, &QPushButton::clicked, this, &TacticalGuidanceWidget::onSaveLocalClicked);
+
+    btnPushServer = new QPushButton("Sync to Server", composerActionsRow);
+    connect(btnPushServer, &QPushButton::clicked, this, &TacticalGuidanceWidget::onPushWorkflowClicked);
 
     actionsLayout->addWidget(btnRun);
     actionsLayout->addWidget(btnClear);
+    actionsLayout->addWidget(btnSaveLocal);
+    actionsLayout->addWidget(btnPushServer);
     actionsLayout->addStretch();
 
-    composerLayout->addWidget(new QLabel("<b>Workflow Composer</b>"));
-    
-    composerTargetAgents = new QLineEdit(composerPanel);
-    composerTargetAgents->setPlaceholderText("Target Agents (comma separated IDs, e.g. agent1, agent2)");
-    composerLayout->addWidget(new QLabel("Target Agents:"));
-    composerLayout->addWidget(composerTargetAgents);
-
-    connect(composerTargetAgents, &QLineEdit::textChanged, this, &TacticalGuidanceWidget::onTargetAgentsChanged);
-
-    composerLayout->addWidget(composerTree, 1);
     composerLayout->addWidget(composerActionsRow);
 
     mainHSplitter->addWidget(composerPanel);
 
-    connect(composerTree, &QTreeWidget::itemClicked, this, &TacticalGuidanceWidget::onWorkflowStepClicked);
+    // L4 + A mode: keep UI but disable local save/server sync.
+    if (btnSaveLocal) btnSaveLocal->setEnabled(false);
+    if (btnPushServer) btnPushServer->setEnabled(false);
+}
+
+void TacticalGuidanceWidget::refreshPlaybookList()
+{
+    // L4 + A mode: a single non-switchable "Active" workflow.
+    if (!playbookSelector)
+        return;
+    QSignalBlocker blocker(playbookSelector);
+    playbookSelector->clear();
+    playbookSelector->addItem("Active", "active");
+    playbookSelector->setCurrentIndex(0);
+}
+
+void TacticalGuidanceWidget::onAddPlaybookClicked()
+{
+    QMessageBox::information(this, "Tactical", "Playbook management is disabled in this mode.");
+}
+
+void TacticalGuidanceWidget::onWorkflowSelected()
+{
+    // L4 + A mode: playbook switching is disabled.
 }
 
 void TacticalGuidanceWidget::createResultsUI()
@@ -153,11 +319,21 @@ void TacticalGuidanceWidget::createResultsUI()
     resultsLayout->setSpacing(4);
 
     resultsTree = new QTreeWidget(resultsPanel);
-    resultsTree->setHeaderLabels({"Agent ID", "Result"});
+    resultsTree->setHeaderLabels({"Step", "Status", "Output"});
     resultsTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     resultsTree->setAlternatingRowColors(true);
 
     resultsLayout->addWidget(new QLabel("<b>Results</b>"));
+    
+    // Actions
+    QHBoxLayout* resActions = new QHBoxLayout();
+    resActions->addStretch();
+    
+    btnClearResults = new QPushButton("Clear Results", resultsPanel);
+    connect(btnClearResults, &QPushButton::clicked, this, &TacticalGuidanceWidget::onClearResultsClicked);
+    resActions->addWidget(btnClearResults);
+    
+    resultsLayout->addLayout(resActions);
     resultsLayout->addWidget(resultsTree, 1);
 
     mainHSplitter->addWidget(resultsPanel);
@@ -165,133 +341,680 @@ void TacticalGuidanceWidget::createResultsUI()
     connect(resultsTree, &QTreeWidget::itemClicked, this, &TacticalGuidanceWidget::onResultsItemClicked);
 }
 
+void TacticalGuidanceWidget::onClearResultsClicked()
+{
+    resultsTree->clear();
+}
+
+void TacticalGuidanceWidget::buildLibraryTree(QStandardItem* parentItem, const QVector<TacticalNodeData>& nodes)
+{
+    QString pId = "";
+    if (parentItem) pId = parentItem->data(Qt::UserRole).toString();
+
+    for (const auto& node : nodes) {
+        TacticalNodeData mutableNode = node;
+        // Ensure parentId is consistent
+        if (mutableNode.parentId.isEmpty()) mutableNode.parentId = pId;
+        
+        auto* item = new QStandardItem(mutableNode.name);
+        item->setData(mutableNode.id, Qt::UserRole);
+        item->setData(mutableNode.type, Qt::UserRole + 1); // Store type
+        
+        nodeMap[mutableNode.id] = mutableNode; // Store in map for lookup
+
+        if (mutableNode.type == "category") {
+            item->setFont(QFont("", -1, QFont::Bold));
+            item->setSelectable(false);
+            item->setIcon(QIcon(":/icons/folder")); 
+            
+            // Recursively build children
+            buildLibraryTree(item, mutableNode.children);
+        } 
+        else if (mutableNode.type == "command") {
+            commandMap[mutableNode.id] = mutableNode.command; // Store command data
+            item->setToolTip(QString("%1\n\nCommand: %2").arg(mutableNode.description).arg(mutableNode.command.rawCommand));
+            
+            int os = mutableNode.command.os;
+            if (os == 1) item->setIcon(QIcon(":/icons/os_win_blue"));
+            else if (os == 2) item->setIcon(QIcon(":/icons/os_linux_blue"));
+            else if (os == 3) item->setIcon(QIcon(":/icons/os_mac_blue"));
+        }
+
+        if (parentItem) parentItem->appendRow(item);
+        else libraryModel->appendRow(item);
+    }
+}
+
 void TacticalGuidanceWidget::initDefaultLibrary()
 {
     libraryModel->clear();
-    catalogMap.clear();
-    variantMap.clear();
+    nodeMap.clear();
+    commandMap.clear();
 
-    // Helper to add category
-    auto addCategory = [&](const QString& name) -> QStandardItem* {
-        auto* item = new QStandardItem(name);
-        item->setFont(QFont("", -1, QFont::Bold));
-        item->setSelectable(false);
-        libraryModel->appendRow(item);
-        return item;
+    QVector<TacticalNodeData> rootNodes;
+
+    // Helper to create a node
+    auto createNode = [](const QString& name, const QString& type, const QString& desc) -> TacticalNodeData {
+        TacticalNodeData node;
+        node.id = QUuid::createUuid().toString();
+        node.name = name;
+        node.type = type;
+        node.description = desc;
+        return node;
     };
 
-    // Helper to add block
-    auto addBlock = [&](QStandardItem* catItem, const QString& name, const QString& desc) -> QStandardItem* {
-        QString id = QUuid::createUuid().toString();
-        TacticalBlockData block;
-        block.id = id;
-        block.name = name;
-        block.category = catItem->text();
-        block.description = desc;
-        
-        catalogMap[id] = block;
-        
-        auto* item = new QStandardItem(name);
-        item->setData(id, Qt::UserRole);
-        item->setToolTip(desc);
-        item->setSelectable(false);
-        catItem->appendRow(item);
-        
-        return item;
+    auto createCommand = [&](const QString& name, const QString& cmdStr, const QString& desc, int os) -> TacticalNodeData {
+        TacticalNodeData node = createNode(name, "command", desc);
+        node.command.id = node.id;
+        node.command.name = name;
+        node.command.rawCommand = cmdStr;
+        node.command.description = desc;
+        node.command.os = os;
+        node.command.risk = 1;
+        return node;
     };
 
-    // Helper to add variant
-    auto addVariant = [&](QStandardItem* blockItem, const QString& name, const QString& cmd, int os) {
-        QString blockId = blockItem->data(Qt::UserRole).toString();
-        if (!catalogMap.contains(blockId)) return;
-
-        QString id = QUuid::createUuid().toString();
-        TacticalVariantData var;
-        var.id = id;
-        var.name = name;
-        var.commandTemplate = cmd;
-        var.os = os;
-        
-        variantMap[id] = var;
-        catalogMap[blockId].variants.push_back(var);
-        
-        auto* item = new QStandardItem(name);
-        item->setData(id, Qt::UserRole);
-        if (os == 1) item->setIcon(QIcon(":/icons/os_win_blue"));
-        else if (os == 2) item->setIcon(QIcon(":/icons/os_linux_blue"));
-        else if (os == 3) item->setIcon(QIcon(":/icons/os_mac_blue"));
-        
-        blockItem->appendRow(item);
-    };
-
-    // --- Reconnaissance ---
-    auto* catRecon = addCategory("Reconnaissance");
+    // --- 1. Recon ---
+    auto catRecon = createNode("信息收集 (Recon)", "category", "");
     
-    auto* blockSysInfo = addBlock(catRecon, "System Information", "Gather basic system info");
-    addVariant(blockSysInfo, "Basic Info (Win)", "whoami /all && ipconfig /all && systeminfo", 1);
-    addVariant(blockSysInfo, "Basic Info (Linux)", "id && ifconfig && uname -a", 2);
+    // Level 2: System
+    auto catSystem = createNode("系统信息 (System)", "category", "");
+    catSystem.children.append(createCommand("基本信息", "whoami /all && ipconfig /all && systeminfo", "Basic Info", 1));
+    catSystem.children.append(createCommand("基本信息", "id && ifconfig && uname -a", "Basic Info", 2));
+    catRecon.children.append(catSystem);
 
-    auto* blockProcess = addBlock(catRecon, "Process Discovery", "List running processes");
-    addVariant(blockProcess, "Tasklist (Win)", "tasklist /v", 1);
-    addVariant(blockProcess, "PS (Linux)", "ps aux", 2);
+    // Level 2: Process
+    auto catProcess = createNode("进程发现 (Process)", "category", "");
+    catProcess.children.append(createCommand("详细进程列表", "tasklist /v", "Process List", 1));
+    catProcess.children.append(createCommand("进程树", "ps auxf", "Process Tree", 2));
+    catRecon.children.append(catProcess);
 
-    // --- Persistence ---
-    auto* catPersist = addCategory("Persistence");
+    // Level 2: Network (Mixed content example)
+    auto catNet = createNode("网络发现 (Network)", "category", "");
+    catNet.children.append(createCommand("ARP缓存", "arp -a", "ARP Table", 1));
     
-    auto* blockReg = addBlock(catPersist, "Registry Run Keys", "Add persistence via Registry Run keys");
-    addVariant(blockReg, "HKCU Run (Win)", "reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v Updater /t REG_SZ /d \"{PAYLOAD_PATH}\" /f", 1);
-
-    // --- Credential Access ---
-    auto* catCreds = addCategory("Credential Access");
+    // Level 3: Deep Scan
+    auto catDeep = createNode("深度扫描 (Deep)", "category", "");
+    catDeep.children.append(createCommand("全端口扫描", "nmap -p- 127.0.0.1", "Full Scan", 2));
+    catNet.children.append(catDeep);
     
-    auto* blockLsass = addBlock(catCreds, "LSASS Dump", "Dump LSASS memory for credentials");
-    addVariant(blockLsass, "Procdump (Win)", "procdump.exe -ma lsass.exe lsass.dmp", 1);
-               
+    catRecon.children.append(catNet);
+
+    rootNodes.append(catRecon);
+
+    // --- 2. Persistence ---
+    auto catPersist = createNode("权限维持 (Persistence)", "category", "");
+    catPersist.children.append(createCommand("HKCU Run键", "reg add HKCU\\... /f", "Registry Run", 1));
+    catPersist.children.append(createCommand("User Crontab", "(crontab -l; ...)|crontab -", "Cron Job", 2));
+    rootNodes.append(catPersist);
+
+    // --- 3. Creds ---
+    auto catCreds = createNode("凭据获取 (Credential Access)", "category", "");
+    catCreds.children.append(createCommand("Procdump", "procdump.exe -ma lsass.exe", "Dump LSASS", 1));
+    rootNodes.append(catCreds);
+
+    buildLibraryTree(nullptr, rootNodes);
     libraryView->expandAll();
+}
+
+void TacticalGuidanceWidget::refreshAgentList()
+{
+    // Save current selection
+    QSet<QString> selectedIds;
+    for (auto* action : agentSelectMenu->actions()) {
+        if (action->isChecked()) {
+            selectedIds.insert(action->data().toString());
+        }
+    }
+
+    agentSelectMenu->clear();
+    
+    if (!adaptixWidget) return;
+
+    for (auto it = adaptixWidget->AgentsMap.begin(); it != adaptixWidget->AgentsMap.end(); ++it) {
+        Agent* agent = it.value();
+        // Format: ID - IP - Username
+        QString label = QString("%1 - %2 - %3").arg(agent->data.Id).arg(agent->data.InternalIP).arg(agent->data.Username);
+        
+        QAction* action = agentSelectMenu->addAction(label);
+        action->setCheckable(true);
+        action->setData(agent->data.Id);
+        
+        if (selectedIds.contains(agent->data.Id)) {
+            action->setChecked(true);
+        }
+
+        // Icon based on OS
+        if (agent->data.OsDesc.contains("Windows", Qt::CaseInsensitive)) action->setIcon(QIcon(":/icons/os_win"));
+        else if (agent->data.OsDesc.contains("Linux", Qt::CaseInsensitive)) action->setIcon(QIcon(":/icons/os_linux"));
+        else action->setIcon(QIcon(":/icons/os_mac"));
+    }
+    
+    // Update button text
+    int count = 0;
+    for(auto* action : agentSelectMenu->actions()) if(action->isChecked()) count++;
+    agentSelectBtn->setText(QString("Select Agents (%1)").arg(count));
+    
+    onAgentSelectionChanged();
+}
+
+void TacticalGuidanceWidget::onAgentMenuTriggered(QAction* action)
+{
+    Q_UNUSED(action);
+    int count = 0;
+    for(auto* a : agentSelectMenu->actions()) if(a->isChecked()) count++;
+    agentSelectBtn->setText(QString("Select Agents (%1)").arg(count));
+    
+    onAgentSelectionChanged();
+}
+
+void TacticalGuidanceWidget::onAgentSelectionChanged()
+{
+    QString filterMode = agentOsFilter->currentText();
+    int targetOs = 0; // 0=All
+    
+    if (filterMode == "Auto (Based on Selection)") {
+        // Check selected agents
+        int win = 0, linux = 0, mac = 0;
+        
+        for (auto* action : agentSelectMenu->actions()) {
+            if (!action->isChecked()) continue;
+            
+            // We need to look up agent data really, but using label text heuristic for now as we did before
+            // Or better, look up in AdaptixWidget
+            QString id = action->data().toString();
+            if(adaptixWidget->AgentsMap.contains(id)) {
+                Agent* agent = adaptixWidget->AgentsMap[id];
+                if(agent->data.OsDesc.contains("Windows", Qt::CaseInsensitive)) win++;
+                else if(agent->data.OsDesc.contains("Linux", Qt::CaseInsensitive)) linux++;
+                else if(agent->data.OsDesc.contains("Darwin", Qt::CaseInsensitive) || agent->data.OsDesc.contains("Mac", Qt::CaseInsensitive)) mac++;
+            }
+        }
+
+        if (win > 0 && linux == 0 && mac == 0) targetOs = 1;
+        else if (win == 0 && linux > 0 && mac == 0) targetOs = 2;
+        else if (win == 0 && linux == 0 && mac > 0) targetOs = 3;
+        else targetOs = 0; // Mixed or none
+        
+    } else if (filterMode == "Windows") targetOs = 1;
+    else if (filterMode == "Linux") targetOs = 2;
+    else if (filterMode == "macOS") targetOs = 3;
+    
+    // Filter Library View
+    if (libraryProxyModel) {
+        // This is a placeholder. To properly filter by OS, we'd need OS data in the model.
+        // Currently the model only has Name. 
+        // We added icon for command.
+        // We can check the node data via the user role ID.
+        // Since ProxyModel supports recursive filtering, let's just leave it or implement CustomFilter
+        // For now, no-op or maybe just Log
+    }
+}
+
+void TacticalGuidanceWidget::onPushWorkflowClicked()
+{
+    syncWorkflowToServer();
+}
+
+void TacticalGuidanceWidget::onSaveLocalClicked()
+{
+    QMessageBox::information(this, "Tactical", "Local save is disabled in this mode.");
+}
+
+void TacticalGuidanceWidget::syncWorkflowToServer()
+{
+    // L4 + A mode: server workflow sync is disabled.
+}
+
+void TacticalGuidanceWidget::handleWorkflowSync(const QJsonObject& json)
+{
+    Q_UNUSED(json);
+    // L4 + A mode: server workflow sync is disabled.
+}
+
+QString TacticalGuidanceWidget::riskLabel(const int risk) const
+{
+    if (risk == 1)
+        return "Low";
+    if (risk == 2)
+        return "Medium";
+    if (risk == 3)
+        return "High";
+    return "Unknown";
+}
+
+QStringList TacticalGuidanceWidget::collectSelectedAgentIds() const
+{
+    QStringList ids;
+    if (!agentSelectMenu)
+        return ids;
+
+    for (auto* action : agentSelectMenu->actions()) {
+        if (action && action->isChecked())
+            ids.push_back(action->data().toString());
+    }
+    return ids;
+}
+
+QList<QTreeWidgetItem*> TacticalGuidanceWidget::collectCommandSteps() const
+{
+    QList<QTreeWidgetItem*> steps;
+    if (!composerTree)
+        return steps;
+
+    std::function<void(QTreeWidgetItem*)> walk = [&](QTreeWidgetItem* item) {
+        if (!item)
+            return;
+        const QString type = item->data(4, Qt::UserRole).toString();
+        if (type == "command")
+            steps.push_back(item);
+        for (int i = 0; i < item->childCount(); ++i)
+            walk(item->child(i));
+    };
+
+    for (int i = 0; i < composerTree->topLevelItemCount(); ++i)
+        walk(composerTree->topLevelItem(i));
+
+    return steps;
+}
+
+void TacticalGuidanceWidget::stopExecution()
+{
+    executionRunning = false;
+    executionAdvanceScheduled = false;
+    executionQueue.clear();
+    currentExecutingItem = nullptr;
+    executionTargetAgents.clear();
+    taskIdToComposerItem.clear();
+    composerItemPendingCount.clear();
+    composerItemHasError.clear();
+    resultsStepItems.clear();
+    resultsAgentItems.clear();
+}
+
+void TacticalGuidanceWidget::advanceExecution()
+{
+    if (!executionRunning)
+        return;
+
+    if (currentExecutingItem) {
+        const QString stepInstanceId = currentExecutingItem->data(0, Qt::UserRole).toString();
+        const int pending = composerItemPendingCount.value(stepInstanceId, 0);
+        
+        // Only advance when all agents have successfully completed (pending == 0)
+        // If any agent failed, pending will not be decremented and execution will stop
+        if (pending > 0)
+            return;
+
+        // Check if any agent in this step had an error
+        bool hasError = false;
+        for (const QString& agentId : executionTargetAgents) {
+            const QString agentErrorKey = stepInstanceId + "|error|" + agentId;
+            if (composerItemHasError.value(agentErrorKey, false)) {
+                hasError = true;
+                break;
+            }
+        }
+
+        currentExecutingItem->setText(1, hasError ? "Error" : "Success");
+        if (resultsStepItems.contains(stepInstanceId)) {
+            resultsStepItems[stepInstanceId]->setText(1, hasError ? "Error" : "Success");
+        }
+
+        // Always stop on error since we require all agents to succeed
+        if (hasError) {
+            stopExecution();
+            return;
+        }
+
+        // IMPORTANT: we've completed this step. Clear it before pulling the next one.
+        // Otherwise, if executionQueue is empty, we would keep re-running the same step.
+        currentExecutingItem = nullptr;
+    }
+
+    while (!executionQueue.isEmpty()) {
+        QTreeWidgetItem* next = executionQueue.takeFirst();
+        if (next) {
+            currentExecutingItem = next;
+            break;
+        }
+    }
+
+    if (!currentExecutingItem) {
+        stopExecution();
+        return;
+    }
+
+    const QString stepInstanceId = currentExecutingItem->data(0, Qt::UserRole).toString();
+    composerItemPendingCount[stepInstanceId] = 0;
+    composerItemHasError[stepInstanceId] = false;
+    currentExecutingItem->setText(1, "Running");
+
+    if (resultsStepItems.contains(stepInstanceId)) {
+        resultsStepItems[stepInstanceId]->setText(1, "Running");
+    }
+
+    const QString commandId = currentExecutingItem->data(2, Qt::UserRole).toString();
+    if (!commandMap.contains(commandId)) {
+        composerItemHasError[stepInstanceId] = true;
+        composerItemPendingCount[stepInstanceId] = 0;
+        executionAdvanceScheduled = true;
+        QTimer::singleShot(0, this, [this]() {
+            executionAdvanceScheduled = false;
+            advanceExecution();
+        });
+        return;
+    }
+
+    const auto& cmd = commandMap[commandId];
+    const QString commandLine = cmd.rawCommand;
+
+    for (const QString& agentId : executionTargetAgents) {
+        if (!adaptixWidget || !adaptixWidget->AgentsMap.contains(agentId)) {
+            composerItemHasError[stepInstanceId] = true;
+            continue;
+        }
+
+        Agent* agent = adaptixWidget->AgentsMap[agentId];
+        if (!agent) {
+            composerItemHasError[stepInstanceId] = true;
+            continue;
+        }
+
+        const QString agentKey = stepInstanceId + "|" + agentId;
+
+        QTreeWidgetItem* stepResItem = resultsStepItems.value(stepInstanceId, nullptr);
+        QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+        if (!agentResItem && stepResItem) {
+            agentResItem = new QTreeWidgetItem(stepResItem);
+            agentResItem->setText(0, agentId);
+            agentResItem->setText(1, "Pending");
+            resultsAgentItems[agentKey] = agentResItem;
+            stepResItem->setExpanded(true);
+        }
+
+        if (!agent->commander) {
+            composerItemHasError[stepInstanceId] = true;
+            if (agentResItem) {
+                agentResItem->setText(1, "Error");
+                agentResItem->setText(2, "Commander is not initialized");
+            }
+            continue;
+        }
+
+        CommanderResult cmdResult = agent->commander->ProcessInput(agentId, commandLine);
+        if (cmdResult.is_pre_hook) {
+            composerItemPendingCount[stepInstanceId] = composerItemPendingCount.value(stepInstanceId, 0) + 1;
+            if (agentResItem) {
+                agentResItem->setText(1, "Hook");
+                agentResItem->setText(2, "Pre-hook triggered");
+            }
+
+            const QString stepIdCopy = stepInstanceId;
+            QTimer::singleShot(200, this, [this, stepIdCopy]() {
+                if (!executionRunning)
+                    return;
+                composerItemPendingCount[stepIdCopy] = qMax(0, composerItemPendingCount.value(stepIdCopy, 0) - 1);
+                if (!executionAdvanceScheduled && composerItemPendingCount.value(stepIdCopy, 0) == 0) {
+                    executionAdvanceScheduled = true;
+                    QTimer::singleShot(0, this, [this]() {
+                        executionAdvanceScheduled = false;
+                        advanceExecution();
+                    });
+                }
+            });
+            continue;
+        }
+
+        if (cmdResult.output && cmdResult.error) {
+            const QString fallbackCmd = "shell " + commandLine;
+            CommanderResult fallback = agent->commander->ProcessInput(agentId, fallbackCmd);
+            if (!fallback.is_pre_hook && !fallback.output) {
+                cmdResult = fallback;
+            }
+        }
+
+        if (cmdResult.output) {
+            if (agentResItem) {
+                agentResItem->setText(1, cmdResult.error ? "Error" : "Success");
+                agentResItem->setText(2, cmdResult.message);
+            }
+            if (cmdResult.error)
+                composerItemHasError[stepInstanceId] = true;
+            continue;
+        }
+
+        composerItemPendingCount[stepInstanceId] = composerItemPendingCount.value(stepInstanceId, 0) + 1;
+        if (agentResItem)
+            agentResItem->setText(1, "Submitted");
+
+        QTreeWidgetItem* stepItemForCallbacks = currentExecutingItem;
+        CommandSubmitter::Submit(adaptixWidget, agent, commandLine, cmdResult, true, this, false,
+                                 [this, stepItemForCallbacks, stepInstanceId, agentKey](const CommandSubmitInfo& info) {
+            QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+            if (!info.ok) {
+                composerItemHasError[stepInstanceId] = true;
+                composerItemPendingCount[stepInstanceId] = qMax(0, composerItemPendingCount.value(stepInstanceId, 0) - 1);
+                if (agentResItem) {
+                    agentResItem->setText(1, "Submit Error");
+                    agentResItem->setText(2, info.message);
+                }
+                if (!executionAdvanceScheduled && composerItemPendingCount.value(stepInstanceId, 0) == 0) {
+                    executionAdvanceScheduled = true;
+                    QTimer::singleShot(0, this, [this]() {
+                        executionAdvanceScheduled = false;
+                        advanceExecution();
+                    });
+                }
+            } else if (!info.taskId.isEmpty()) {
+                if (stepItemForCallbacks)
+                    taskIdToComposerItem[info.taskId] = stepItemForCallbacks;
+                if (agentResItem)
+                    agentResItem->setData(0, Qt::UserRole, info.taskId);
+            } else {
+                composerItemHasError[stepInstanceId] = true;
+                composerItemPendingCount[stepInstanceId] = qMax(0, composerItemPendingCount.value(stepInstanceId, 0) - 1);
+                if (agentResItem)
+                    agentResItem->setText(1, "No TaskId");
+                if (!executionAdvanceScheduled && composerItemPendingCount.value(stepInstanceId, 0) == 0) {
+                    executionAdvanceScheduled = true;
+                    QTimer::singleShot(0, this, [this]() {
+                        executionAdvanceScheduled = false;
+                        advanceExecution();
+                    });
+                }
+            }
+        },
+                                 [this, stepItemForCallbacks, agentKey](const QString&, const QString& taskId) {
+            if (taskId.isEmpty())
+                return;
+            if (stepItemForCallbacks)
+                taskIdToComposerItem[taskId] = stepItemForCallbacks;
+            QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+            if (agentResItem)
+                agentResItem->setData(0, Qt::UserRole, taskId);
+        });
+    }
+
+    if (composerItemPendingCount.value(stepInstanceId, 0) == 0 && !executionAdvanceScheduled) {
+        executionAdvanceScheduled = true;
+        QTimer::singleShot(0, this, [this]() {
+            executionAdvanceScheduled = false;
+            advanceExecution();
+        });
+    }
+}
+
+void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
+{
+    // L4 + A mode: task-result binding/execution gating is disabled.
+
+    if (!executionRunning)
+        return;
+
+    const QString taskId = task.TaskId;
+    if (taskId.isEmpty() || !taskIdToComposerItem.contains(taskId))
+        return;
+
+    QTreeWidgetItem* stepItem = taskIdToComposerItem.value(taskId, nullptr);
+    if (!stepItem)
+        return;
+
+    const QString stepInstanceId = stepItem->data(0, Qt::UserRole).toString();
+    const QString agentKey = stepInstanceId + "|" + task.AgentId;
+    QTreeWidgetItem* agentResItem = resultsAgentItems.value(agentKey, nullptr);
+    if (agentResItem) {
+        agentResItem->setText(1, task.Status);
+        agentResItem->setText(2, task.Output);
+    }
+
+    if (!task.Completed)
+        return;
+
+    // Track per-agent success/failure
+    const QString agentErrorKey = stepInstanceId + "|error|" + task.AgentId;
+    if (task.Status != "Success") {
+        // Mark this specific agent as having an error
+        composerItemHasError[agentErrorKey] = true;
+        // Also mark the step as having errors (for UI display)
+        composerItemHasError[stepInstanceId] = true;
+    }
+
+    // Only decrement pending count and advance if task is successful
+    if (task.Status == "Success") {
+        composerItemPendingCount[stepInstanceId] = qMax(0, composerItemPendingCount.value(stepInstanceId, 0) - 1);
+        
+        if (!executionAdvanceScheduled && composerItemPendingCount.value(stepInstanceId, 0) == 0) {
+            executionAdvanceScheduled = true;
+            QTimer::singleShot(0, this, [this]() {
+                executionAdvanceScheduled = false;
+                advanceExecution();
+            });
+        }
+    }
+    // If task failed, keep pending count as is to prevent advancement
+}
+
+void TacticalGuidanceWidget::addStepToActivePlaybook(const QString& commandId, const QMap<QString, QString>& params)
+{
+    if (!commandMap.contains(commandId))
+        return;
+
+    QTreeWidgetItem* selected = composerTree->currentItem();
+    QTreeWidgetItem* parent = nullptr;
+    int insertIndex = -1;
+
+    if (selected) {
+        const QString selType = selected->data(4, Qt::UserRole).toString();
+        if (selType == "group") {
+            parent = selected;
+            insertIndex = parent->childCount();
+        } else {
+            parent = selected->parent();
+            if (parent)
+                insertIndex = parent->indexOfChild(selected) + 1;
+            else
+                insertIndex = composerTree->indexOfTopLevelItem(selected) + 1;
+        }
+    }
+
+    QTreeWidgetItem* item = nullptr;
+    if (parent) {
+        item = new QTreeWidgetItem();
+        parent->insertChild(insertIndex, item);
+        parent->setExpanded(true);
+    } else {
+        item = new QTreeWidgetItem();
+        composerTree->insertTopLevelItem(insertIndex < 0 ? composerTree->topLevelItemCount() : insertIndex, item);
+    }
+
+    const auto& cmd = commandMap[commandId];
+
+    item->setText(0, cmd.name);
+    item->setText(1, "Pending");
+    item->setText(2, cmd.description);
+
+    item->setData(0, Qt::UserRole, QUuid::createUuid().toString());
+    item->setData(2, Qt::UserRole, commandId);
+    item->setData(4, Qt::UserRole, "command");
+
+    QVariantMap paramsVar;
+    for (auto it = params.begin(); it != params.end(); ++it)
+        paramsVar.insert(it.key(), it.value());
+    item->setData(3, Qt::UserRole, paramsVar);
+
+    QVariantMap taskIdsVar;
+    item->setData(5, Qt::UserRole, taskIdsVar);
+
+    if (cmd.os == 1) item->setIcon(0, QIcon(":/icons/os_win_blue"));
+    else if (cmd.os == 2) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
+    else if (cmd.os == 3) item->setIcon(0, QIcon(":/icons/os_mac_blue"));
+    else item->setIcon(0, QIcon(":/icons/code_blocks"));
+
+    // L4 + A mode: no playbook persistence.
+}
+
+void TacticalGuidanceWidget::clearWorkflow()
+{
+    stopExecution();
+    composerTree->clear();
+    if (resultsTree)
+        resultsTree->clear();
 }
 
 QJsonObject TacticalGuidanceWidget::getLibraryAsJson() const
 {
     QJsonObject root;
-    QJsonArray categories;
+    QJsonArray nodesArr;
+
+    std::function<QJsonObject(QStandardItem*)> serializeItem = [&](QStandardItem* item) -> QJsonObject {
+        QJsonObject obj;
+        QString id = item->data(Qt::UserRole).toString();
+        QString type = item->data(Qt::UserRole + 1).toString();
+        
+        if (id.isEmpty()) return QJsonObject(); // Should not happen for valid nodes
+
+        if (nodeMap.contains(id)) {
+            const auto& nodeData = nodeMap[id];
+            obj["id"] = nodeData.id;
+            obj["name"] = nodeData.name;
+            obj["type"] = nodeData.type;
+            obj["description"] = nodeData.description;
+            obj["parent_id"] = nodeData.parentId;
+            
+            if (nodeData.type == "command") {
+                QJsonObject cmdObj;
+                const auto& cmd = nodeData.command;
+                cmdObj["id"] = cmd.id;
+                cmdObj["name"] = cmd.name;
+                cmdObj["cmd"] = cmd.rawCommand;
+                cmdObj["os"] = cmd.os;
+                cmdObj["risk"] = cmd.risk;
+                cmdObj["description"] = cmd.description;
+                obj["command"] = cmdObj;
+            }
+        } else {
+            // Fallback if not in map (e.g. newly created via context menu but map update missed?)
+            // We ensure map is updated in context menu.
+            obj["id"] = id;
+            obj["name"] = item->text();
+            obj["type"] = type.isEmpty() ? "category" : type; 
+        }
+
+        QJsonArray children;
+        for (int i = 0; i < item->rowCount(); ++i) {
+            children.append(serializeItem(item->child(i)));
+        }
+        if (!children.isEmpty()) obj["children"] = children;
+
+        return obj;
+    };
 
     for (int i = 0; i < libraryModel->rowCount(); ++i) {
-        QStandardItem* catItem = libraryModel->item(i);
-        QJsonObject catObj;
-        catObj["name"] = catItem->text();
-        
-        QJsonArray blocks;
-        for (int j = 0; j < catItem->rowCount(); ++j) {
-            QStandardItem* blockItem = catItem->child(j);
-            QString blockId = blockItem->data(Qt::UserRole).toString();
-            if (catalogMap.contains(blockId)) {
-                const auto& blockData = catalogMap[blockId];
-                QJsonObject blockObj;
-                blockObj["id"] = blockData.id;
-                blockObj["name"] = blockData.name;
-                blockObj["description"] = blockData.description;
-                
-                QJsonArray variants;
-                for (const auto& var : blockData.variants) {
-                    QJsonObject varObj;
-                    varObj["id"] = var.id;
-                    varObj["name"] = var.name;
-                    varObj["cmd"] = var.commandTemplate;
-                    varObj["os"] = var.os;
-                    varObj["risk"] = var.risk;
-                    varObj["opsec"] = var.opsecNotes;
-                    varObj["ai_guidance"] = var.aiGuidance;
-                    variants.append(varObj);
-                }
-                blockObj["variants"] = variants;
-                blocks.append(blockObj);
-            }
-        }
-        catObj["blocks"] = blocks;
-        categories.append(catObj);
+        nodesArr.append(serializeItem(libraryModel->item(i)));
     }
     
-    root["categories"] = categories;
+    root["nodes"] = nodesArr;
     return root;
 }
 
@@ -319,54 +1042,171 @@ void TacticalGuidanceWidget::onTargetAgentsChanged()
     // No-op for now, or validation logic
 }
 
-void TacticalGuidanceWidget::syncWorkflowToServer()
-{
-    QJsonObject root;
-    root["target_agents"] = composerTargetAgents->text();
-    
-    QJsonArray steps;
-    for (int i = 0; i < composerTree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* item = composerTree->topLevelItem(i);
-        QJsonObject stepObj;
-        stepObj["instance_id"] = item->data(0, Qt::UserRole).toString();
-        stepObj["block_id"] = item->data(1, Qt::UserRole).toString();
-        stepObj["variant_id"] = item->data(2, Qt::UserRole).toString();
-        stepObj["name"] = item->text(0);
-        
-        QMap<QString, QString> params = item->data(3, Qt::UserRole).value<QMap<QString, QString>>();
-        QJsonObject paramsObj;
-        for (auto it = params.begin(); it != params.end(); ++it) {
-            paramsObj[it.key()] = it.value();
-        }
-        stepObj["params"] = paramsObj;
-        
-        steps.append(stepObj);
-    }
-    root["steps"] = steps;
-
-    // Send to server
-    HttpReqTacticalWorkflowUpdateAsync(QJsonDocument(root).toJson(), *adaptixWidget->GetProfile(), [](bool, const QString&, const QJsonObject&){});
-}
-
-QString TacticalGuidanceWidget::renderCommand(const QString& templ, const AgentData& agentData, const QMap<QString, QString>& params) const
-{
-    QString result = templ;
-    // Basic replacements
-    result.replace("{IP}", agentData.InternalIP);
-    result.replace("{USER}", agentData.Username);
-    result.replace("{HOST}", agentData.Computer);
-    
-    // Custom params
-    for (auto it = params.begin(); it != params.end(); ++it) {
-        result.replace("{" + it.key() + "}", it.value());
-    }
-    return result;
-}
-
 void TacticalGuidanceWidget::onLibrarySearchChanged(const QString& text)
 {
     if (libraryProxyModel)
         libraryProxyModel->setFilterWildcard(text);
+}
+
+void TacticalGuidanceWidget::cleanupNodeData(QStandardItem* item)
+{
+    if (!item) return;
+    
+    // Recursive clean children first
+    for (int i = 0; i < item->rowCount(); ++i) {
+        cleanupNodeData(item->child(i));
+    }
+
+    QString id = item->data(Qt::UserRole).toString();
+    nodeMap.remove(id);
+    commandMap.remove(id);
+}
+
+QStandardItem* TacticalGuidanceWidget::findItemById(const QString& id, QStandardItem* parent)
+{
+    if (!libraryModel) return nullptr;
+    
+    QStandardItem* root = parent ? parent : libraryModel->invisibleRootItem();
+    
+    for (int i = 0; i < root->rowCount(); ++i) {
+        QStandardItem* child = root->child(i);
+        if (child->data(Qt::UserRole).toString() == id) {
+            return child;
+        }
+        
+        QStandardItem* found = findItemById(id, child);
+        if (found) return found;
+    }
+    return nullptr;
+}
+
+QMap<QString, QString> TacticalGuidanceWidget::getAllCategories(QStandardItem* parent, QString prefix)
+{
+    QMap<QString, QString> categories;
+    QStandardItem* root = parent ? parent : libraryModel->invisibleRootItem();
+    
+    for (int i = 0; i < root->rowCount(); ++i) {
+        QStandardItem* child = root->child(i);
+        QString type = child->data(Qt::UserRole + 1).toString();
+        
+        if (type == "category") {
+            QString id = child->data(Qt::UserRole).toString();
+            QString name = child->text();
+            categories[id] = prefix + name;
+            
+            // Recurse
+            QMap<QString, QString> subs = getAllCategories(child, prefix + name + " / ");
+            for(auto it = subs.constBegin(); it != subs.constEnd(); ++it) {
+                categories.insert(it.key(), it.value());
+            }
+        }
+    }
+    return categories;
+}
+
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QComboBox>
+#include <QPlainTextEdit>
+
+bool TacticalGuidanceWidget::showCommandDialog(TacticalCommandData& data, QString& parentId, const QString& title)
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(title);
+    dlg.resize(500, 500);
+    
+    QFormLayout* layout = new QFormLayout(&dlg);
+    
+    // Parent Selection
+    QComboBox* comboParent = new QComboBox(&dlg);
+    QMap<QString, QString> cats = getAllCategories();
+    
+    int currentIndex = 0;
+    int i = 0;
+    for (auto it = cats.begin(); it != cats.end(); ++it) {
+        comboParent->addItem(it.value(), it.key());
+        if (it.key() == parentId) currentIndex = i;
+        i++;
+    }
+    layout->addRow("Location:", comboParent);
+    comboParent->setCurrentIndex(currentIndex);
+
+    QLineEdit* editName = new QLineEdit(&dlg);
+    editName->setText(data.name);
+    layout->addRow("Name:", editName);
+    
+    QPlainTextEdit* editCmd = new QPlainTextEdit(&dlg);
+    editCmd->setPlainText(data.rawCommand);
+    editCmd->setFixedHeight(80);
+    layout->addRow("Command:", editCmd);
+    
+    QLineEdit* editDesc = new QLineEdit(&dlg);
+    editDesc->setText(data.description);
+    layout->addRow("Description:", editDesc);
+    
+    QLineEdit* editUsage = new QLineEdit(&dlg);
+    editUsage->setText(data.usage);
+    editUsage->setPlaceholderText("Optional usage info");
+    layout->addRow("Usage:", editUsage);
+    
+    QComboBox* comboOs = new QComboBox(&dlg);
+    comboOs->addItems({"Any", "Windows", "Linux", "macOS"});
+    // Map 1=Win, 2=Linux, 3=Mac. 0=Any? Assuming 0 is Any for now or just default to 1
+    int osIdx = 0;
+    if (data.os == 1) osIdx = 1;
+    else if (data.os == 2) osIdx = 2;
+    else if (data.os == 3) osIdx = 3;
+    comboOs->setCurrentIndex(osIdx);
+    layout->addRow("OS:", comboOs);
+    
+    QComboBox* comboArch = new QComboBox(&dlg);
+    comboArch->addItems({"Any", "x86", "x64"});
+    int archIdx = 0;
+    if (data.arch == 1) archIdx = 1;
+    else if (data.arch == 2) archIdx = 2;
+    comboArch->setCurrentIndex(archIdx);
+    layout->addRow("Architecture:", comboArch);
+    
+    QComboBox* comboRisk = new QComboBox(&dlg);
+    comboRisk->addItems({"Low", "Medium", "High"});
+    // 1=Low, 2=Med, 3=High
+    int riskIdx = 0;
+    if (data.risk >= 1 && data.risk <= 3) riskIdx = data.risk - 1;
+    comboRisk->setCurrentIndex(riskIdx);
+    layout->addRow("Risk Level:", comboRisk);
+    
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addRow(buttons);
+    
+    if (dlg.exec() == QDialog::Accepted) {
+        parentId = comboParent->currentData().toString();
+        data.name = editName->text();
+        data.rawCommand = editCmd->toPlainText();
+        data.description = editDesc->text();
+        data.usage = editUsage->text();
+        
+        // OS
+        int sOs = comboOs->currentIndex();
+        if (sOs == 1) data.os = 1;
+        else if (sOs == 2) data.os = 2;
+        else if (sOs == 3) data.os = 3;
+        else data.os = 0; // Any
+        
+        // Arch
+        int sArch = comboArch->currentIndex();
+        if (sArch == 1) data.arch = 1;
+        else if (sArch == 2) data.arch = 2;
+        else data.arch = 0;
+        
+        // Risk
+        data.risk = comboRisk->currentIndex() + 1;
+        
+        return true;
+    }
+    return false;
 }
 
 void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
@@ -379,90 +1219,190 @@ void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
             bool ok;
             QString text = QInputDialog::getText(this, "Add Category", "Category Name:", QLineEdit::Normal, "", &ok);
             if (ok && !text.isEmpty()) {
+                QString id = QUuid::createUuid().toString();
+                TacticalNodeData node;
+                node.id = id;
+                node.name = text;
+                node.type = "category";
+                node.description = "";
+                nodeMap[id] = node;
+
                 auto* item = new QStandardItem(text);
+                item->setData(id, Qt::UserRole);
+                item->setData("category", Qt::UserRole + 1);
                 item->setFont(QFont("", -1, QFont::Bold));
                 item->setSelectable(false);
+                item->setIcon(QIcon(":/icons/folder"));
                 libraryModel->appendRow(item);
+                
+                saveLibrary();
             }
         });
     } else {
         auto sourceIndex = libraryProxyModel->mapToSource(index);
         auto* item = libraryModel->itemFromIndex(sourceIndex);
         
-        // Check depth: 0=Category, 1=Block, 2=Variant
-        int depth = 0;
-        auto* p = item->parent();
-        while (p) { depth++; p = p->parent(); }
+        QString id = item->data(Qt::UserRole).toString();
+        QString type = item->data(Qt::UserRole + 1).toString();
 
-        if (depth == 0) { // Category
-            menu.addAction("Add Block", this, [this, item](){
+        if (type == "category") {
+            menu.addAction("Add Subcategory", this, [this, item, id](){
                 bool ok;
-                QString text = QInputDialog::getText(this, "Add Block", "Block Name:", QLineEdit::Normal, "", &ok);
+                QString text = QInputDialog::getText(this, "Add Subcategory", "Name:", QLineEdit::Normal, "", &ok);
                 if (ok && !text.isEmpty()) {
-                    QString id = QUuid::createUuid().toString();
-                    TacticalBlockData block;
-                    block.id = id;
-                    block.name = text;
-                    block.category = item->text();
-                    catalogMap[id] = block;
+                    QString newId = QUuid::createUuid().toString();
+                    TacticalNodeData node;
+                    node.id = newId;
+                    node.parentId = id;
+                    node.name = text;
+                    node.type = "category";
+                    nodeMap[newId] = node;
 
-                    auto* blockItem = new QStandardItem(text);
-                    blockItem->setData(id, Qt::UserRole);
-                    blockItem->setSelectable(false);
-                    item->appendRow(blockItem);
+                    auto* newItem = new QStandardItem(text);
+                    newItem->setData(newId, Qt::UserRole);
+                    newItem->setData("category", Qt::UserRole + 1);
+                    newItem->setFont(QFont("", -1, QFont::Bold));
+                    newItem->setSelectable(false);
+                    newItem->setIcon(QIcon(":/icons/folder"));
+                    item->appendRow(newItem);
                     libraryView->expand(libraryProxyModel->mapFromSource(item->index()));
+                    
+                    saveLibrary();
                 }
             });
+
+            menu.addAction("Add Command", this, [this, item, id](){
+                TacticalCommandData cmd;
+                cmd.os = 1; // Default Win
+                cmd.risk = 1;
+                QString pId = id;
+                
+                if (showCommandDialog(cmd, pId, "Add Command")) {
+                    QString newId = QUuid::createUuid().toString();
+                    cmd.id = newId;
+                    
+                    TacticalNodeData node;
+                    node.id = newId;
+                    node.parentId = pId;
+                    node.name = cmd.name;
+                    node.type = "command";
+                    node.description = cmd.description;
+                    node.command = cmd;
+                    
+                    nodeMap[newId] = node;
+                    commandMap[newId] = cmd;
+
+                    auto* newItem = new QStandardItem(cmd.name);
+                    newItem->setData(newId, Qt::UserRole);
+                    newItem->setData("command", Qt::UserRole + 1);
+                    newItem->setToolTip(QString("%1\n\nCommand: %2").arg(cmd.description).arg(cmd.rawCommand));
+                    
+                    if (cmd.os == 1) newItem->setIcon(QIcon(":/icons/os_win_blue"));
+                    else if (cmd.os == 2) newItem->setIcon(QIcon(":/icons/os_linux_blue"));
+                    else if (cmd.os == 3) newItem->setIcon(QIcon(":/icons/os_mac_blue"));
+                    else newItem->setIcon(QIcon(":/icons/code_blocks")); // Fallback
+                    
+                    // If pId changed from current item id, we need to find that parent
+                    QStandardItem* targetParent = item;
+                    if (pId != id) {
+                         QStandardItem* found = findItemById(pId);
+                         if (found) targetParent = found;
+                    }
+                    targetParent->appendRow(newItem);
+                    libraryView->expand(libraryProxyModel->mapFromSource(targetParent->index()));
+                    
+                    saveLibrary();
+                }
+            });
+            
             menu.addSeparator();
-            menu.addAction("Delete Category", this, [this, item](){
-                if (QMessageBox::question(this, "Delete", "Delete category and all contents?") == QMessageBox::Yes) {
-                    libraryModel->removeRow(item->row());
-                }
-            });
-        } else if (depth == 1) { // Block
-            menu.addAction("Add Variant", this, [this, item](){
+            
+            menu.addAction("Rename", this, [this, item, id](){
                 bool ok;
-                QString text = QInputDialog::getText(this, "Add Variant", "Variant Name:", QLineEdit::Normal, "", &ok);
+                QString text = QInputDialog::getText(this, "Rename", "New Name:", QLineEdit::Normal, item->text(), &ok);
                 if (ok && !text.isEmpty()) {
-                    QString cmd = QInputDialog::getText(this, "Add Variant", "Command:", QLineEdit::Normal, "");
-                    
-                    QString blockId = item->data(Qt::UserRole).toString();
-                    QString id = QUuid::createUuid().toString();
-                    
-                    TacticalVariantData var;
-                    var.id = id;
-                    var.name = text;
-                    var.commandTemplate = cmd;
-                    var.os = 1; // Default Win
-                    
-                    variantMap[id] = var;
-                    catalogMap[blockId].variants.push_back(var);
-
-                    auto* varItem = new QStandardItem(text);
-                    varItem->setData(id, Qt::UserRole);
-                    varItem->setIcon(QIcon(":/icons/os_win_blue"));
-                    item->appendRow(varItem);
-                    libraryView->expand(libraryProxyModel->mapFromSource(item->index()));
+                    item->setText(text);
+                    if (nodeMap.contains(id)) nodeMap[id].name = text;
+                    saveLibrary();
                 }
             });
-            menu.addSeparator();
-            menu.addAction("Delete Block", this, [this, item](){
-                // Also remove from map? For now just UI
-                libraryModel->removeRow(item->row(), item->parent()->index());
+
+            menu.addAction("Delete Category", this, [this, item, id](){
+                if (QMessageBox::question(this, "Delete", "Are you sure you want to delete this category and ALL contents?") == QMessageBox::Yes) {
+                    cleanupNodeData(item);
+                    if (item->parent()) item->parent()->removeRow(item->row());
+                    else libraryModel->removeRow(item->row());
+                    saveLibrary();
+                }
             });
-        } else if (depth == 2) { // Variant
-            menu.addAction("Edit", this, [this, item](){
-                QString id = item->data(Qt::UserRole).toString();
-                if (variantMap.contains(id)) {
-                    bool ok;
-                    QString cmd = QInputDialog::getText(this, "Edit Command", "Command:", QLineEdit::Normal, variantMap[id].commandTemplate, &ok);
-                    if (ok) {
-                        variantMap[id].commandTemplate = cmd;
+        } 
+        else if (type == "command") {
+            menu.addAction("Edit", this, [this, item, id](){
+                if (commandMap.contains(id)) {
+                    TacticalCommandData cmd = commandMap[id];
+                    QString pId = nodeMap[id].parentId;
+                    QString oldPid = pId;
+                    
+                    if (showCommandDialog(cmd, pId, "Edit Command")) {
+                        // Update Data
+                        commandMap[id] = cmd;
+                        if (nodeMap.contains(id)) {
+                            nodeMap[id].command = cmd;
+                            nodeMap[id].name = cmd.name;
+                            nodeMap[id].description = cmd.description;
+                            nodeMap[id].parentId = pId;
+                        }
+                        
+                        // Update UI
+                        item->setText(cmd.name);
+                        item->setToolTip(QString("%1\n\nCommand: %2").arg(cmd.description).arg(cmd.rawCommand));
+                        
+                        if (cmd.os == 1) item->setIcon(QIcon(":/icons/os_win_blue"));
+                        else if (cmd.os == 2) item->setIcon(QIcon(":/icons/os_linux_blue"));
+                        else if (cmd.os == 3) item->setIcon(QIcon(":/icons/os_mac_blue"));
+                        else item->setIcon(QIcon(":/icons/code_blocks"));
+                        
+                        // Handle Move if parent changed
+                        if (pId != oldPid) {
+                             QStandardItem* newParent = findItemById(pId);
+                             if (newParent) {
+                                 // Take from old, add to new
+                                 QList<QStandardItem*> row;
+                                 if (item->parent()) {
+                                     row = item->parent()->takeRow(item->row());
+                                 } else {
+                                     row = libraryModel->takeRow(item->row());
+                                 }
+                                 newParent->appendRow(row);
+                                 libraryView->expand(libraryProxyModel->mapFromSource(newParent->index()));
+                             }
+                        }
+                        
+                        saveLibrary();
                     }
                 }
             });
-            menu.addAction("Delete Variant", this, [this, item](){
-                libraryModel->removeRow(item->row(), item->parent()->index());
+            
+            menu.addAction("Rename", this, [this, item, id](){
+                bool ok;
+                QString text = QInputDialog::getText(this, "Rename", "New Name:", QLineEdit::Normal, item->text(), &ok);
+                if (ok && !text.isEmpty()) {
+                    item->setText(text);
+                    if (nodeMap[id].type == "command") {
+                        nodeMap[id].command.name = text;
+                        commandMap[id].name = text;
+                    }
+                    saveLibrary();
+                }
+            });
+            
+            menu.addAction("Delete Command", this, [this, item, id](){
+                if (QMessageBox::question(this, "Delete", "Delete this command?") == QMessageBox::Yes) {
+                    cleanupNodeData(item);
+                    if (item->parent()) item->parent()->removeRow(item->row());
+                    else libraryModel->removeRow(item->row());
+                    saveLibrary();
+                }
             });
         }
     }
@@ -470,172 +1410,172 @@ void TacticalGuidanceWidget::onLibraryContextMenu(const QPoint& pos)
     menu.exec(libraryView->viewport()->mapToGlobal(pos));
 }
 
-void TacticalGuidanceWidget::onWorkflowSelected()
+QJsonObject TacticalGuidanceWidget::serializeNode(QStandardItem* item)
 {
-    // Placeholder
+    // Deprecated. Use serializeLibraryTree instead.
+    return QJsonObject();
 }
 
-void TacticalGuidanceWidget::onResultsItemClicked(QTreeWidgetItem* item, int column)
+QJsonArray TacticalGuidanceWidget::serializeLibraryTree(QStandardItem* parent)
 {
-    Q_UNUSED(item);
-    Q_UNUSED(column);
-    // Placeholder
+    QJsonArray arr;
+    QStandardItem* root = parent ? parent : libraryModel->invisibleRootItem();
+
+    for (int i = 0; i < root->rowCount(); ++i) {
+        QStandardItem* child = root->child(i);
+        QString id = child->data(Qt::UserRole).toString();
+        
+        // Ensure data consistency
+        if (!nodeMap.contains(id)) continue;
+        
+        QJsonObject obj;
+        TacticalNodeData& nodeData = nodeMap[id];
+        
+        obj["id"] = nodeData.id;
+        obj["name"] = nodeData.name;
+        obj["type"] = nodeData.type;
+        obj["description"] = nodeData.description;
+        obj["parent_id"] = nodeData.parentId;
+        
+        if (nodeData.type == "command") {
+            QJsonObject cmdObj;
+            const auto& cmd = nodeData.command;
+            cmdObj["id"] = cmd.id;
+            cmdObj["name"] = cmd.name;
+            cmdObj["cmd"] = cmd.rawCommand;
+            cmdObj["os"] = cmd.os;
+            cmdObj["risk"] = cmd.risk;
+            cmdObj["description"] = cmd.description;
+            cmdObj["arch"] = cmd.arch;
+            cmdObj["usage"] = cmd.usage;
+            obj["command"] = cmdObj;
+        } else if (nodeData.type == "category") {
+            // Recursively serialize children
+            obj["children"] = serializeLibraryTree(child);
+        }
+        
+        arr.append(obj);
+    }
+    return arr;
 }
 
-void TacticalGuidanceWidget::addStepToWorkflow(const QString& variantId, const QMap<QString, QString>& params)
+void TacticalGuidanceWidget::saveLibrary()
 {
-    if (!variantMap.contains(variantId)) return;
-    const auto& variant = variantMap[variantId];
+    QJsonArray rootArr = serializeLibraryTree(nullptr);
+    QJsonDocument doc(rootArr);
     
-    auto* item = new QTreeWidgetItem(composerTree);
-    item->setText(0, variant.name);
-    item->setText(1, "Pending");
-    item->setData(0, Qt::UserRole, QUuid::createUuid().toString());
-    item->setData(1, Qt::UserRole, ""); // Block ID unknown here, optional
-    item->setData(2, Qt::UserRole, variantId);
-    item->setData(3, Qt::UserRole, QVariant::fromValue(params));
+    QDir dir(QCoreApplication::applicationDirPath());
+    if (!dir.exists("data")) dir.mkdir("data");
     
-    if (variant.os == 1) item->setIcon(0, QIcon(":/icons/os_win_blue"));
-    else if (variant.os == 2) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
-    else if (variant.os == 3) item->setIcon(0, QIcon(":/icons/os_mac_blue"));
-    
-    syncWorkflowToServer();
+    QFile file(dir.absoluteFilePath("data/tactical_library.json"));
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(doc.toJson());
+        file.close();
+    } else {
+        qDebug() << "Failed to save local tactical library:" << file.errorString();
+    }
 }
 
-void TacticalGuidanceWidget::clearWorkflow()
+void TacticalGuidanceWidget::rebuildLibraryFromJSON(const QJsonArray& nodes)
 {
-    composerTree->clear();
-    syncWorkflowToServer();
-}
-
-void TacticalGuidanceWidget::executeWorkflow()
-{
-    onRunWorkflowClicked();
-}
-
-void TacticalGuidanceWidget::onWorkflowStepClicked(QTreeWidgetItem* item, int column)
-{
-    Q_UNUSED(column);
-    if (!item) return;
-
-    // Logic removed as UI column is gone
-}
-
-void TacticalGuidanceWidget::handleCatalogSync(const QJsonObject& json)
-{
-    if (json["action"].toString() != "sync_all") return;
-
+    qDebug() << "[Tactical] Rebuilding library from JSON with" << nodes.size() << "root nodes.";
+    // REMOVED QSignalBlocker to ensure ProxyModel updates correctly
     libraryModel->clear();
-    catalogMap.clear();
-    variantMap.clear();
-
-    QJsonArray categories = json["categories"].toArray();
-
-    for (const QJsonValue& catVal : categories) {
-        QJsonObject catObj = catVal.toObject();
-        auto* catItem = new QStandardItem(catObj["name"].toString());
-        catItem->setFont(QFont("", -1, QFont::Bold));
-        catItem->setSelectable(false);
-
-        QJsonArray blocks = catObj["blocks"].toArray();
-        for (const QJsonValue& blockVal : blocks) {
-            QJsonObject blockObj = blockVal.toObject();
+    nodeMap.clear();
+    commandMap.clear();
+    
+    std::function<void(QStandardItem*, const QJsonArray&)> build;
+    build = [&](QStandardItem* parent, const QJsonArray& list) {
+        for(const auto& val : list) {
+            QJsonObject obj = val.toObject();
+            QString id = obj["id"].toString();
+            QString type = obj["type"].toString();
+            QString name = obj["name"].toString();
             
-            TacticalBlockData block;
-            block.id = blockObj["id"].toString();
-            block.name = blockObj["name"].toString();
-            block.category = catObj["name"].toString();
-            block.description = blockObj["description"].toString();
+            // Debug check
+            // qDebug() << "[Tactical] Processing node:" << name << type << id;
 
-            auto* blockItem = new QStandardItem(block.name);
-            blockItem->setData(block.id, Qt::UserRole);
-            blockItem->setToolTip(block.description);
-            blockItem->setSelectable(false);
-
-            QJsonArray variants = blockObj["variants"].toArray();
-            for (const QJsonValue& varVal : variants) {
-                QJsonObject varObj = varVal.toObject();
+            TacticalNodeData node;
+            node.id = id;
+            node.name = name;
+            node.type = type;
+            node.description = obj["description"].toString();
+            node.parentId = obj["parent_id"].toString();
+            
+            nodeMap[id] = node;
+            
+            auto* item = new QStandardItem(name);
+            item->setData(id, Qt::UserRole);
+            item->setData(type, Qt::UserRole + 1);
+            
+            if (type == "category") {
+                item->setIcon(QIcon(":/icons/folder"));
+                item->setFont(QFont("", -1, QFont::Bold));
+                item->setSelectable(false);
+                if (obj.contains("children")) build(item, obj["children"].toArray());
+            } else if (type == "command") {
+                QJsonObject cmdObj = obj["command"].toObject();
+                node.command.id = cmdObj["id"].toString();
+                node.command.name = cmdObj["name"].toString();
+                node.command.rawCommand = cmdObj["cmd"].toString();
+                node.command.os = cmdObj["os"].toInt();
+                node.command.risk = cmdObj["risk"].toInt();
+                node.command.description = cmdObj["description"].toString();
+                node.command.usage = cmdObj["usage"].toString();
+                node.command.arch = cmdObj["arch"].toInt();
                 
-                TacticalVariantData variant;
-                variant.id = varObj["id"].toString();
-                variant.name = varObj["name"].toString();
-                variant.commandTemplate = varObj["cmd"].toString();
-                variant.os = varObj["os"].toInt();
-                variant.risk = varObj["risk"].toInt();
-                variant.opsecNotes = varObj["opsec"].toString();
-                variant.aiGuidance = varObj["ai_guidance"].toString();
-
-                block.variants.push_back(variant);
-                variantMap[variant.id] = variant;
-
-                auto* varItem = new QStandardItem(variant.name);
-                varItem->setData(variant.id, Qt::UserRole);
+                commandMap[id] = node.command;
+                nodeMap[id].command = node.command;
                 
-                // Set icon based on OS
-                if (variant.os == 1) varItem->setIcon(QIcon(":/icons/os_win_blue"));
-                else if (variant.os == 2) varItem->setIcon(QIcon(":/icons/os_linux_blue"));
-                else if (variant.os == 3) varItem->setIcon(QIcon(":/icons/os_mac_blue"));
-
-                blockItem->appendRow(varItem);
+                int os = node.command.os;
+                if (os == 1) item->setIcon(QIcon(":/icons/os_win_blue"));
+                else if (os == 2) item->setIcon(QIcon(":/icons/os_linux_blue"));
+                else if (os == 3) item->setIcon(QIcon(":/icons/os_mac_blue"));
+                else item->setIcon(QIcon(":/icons/code_blocks"));
+                
+                item->setToolTip(node.description + "\n\n" + node.command.rawCommand);
             }
-            catItem->appendRow(blockItem);
-            catalogMap[block.id] = block;
+            
+            if (parent) parent->appendRow(item);
+            else libraryModel->appendRow(item);
         }
-        libraryModel->appendRow(catItem);
-    }
-    libraryView->expandAll();
+    };
+    
+    build(nullptr, nodes);
+    if (libraryView) libraryView->expandAll();
+    qDebug() << "[Tactical] Library rebuild complete. Total items in map:" << nodeMap.size();
 }
 
-void TacticalGuidanceWidget::handleWorkflowSync(const QJsonObject& json)
+void TacticalGuidanceWidget::loadLibrary()
 {
-    QString action = json["action"].toString();
-    if (action == "clear") {
-        QSignalBlocker blocker(composerTree);
-        composerTree->clear();
-        taskToStepMap.clear();
-        return;
-    }
-
-    if (action == "update") {
-        QSignalBlocker blocker(composerTree);
-        composerTree->clear();
-        taskToStepMap.clear();
-
-        QJsonArray steps = json["steps"].toArray();
-        for (const QJsonValue& stepVal : steps) {
-            QJsonObject stepObj = stepVal.toObject();
-            QString instanceId = stepObj["instance_id"].toString();
-            QString blockId = stepObj["block_id"].toString();
-            QString variantId = stepObj["variant_id"].toString();
-            QString name = stepObj["name"].toString();
-
-            auto* item = new QTreeWidgetItem(composerTree);
-            item->setText(0, name);
-            item->setText(1, "Pending");
-            item->setData(0, Qt::UserRole, instanceId);
-            item->setData(1, Qt::UserRole, blockId);
-            item->setData(2, Qt::UserRole, variantId);
-            
-            // Restore params
-            QJsonObject paramsObj = stepObj["params"].toObject();
-            QMap<QString, QString> params;
-            for (auto it = paramsObj.begin(); it != paramsObj.end(); ++it) {
-                params[it.key()] = it.value().toString();
-            }
-            item->setData(3, Qt::UserRole, QVariant::fromValue(params));
-
-            if (variantMap.contains(variantId)) {
-                int os = variantMap[variantId].os;
-                if (os == OS_WINDOWS) item->setIcon(0, QIcon(":/icons/os_win_blue"));
-                else if (os == OS_LINUX) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
-                else if (os == OS_MAC) item->setIcon(0, QIcon(":/icons/os_mac_blue"));
-            }
+    QDir dir(QCoreApplication::applicationDirPath());
+    QString path = dir.absoluteFilePath("data/tactical_library.json");
+    qDebug() << "[Tactical] Loading library from:" << path;
+    
+    QFile file(path);
+    
+    if (file.exists() && file.open(QIODevice::ReadOnly)) {
+        QByteArray data = file.readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (doc.isArray()) {
+            rebuildLibraryFromJSON(doc.array());
+        } else {
+            qDebug() << "[Tactical] Invalid JSON or not an array.";
         }
-
-        QString targets = json["target_agents"].toString();
-        composerTargetAgents->setText(targets);
+        file.close();
+    } else {
+        qDebug() << "[Tactical] Library file not found or cannot open.";
     }
 }
+
+// Helper to access protected members
+class AccessTreeWidget : public QTreeWidget {
+public:
+    using QTreeWidget::dropIndicatorPosition;
+    using QAbstractItemView::OnItem;
+    using QAbstractItemView::AboveItem;
+    using QAbstractItemView::BelowItem;
+};
 
 bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
 {
@@ -647,13 +1587,15 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
                 if (index.isValid()) {
                     auto sourceIndex = libraryProxyModel->mapToSource(index);
                     auto* item = libraryModel->itemFromIndex(sourceIndex);
-                    if (item && item->rowCount() == 0 && item->parent() && item->parent()->parent()) {
-                        // Start drag if it's a variant (depth 2: category -> block -> variant)
+                    
+                    // Fix: Allow dragging any command regardless of depth
+                    QString type = item->data(Qt::UserRole + 1).toString();
+                    if (item && type == "command") {
                         QDrag* drag = new QDrag(this);
                         QMimeData* mimeData = new QMimeData;
                         
-                        QString variantId = item->data(Qt::UserRole).toString();
-                        mimeData->setData(MIME_TACTICAL_BLOCK, variantId.toUtf8());
+                        QString commandId = item->data(Qt::UserRole).toString();
+                        mimeData->setData(MIME_TACTICAL_BLOCK, commandId.toUtf8());
                         
                         drag->setMimeData(mimeData);
                         drag->exec(Qt::CopyAction);
@@ -669,42 +1611,91 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
                 dragEvent->acceptProposedAction();
                 return true;
             }
+            if (dragEvent->source() == composerTree) {
+                 // Pass to QTreeWidget for indicator setup
+                 return false; 
+            }
         } else if (event->type() == QEvent::DragMove) {
             auto* dragEvent = static_cast<QDragMoveEvent*>(event);
             if (dragEvent->mimeData()->hasFormat(MIME_TACTICAL_BLOCK)) {
                 dragEvent->acceptProposedAction();
                 return true;
             }
+            if (dragEvent->source() == composerTree) {
+                 // Pass to QTreeWidget for indicator update
+                 return false; 
+            }
         } else if (event->type() == QEvent::Drop) {
             auto* dropEvent = static_cast<QDropEvent*>(event);
+            
+            // Handle Library Drop
             if (dropEvent->mimeData()->hasFormat(MIME_TACTICAL_BLOCK)) {
                 QByteArray data = dropEvent->mimeData()->data(MIME_TACTICAL_BLOCK);
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (doc.isObject()) {
-                    QJsonObject obj = doc.object();
-                    QString blockId = obj["block_id"].toString();
-                    QString variantId = obj["variant_id"].toString();
-                    QString name = obj["name"].toString();
-
-                    // Create node instance
-                    auto* item = new QTreeWidgetItem(composerTree);
-                    item->setText(0, name);
-                    item->setText(1, "Pending");
-                    item->setData(0, Qt::UserRole, QUuid::createUuid().toString()); // instanceId
-                    item->setData(1, Qt::UserRole, blockId);
-                    item->setData(2, Qt::UserRole, variantId);
-                    
-                    // Set icon based on variant OS if available
-                    if (variantMap.contains(variantId)) {
-                        int os = variantMap[variantId].os;
-                        if (os == OS_WINDOWS) item->setIcon(0, QIcon(":/icons/os_win_blue"));
-                        else if (os == OS_LINUX) item->setIcon(0, QIcon(":/icons/os_linux_blue"));
-                        else if (os == OS_MAC) item->setIcon(0, QIcon(":/icons/os_mac_blue"));
-                    }
-
+                QString commandId = QString::fromUtf8(data);
+                
+                if (commandMap.contains(commandId)) {
+                    addStepToActivePlaybook(commandId, QMap<QString, QString>());
                     dropEvent->acceptProposedAction();
                     return true;
                 }
+            }
+            
+            // Handle Internal Move
+            if (dropEvent->source() == composerTree) {
+                 QList<QTreeWidgetItem*> items = composerTree->selectedItems();
+                 if (items.isEmpty()) return true;
+                 
+                 QTreeWidgetItem* targetItem = composerTree->itemAt(dropEvent->position().toPoint());
+                 auto indicator = static_cast<AccessTreeWidget*>(composerTree)->dropIndicatorPosition();
+                 
+                 // We execute manual move immediately
+                 for(auto* item : items) {
+                     if (item == targetItem) continue;
+                     
+                     // Safety check: Cannot move parent into its own child
+                     QTreeWidgetItem* check = targetItem;
+                     bool invalidMove = false;
+                     while(check) {
+                         if (check == item) {
+                             invalidMove = true;
+                             break;
+                         }
+                         check = check->parent();
+                     }
+                     if (invalidMove) continue;
+
+                     // Remove from current position
+                     if (item->parent()) item->parent()->removeChild(item);
+                     else composerTree->takeTopLevelItem(composerTree->indexOfTopLevelItem(item));
+                     
+                     // Insert at new position
+                     if (targetItem) {
+                         if (indicator == AccessTreeWidget::OnItem) {
+                             targetItem->addChild(item);
+                             targetItem->setExpanded(true);
+                         } else if (indicator == AccessTreeWidget::AboveItem) {
+                             QTreeWidgetItem* p = targetItem->parent();
+                             if (p) p->insertChild(p->indexOfChild(targetItem), item);
+                             else composerTree->insertTopLevelItem(composerTree->indexOfTopLevelItem(targetItem), item);
+                         } else if (indicator == AccessTreeWidget::BelowItem) {
+                             QTreeWidgetItem* p = targetItem->parent();
+                             if (p) p->insertChild(p->indexOfChild(targetItem)+1, item);
+                             else composerTree->insertTopLevelItem(composerTree->indexOfTopLevelItem(targetItem)+1, item);
+                         } else {
+                             // Fallback
+                             composerTree->addTopLevelItem(item);
+                         }
+                     } else {
+                         // Dropped on empty space
+                         composerTree->addTopLevelItem(item);
+                     }
+                 }
+                 
+                 // Update selection to moved items
+                 for(auto* item : items) item->setSelected(true);
+
+                 dropEvent->accept();
+                 return true; 
             }
         }
     }
@@ -712,117 +1703,141 @@ bool TacticalGuidanceWidget::eventFilter(QObject* obj, QEvent* event)
     return DockTab::eventFilter(obj, event);
 }
 
-void TacticalGuidanceWidget::onRunWorkflowClicked()
+void TacticalGuidanceWidget::onAddGroupClicked()
 {
-    QString targetsRaw = composerTargetAgents->text().trimmed();
-    if (targetsRaw.isEmpty()) {
-        QMessageBox::warning(this, "Tactical", "Please specify at least one target Agent ID.");
+    bool ok;
+    QString text = QInputDialog::getText(this, "Add Group", "Group Name:", QLineEdit::Normal, "", &ok);
+    if (!ok || text.isEmpty()) return;
+
+    QTreeWidgetItem* parentItem = nullptr;
+    QList<QTreeWidgetItem*> selected = composerTree->selectedItems();
+    if (!selected.isEmpty()) {
+        // If a group is selected, add as child. If a command is selected, add to its parent.
+        QTreeWidgetItem* sel = selected.first();
+        if (sel->data(4, Qt::UserRole).toString() == "group") {
+            parentItem = sel;
+        } else {
+            parentItem = sel->parent();
+        }
+    }
+
+    QTreeWidgetItem* item = nullptr;
+    if (parentItem) item = new QTreeWidgetItem(parentItem);
+    else item = new QTreeWidgetItem(composerTree);
+
+    item->setText(0, text);
+    item->setText(1, "Pending");
+    item->setIcon(0, QIcon(":/icons/folder"));
+    item->setData(0, Qt::UserRole, QUuid::createUuid().toString()); // instanceId
+    item->setData(4, Qt::UserRole, "group"); // Type
+    
+    item->setExpanded(true);
+}
+
+void TacticalGuidanceWidget::runActivePlaybook()
+{
+    if (executionRunning)
+        return;
+
+    executionTargetAgents = collectSelectedAgentIds();
+    if (executionTargetAgents.isEmpty()) {
+        QMessageBox::information(this, "Tactical", "Please select at least one agent.");
         return;
     }
 
-    QStringList targetAgents = targetsRaw.split(',', Qt::SkipEmptyParts);
-    for (int i = 0; i < composerTree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* item = composerTree->topLevelItem(i);
-        QString variantId = item->data(2, Qt::UserRole).toString();
-        
-        if (!variantMap.contains(variantId)) continue;
-        const auto& variant = variantMap[variantId];
+    executionQueue = collectCommandSteps();
+    if (executionQueue.isEmpty()) {
+        QMessageBox::information(this, "Tactical", "No command steps in playbook.");
+        return;
+    }
 
-        for (const QString& agentId : targetAgents) {
-            QString agentName = agentId;
-            if (adaptixWidget->AgentsMap.contains(agentId)) {
-                agentName = adaptixWidget->AgentsMap[agentId]->data.Name;
-            }
+    taskIdToComposerItem.clear();
+    composerItemPendingCount.clear();
+    composerItemHasError.clear();
+    resultsStepItems.clear();
+    resultsAgentItems.clear();
+    currentExecutingItem = nullptr;
 
-            // Prepare command data
-            QJsonObject dataJson;
-            dataJson["name"] = agentName;
-            dataJson["id"] = agentId;
-            dataJson["ui"] = true;
-            
-            // Perform variable replacement (Agent + Custom Params)
-            QString finalCommand = variant.commandTemplate;
-            QMap<QString, QString> stepParams = item->data(3, Qt::UserRole).value<QMap<QString, QString>>();
-            if (adaptixWidget->AgentsMap.contains(agentId)) {
-                finalCommand = renderCommand(variant.commandTemplate, adaptixWidget->AgentsMap[agentId]->data, stepParams);
-            }
-            dataJson["cmdline"] = finalCommand;
-            
-            dataJson["data"] = ""; // Simple commands don't need structured data yet
-            dataJson["ax_hook_id"] = "";
-            dataJson["ax_handler_id"] = "";
-            
-            QByteArray jsonData = QJsonDocument(dataJson).toJson();
-            
-            HttpReqAgentCommandAsync(jsonData, *adaptixWidget->GetProfile(), [this, item, agentId](bool success, const QString &message, const QJsonObject&) {
-                if (success) {
-                    QString taskId = message;
-                    taskToStepMap[taskId] = item;
+    if (resultsTree)
+        resultsTree->clear();
 
-                    QTreeWidgetItem* agentItem = nullptr;
-                    for (int j = 0; j < resultsTree->topLevelItemCount(); ++j) {
-                        if (resultsTree->topLevelItem(j)->text(0) == agentId) {
-                            agentItem = resultsTree->topLevelItem(j);
-                            break;
-                        }
-                    }
-                    if (!agentItem) {
-                        agentItem = new QTreeWidgetItem(resultsTree);
-                        agentItem->setText(0, agentId);
-                        agentItem->setFont(0, QFont("", -1, QFont::Bold));
-                    }
+    for (QTreeWidgetItem* stepItem : executionQueue) {
+        if (!stepItem)
+            continue;
+        stepItem->setText(1, "Pending");
 
-                    auto* resultStepItem = new QTreeWidgetItem(agentItem);
-                    resultStepItem->setText(0, item->text(0)); 
-                    resultStepItem->setData(0, Qt::UserRole, taskId);
-                    resultStepItem->setText(1, "Running...");
-                } else {
-                    item->setText(1, "Failed");
-                }
-            });
+        const QString stepInstanceId = stepItem->data(0, Qt::UserRole).toString();
+        if (resultsTree && !stepInstanceId.isEmpty()) {
+            QTreeWidgetItem* resStep = new QTreeWidgetItem(resultsTree);
+            resStep->setText(0, stepItem->text(0));
+            resStep->setText(1, "Pending");
+            resStep->setText(2, stepItem->text(2));
+            resultsStepItems[stepInstanceId] = resStep;
         }
     }
+    if (resultsTree)
+        resultsTree->expandAll();
+
+    executionRunning = true;
+    advanceExecution();
+}
+
+void TacticalGuidanceWidget::onComposerContextMenu(const QPoint& pos)
+{
+    QTreeWidgetItem* item = composerTree->itemAt(pos);
+    QMenu menu(this);
+
+    if (item) {
+        const QString type = item->data(4, Qt::UserRole).toString();
+        const bool isCommand = (type == "command");
+
+        QMenu* execMenu = menu.addMenu("Execute");
+        QAction* actDisabled = execMenu->addAction("Execution Disabled");
+        actDisabled->setEnabled(false);
+
+        Q_UNUSED(isCommand);
+
+        menu.addSeparator();
+
+        QMenu* editMenu = menu.addMenu("Edit");
+        editMenu->addAction("Rename...", this, [this, item](){
+            bool ok;
+            QString text = QInputDialog::getText(this, "Rename", "Name:", QLineEdit::Normal, item->text(0), &ok);
+            if (ok && !text.isEmpty()) {
+                item->setText(0, text);
+            }
+        });
+
+        editMenu->addSeparator();
+        editMenu->addAction("Remove", this, [this, item](){
+            delete item; // Removes from tree and parent
+        });
+
+        if (type == "group") {
+            editMenu->addSeparator();
+            editMenu->addAction("Add Group", this, &TacticalGuidanceWidget::onAddGroupClicked);
+        }
+    } else {
+        QMenu* editMenu = menu.addMenu("Edit");
+        editMenu->addAction("Add Group", this, &TacticalGuidanceWidget::onAddGroupClicked);
+    }
+
+    menu.exec(composerTree->viewport()->mapToGlobal(pos));
 }
 
 void TacticalGuidanceWidget::onComposerChanged()
 {
-    // 可以在这里处理工作流变更的逻辑，例如保存到服务器
-    this->syncWorkflowToServer();
+    // L4 + A mode: no playbook persistence.
 }
 
 void TacticalGuidanceWidget::onLibraryBlockSelected()
 {
     auto index = libraryView->currentIndex();
     if (!index.isValid()) return;
-
-    // Map through proxy model
-    auto sourceIndex = libraryProxyModel->mapToSource(index);
-    auto* item = libraryModel->itemFromIndex(sourceIndex);
-    if (!item) return;
-
-    QString variantId = item->data(Qt::UserRole).toString();
-    if (variantId.isEmpty() || !variantMap.contains(variantId)) {
-        return;
-    }
 }
 
-void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
+void TacticalGuidanceWidget::onResultsItemClicked(QTreeWidgetItem* item, int column)
 {
-    // Check if this task corresponds to a step in our workflow
-    if (taskToStepMap.contains(task.TaskId)) {
-        QTreeWidgetItem* item = taskToStepMap[task.TaskId];
-        if (item) {
-            if (task.Completed) {
-                if (task.Status == "Success") {
-                    item->setText(1, "Success");
-                    item->setIcon(1, QIcon(":/icons/success")); // Assuming icon exists, or just text
-                } else {
-                    item->setText(1, "Failed");
-                    item->setIcon(1, QIcon(":/icons/error"));
-                }
-            } else {
-                item->setText(1, "Running");
-            }
-        }
-    }
+    Q_UNUSED(column);
+    // Maybe show details in a popup or something?
 }

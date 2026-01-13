@@ -77,6 +77,12 @@ func (sl *Slice) CutArray() []interface{} {
 	return array
 }
 
+func (sl *Slice) Clear() {
+	sl.mutex.Lock()
+	defer sl.mutex.Unlock()
+	sl.items = make([]interface{}, 0)
+}
+
 func (sl *Slice) Len() uint {
 	sl.mutex.RLock()
 	defer sl.mutex.RUnlock()

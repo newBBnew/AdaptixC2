@@ -193,6 +193,11 @@ func (handler *HTTP) Stop() error {
 	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
+	// Safety check: ensure we are only deleting within the expected listener data directory
+	if !strings.Contains(listenerPath, "/data/listener/") {
+		return fmt.Errorf("safety check failed: refusing to delete suspicious path %s", listenerPath)
+	}
+
 	_, err = os.Stat(listenerPath)
 	if err == nil {
 		err = os.RemoveAll(listenerPath)

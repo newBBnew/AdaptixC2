@@ -122,22 +122,22 @@ func (ts *Teamserver) TsAgentCreate(agentCrc string, agentId string, beat []byte
 	return agent.GetData(), nil
 }
 
-func (ts *Teamserver) TsAgentCommand(agentName string, agentId string, clientName string, hookId string, handlerId string, cmdline string, ui bool, args map[string]any) error {
+func (ts *Teamserver) TsAgentCommand(agentName string, agentId string, clientName string, hookId string, handlerId string, cmdline string, ui bool, args map[string]any) (string, error) {
 	if !ts.agent_configs.Contains(agentName) {
-		return fmt.Errorf("agent %v not registered", agentName)
+		return "", fmt.Errorf("agent %v not registered", agentName)
 	}
 
 	agent, err := ts.getAgent(agentId)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !agent.Active {
-		return fmt.Errorf("agent '%v' not active", agentId)
+		return "", fmt.Errorf("agent '%v' not active", agentId)
 	}
 
 	taskData, messageData, err := ts.Extender.ExAgentCommand(agentName, agent.GetData(), args)
 	if err != nil {
-		return err
+		return "", err
 	}
 	taskData.HookId = hookId
 	taskData.HandlerId = handlerId
@@ -145,12 +145,15 @@ func (ts *Teamserver) TsAgentCommand(agentName string, agentId string, clientNam
 		taskData.Type = TYPE_BROWSER
 	}
 
-	ts.TsTaskCreate(agentId, cmdline, clientName, taskData)
+	taskId, err := ts.TsTaskCreateWithId(agentId, cmdline, clientName, taskData)
+	if err != nil {
+		return "", err
+	}
 
 	if (taskData.Type != TYPE_BROWSER) && (len(messageData.Message) > 0 || len(messageData.Text) > 0) {
 		ts.TsAgentConsoleOutput(agentId, messageData.Status, messageData.Message, messageData.Text, false)
 	}
-	return nil
+	return taskId, nil
 }
 
 func (ts *Teamserver) TsAgentProcessData(agentId string, bodyData []byte) error {

@@ -31,7 +31,11 @@ QString TrimmedEnds(QString str);
 
 QString BytesToFormat(qint64 bytes);
 
+QString base64_encode(const QString& string);
+QString base64_decode(const QString& string);
+
 QIcon RecolorIcon(QIcon originalIcon, const QString &colorString);
+QIcon RecolorIcon(QIcon originalIcon, const QColor &color);
 
 QString GenerateRandomString(const int length, const QString &setName);
 

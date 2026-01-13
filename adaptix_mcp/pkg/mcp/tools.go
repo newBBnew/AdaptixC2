@@ -30,6 +30,14 @@ func (s *MCPServer) registerTools() {
 	// Tactical (Decision/Interaction)
 	s.tools["tactical_flash"] = s.handleTacticalFlash
 
+	// Session Management
+	s.tools["archive_session"] = s.handleArchiveSession
+	s.tools["list_sessions"] = s.handleListSessions
+	s.tools["read_session"] = s.handleReadSession
+
+	// Extensions
+	s.tools["inspect_extensions"] = s.handleInspectExtensions
+
 	// Legacy support (optional, but good for transition)
 	s.tools["execute_and_wait"] = s.handleExecuteAndWait
 }
@@ -37,19 +45,36 @@ func (s *MCPServer) registerTools() {
 func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 	return []map[string]interface{}{
 		{
+			"name":        "inspect_extensions",
+			"description": "Inspect installed C2 extensions (BOFs/Scripts). Returns categories, available commands, descriptions, and usage examples. Use this to discover capabilities.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"filter": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional keyword to filter extensions or commands (e.g. 'browser', 'creds').",
+					},
+					"root_path": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional absolute path to Extension-Kit directory. Defaults to internal workspace path if omitted.",
+					},
+				},
+			},
+		},
+		{
 			"name":        "look_assets",
-			"description": "Reconnaissance and asset discovery (Look). Use this before taking actions. The 'agents' category represents active communication channels between the C2 and controlled hosts. Use this tool to obtain a full situational picture (agent channels, listeners, target hosts, tunnels). Call it first to establish the current operational boundary.",
+			"description": "Reconnaissance (Look). View the battlefield: agents (C2 channels), listeners, targets, tunnels, and pivots. Use this to orient yourself before acting.",
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"type": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"agents", "listeners", "targets", "tunnels", "pivots"},
-						"description": "Asset category. agents: list active C2-to-agent channels; listeners: view egress boundary; targets: discovered hosts; tunnels: current forwarding paths.",
+						"description": "Asset category.",
 					},
 					"filter": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional filter keyword to narrow results (e.g., an agent ID).",
+						"description": "Optional filter keyword (e.g. agent ID).",
 					},
 				},
 				"required": []string{"type"},
@@ -57,26 +82,27 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 		},
 		{
 			"name":        "listen_intelligence",
-			"description": "Intelligence and feedback loop (Listen). Use this to accurately track outcomes. Rule: do not blindly read type='console' because it may contain large, unordered output that quickly exhausts context. Prefer type='tasks' to locate the relevant task_id, then use type='task_output' with that task_id to fetch the exact result for a single task. Use type='console' only when you need a full audit view.",
+			"description": "Intelligence (Listen). Monitor outcomes. Use type='chat' to wait for instructions in the War Room. Use type='tasks'/'task_output' to check specific operation results. Avoid 'console' unless auditing.",
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"type": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"console", "tasks", "task_output", "collected_data", "chat"},
-						"description": "Source. chat: block and wait for the latest operator/team chat message; task_output: fetch output for a specific task_id; tasks: track task stream.",
+						"description": "Source. chat: monitor War Room; task_output: check specific task result.",
 					},
-					"agent_id":         map[string]interface{}{"type": "string", "description": "Target agent channel ID. Required for console/tasks."},
-					"task_id":          map[string]interface{}{"type": "string", "description": "Unique task ID. Required for task_output."},
-					"timeout":          map[string]interface{}{"type": "number", "description": "When type='chat', seconds to wait (default 300s)."},
-					"last_timestamp":   map[string]interface{}{"type": "number", "description": "Timestamp of last read message; used to fetch unread messages."},
-					"target_user":      map[string]interface{}{"type": "string", "description": "Optional. Only return messages from a specific user."},
-					"exclude_user":     map[string]interface{}{"type": "string", "description": "Optional. Exclude messages from a specific user (e.g., the AI itself)."},
-					"ignore_ai_prefix": map[string]interface{}{"type": "boolean", "description": "Optional. If true (default), ignore messages starting with '[Tactical AI]'.", "default": true},
+					"agent_id":         map[string]interface{}{"type": "string", "description": "Target agent ID (for console/tasks)."},
+					"task_id":          map[string]interface{}{"type": "string", "description": "Task ID (for task_output)."},
+					"timeout":          map[string]interface{}{"type": "number", "description": "Wait timeout for chat (default 300s)."},
+					"last_timestamp":   map[string]interface{}{"type": "number", "description": "Last read timestamp for chat (for polling)."},
+					"start_timestamp":  map[string]interface{}{"type": "number", "description": "Filter messages older than this timestamp."},
+					"target_user":      map[string]interface{}{"type": "string", "description": "Filter chat by user."},
+					"exclude_user":     map[string]interface{}{"type": "string", "description": "Exclude chat user."},
+					"ignore_ai_prefix": map[string]interface{}{"type": "boolean", "description": "Ignore [Tactical AI] messages (default true).", "default": true},
 					"data_type": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"credentials", "downloads", "screenshots"},
-						"description": "When type='collected_data', select the data category.",
+						"description": "Category for collected_data.",
 					},
 				},
 				"required": []string{"type"},
@@ -84,26 +110,26 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 		},
 		{
 			"name":        "speak_interaction",
-			"description": "Tactical collaboration and intent communication (Speak). Use this to synchronize with operators. When you detect risk, key progress, or need authorization, use broadcast. Prefer including a related task_id for traceability. The enter_chat action switches the AI into tactical chat mode and synchronizes the latest library/context.",
+			"description": "Interaction (Speak). Communicate with operators in the War Room. Use 'team_chat' to send updates or ask for authorization. Use 'broadcast' for high-priority tactical alerts.",
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"broadcast", "enter_chat", "team_chat"},
-						"description": "broadcast: send real-time guidance to the operator; enter_chat: activate tactical chat mode and sync state; team_chat: send a message to the team channel.",
+						"description": "Action type. team_chat: standard communication; broadcast: priority alert; enter_chat: signal readiness.",
 					},
 					"content": map[string]interface{}{
 						"type":        "string",
-						"description": "Message content for broadcast or team_chat.",
+						"description": "Message content.",
 					},
 					"target_user": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional. For team_chat, specify a target user; an @ mention will be added.",
+						"description": "Optional @mention target.",
 					},
 					"task_id": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional. Related task ID to bind guidance to task history.",
+						"description": "Optional related task ID.",
 					},
 				},
 				"required": []string{"action"},
@@ -111,35 +137,35 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 		},
 		{
 			"name":        "write_orchestration",
-			"description": "Orchestration and rule definition (Write). This is the core for planning. Use it to modify the tactical library, compose automated workflows, or adjust agent operational parameters (e.g., sleep/jitter). Build or optimize an action chain based on current recon results.",
+			"description": "Orchestration (Write). Modify tactical library, workflow plans, or agent configurations.",
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"modify_workflow", "modify_library", "update_agent_config", "update_agent_metadata"},
-						"description": "modify_workflow: update workflow steps; modify_library: edit persistent tactical building blocks; update_agent_config: adjust runtime parameters.",
+						"description": "Action type.",
 					},
 					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent ID."},
-					"data":     map[string]interface{}{"type": "object", "description": "Structured configuration/workflow data. For modify_workflow, include variant_id and parameters."},
+					"data":     map[string]interface{}{"type": "object", "description": "Configuration data."},
 				},
 				"required": []string{"action"},
 			},
 		},
 		{
 			"name":        "operate_control",
-			"description": "Execution and fine-grained control (Operate). Deliver actions or manage underlying channels. Supports executing commands, file delivery, PTY sessions, and tunnel forwarding management. This is where intent becomes effect.",
+			"description": "Execution (Operate). Perform actions: execute commands, manage tunnels, file delivery, PTYs, listeners.",
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"execute", "tunnel", "file", "pty", "listener"},
-						"description": "Operation. execute: send a raw command; tunnel: manage forwarding; file: upload or create download delivery; pty: open an interactive terminal.",
+						"description": "Operation type.",
 					},
-					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent/channel."},
-					"command":  map[string]interface{}{"type": "string", "description": "Command line for action='execute'."},
-					"data":     map[string]interface{}{"type": "object", "description": "Detailed parameters for management actions (e.g., tunnel ports, file paths)."},
+					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent ID."},
+					"command":  map[string]interface{}{"type": "string", "description": "Command to execute."},
+					"data":     map[string]interface{}{"type": "object", "description": "Operation parameters."},
 				},
 				"required": []string{"action"},
 			},
@@ -195,6 +221,33 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 					},
 				},
 				"required": []string{"summary"},
+			},
+		},
+		{
+			"name":        "archive_session",
+			"description": "Archive the current active chat session. This clears the 'War Room' and moves all messages to a historical session. Use this when the current context becomes too large or when starting a new distinct task.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "list_sessions",
+			"description": "List all archived chat sessions.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "read_session",
+			"description": "Read the content of a specific archived session.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"session_id": map[string]interface{}{"type": "string", "description": "ID of the session to read."},
+				},
+				"required": []string{"session_id"},
 			},
 		},
 	}
@@ -260,6 +313,13 @@ func (s *MCPServer) handleListenIntelligence(params map[string]interface{}) (int
 
 		// Collect all unread messages
 		lastRead, _ := params["last_timestamp"].(float64)
+		startTimestamp, _ := params["start_timestamp"].(float64)
+
+		// If start_timestamp is provided and greater than last_timestamp, use it as the baseline
+		if startTimestamp > lastRead {
+			lastRead = startTimestamp
+		}
+
 		var unreadMsgs []map[string]interface{}
 		for _, msg := range s.chatLog {
 			ts, _ := msg["timestamp"].(int64)
@@ -276,10 +336,9 @@ func (s *MCPServer) handleListenIntelligence(params map[string]interface{}) (int
 
 		if len(unreadMsgs) > 0 {
 			return map[string]interface{}{
-				"status":             "received",
-				"messages":           unreadMsgs,
-				"count":              len(unreadMsgs),
-				"system_instruction": "You are in AI Resident Mode. Analyze the messages. If action is needed, use tools. If not, wait. ALWAYS call listen_intelligence again to keep monitoring.",
+				"status":   "received",
+				"messages": unreadMsgs,
+				"count":    len(unreadMsgs),
 			}, nil
 		}
 
@@ -301,7 +360,7 @@ func (s *MCPServer) handleListenIntelligence(params map[string]interface{}) (int
 						"status":             "received",
 						"messages":           []map[string]interface{}{msg},
 						"count":              1,
-						"system_instruction": "You are in AI Resident Mode. Analyze the messages. If action is needed, use tools. If not, wait. ALWAYS call listen_intelligence again to keep monitoring.",
+						"system_instruction": "You are in AI Resident Mode. Analyze the messages. If action is needed, use tools. If not, wait. ALWAYS call listen_intelligence again to keep monitoring. NOTE: Commands invalid for the target system (e.g. OS mismatch) may not appear in the task list.",
 					}, nil
 				}
 				// If not the user we're looking for, keep waiting
@@ -465,6 +524,20 @@ func (s *MCPServer) handleReadArchivedChat(params map[string]interface{}) (inter
 		"count":                   len(archives),
 		"total_archived_sessions": total,
 	}, nil
+}
+
+// --- Session Management ---
+
+func (s *MCPServer) handleArchiveSession(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("archive_session", params)
+}
+
+func (s *MCPServer) handleListSessions(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_sessions", params)
+}
+
+func (s *MCPServer) handleReadSession(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("read_session", params)
 }
 
 // --- Legacy & Helpers ---

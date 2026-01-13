@@ -29,6 +29,7 @@ Q_SIGNALS:
     void connectionEstablished(QString peerAddress);
     void connectionClosed();
     void commandExecuted(QString type, bool success);
+    void activityStatusChanged(bool isBusy);
     void errorOccurred(QString error);
     
 public Q_SLOTS:

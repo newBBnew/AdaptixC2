@@ -105,15 +105,15 @@ func (tm *TaskManager) completeTask(agent *Agent, taskData *adaptix.TaskData) {
 	_ = tm.ts.DBMS.DbTaskInsert(*taskData)
 }
 
-func (tm *TaskManager) Create(agentId string, cmdline string, client string, taskData adaptix.TaskData) {
+func (tm *TaskManager) CreateWithId(agentId string, cmdline string, client string, taskData adaptix.TaskData) (string, error) {
 	agent, err := tm.getAgent(agentId)
 	if err != nil {
 		logs.Error("", "TsTaskCreate: %v", err)
-		return
+		return "", err
 	}
 
 	if !agent.Active {
-		return
+		return "", fmt.Errorf("agent '%v' not active", agentId)
 	}
 
 	tm.prepareTaskData(agent, cmdline, client, &taskData)
@@ -121,10 +121,15 @@ func (tm *TaskManager) Create(agentId string, cmdline string, client string, tas
 	handler, ok := tm.handlers[taskData.Type]
 	if !ok {
 		logs.Debug("", "Unknown task type: %d", taskData.Type)
-		return
+		return "", fmt.Errorf("unknown task type: %d", taskData.Type)
 	}
 
 	handler.Create(tm, agent, &taskData)
+	return taskData.TaskId, nil
+}
+
+func (tm *TaskManager) Create(agentId string, cmdline string, client string, taskData adaptix.TaskData) {
+	_, _ = tm.CreateWithId(agentId, cmdline, client, taskData)
 }
 
 func (tm *TaskManager) Update(agentId string, updateData adaptix.TaskData) {
