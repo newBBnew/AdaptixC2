@@ -65,6 +65,7 @@ protected:
         QString agentId;
         QList<QTreeWidgetItem*> commandQueue;  // Commands to execute for this agent
         QTreeWidgetItem* currentCommand = nullptr;  // Currently executing command
+        QTreeWidgetItem* currentResultsItem = nullptr; // Results row for current command
         QString currentTaskId;  // Task ID of current command
         bool isWaitingForTask = false;  // Waiting for task completion
         int currentStepIndex = 0;  // Current step in the workflow
