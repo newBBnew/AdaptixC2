@@ -166,6 +166,18 @@ TacticalGuidanceWidget::TacticalGuidanceWidget(AdaptixWidget* w)
     mainHSplitter->setStretchFactor(1, 2);
     mainHSplitter->setStretchFactor(2, 1);
 
+    QTimer::singleShot(0, this, [this]() {
+        if (!mainHSplitter)
+            return;
+        int w = this->width();
+        if (w <= 0)
+            w = 1200;
+        int w0 = qMax(340, static_cast<int>(w * 0.33));
+        int w1 = qMax(420, static_cast<int>(w * 0.40));
+        int w2 = qMax(320, w - w0 - w1);
+        mainHSplitter->setSizes({w0, w1, w2});
+    });
+
     auto* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
@@ -202,6 +214,8 @@ void TacticalGuidanceWidget::createLibraryUI()
     libraryLayout = new QVBoxLayout(libraryPanel);
     libraryLayout->setContentsMargins(4, 4, 4, 4);
     libraryLayout->setSpacing(4);
+
+    libraryPanel->setMinimumWidth(340);
 
     // --- Agent Selection Section ---
     libraryLayout->addWidget(new QLabel("<b>Target Agents</b>"));
@@ -263,6 +277,8 @@ void TacticalGuidanceWidget::createComposerUI()
     composerLayout = new QVBoxLayout(composerPanel);
     composerLayout->setContentsMargins(4, 4, 4, 4);
     composerLayout->setSpacing(4);
+
+    composerPanel->setMinimumWidth(420);
 
     composerLayout->addWidget(new QLabel("<b>Playbook Composer</b>"));
 
@@ -513,7 +529,7 @@ void TacticalGuidanceWidget::createResultsUI()
     resultsLayout->setContentsMargins(4, 4, 4, 4);
     resultsLayout->setSpacing(4);
 
-    resultsPanel->setMinimumWidth(280);
+    resultsPanel->setMinimumWidth(320);
 
     resultsTree = new QTreeWidget(resultsPanel);
     resultsTree->setHeaderLabels({"Agent", "Step", "TaskId", "Status"});
@@ -826,6 +842,7 @@ void TacticalGuidanceWidget::stopExecution()
     executionRunning = false;
     executionTargetAgents.clear();
     taskIdToComposerItem.clear();
+    taskIdToResultsItem.clear();
     resultsAgentItems.clear();
     agentQueues.clear();
 }
@@ -878,6 +895,7 @@ void TacticalGuidanceWidget::startExecutionWithSteps(const QList<QTreeWidgetItem
 
     // Clear old mappings
     taskIdToComposerItem.clear();
+    taskIdToResultsItem.clear();
     resultsAgentItems.clear();
 
     if (resultsTree)
@@ -1137,6 +1155,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
                 agentResItem->setText(2, info.taskId);
                 agentResItem->setText(3, "Running");
                 agentResItem->setData(0, Qt::UserRole, info.taskId);
+                taskIdToResultsItem[info.taskId] = agentResItem;
             }
         }
     };
@@ -1166,6 +1185,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
             agentResItem->setText(2, taskId);
             agentResItem->setText(3, "Running");
             agentResItem->setData(0, Qt::UserRole, taskId);
+            taskIdToResultsItem[taskId] = agentResItem;
         }
     };
 
@@ -1231,6 +1251,10 @@ void TacticalGuidanceWidget::notifyTaskSuccess(const QString& taskId)
         return;
     }
 
+    QTreeWidgetItem* resItem = taskIdToResultsItem.value(taskId, nullptr);
+    if (resItem)
+        resItem->setText(3, "Success");
+
     AgentExecutionQueue& queue = agentQueues[agentId];
     
     qDebug() << "[TG] notifyTaskSuccess: Task" << taskId << "for agent" << agentId << "completed successfully";
@@ -1253,8 +1277,23 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
         return;
 
     const QString taskId = task.TaskId;
-    if (taskId.isEmpty() || !taskIdToComposerItem.contains(taskId))
+    if (taskId.isEmpty())
         return;
+
+    QTreeWidgetItem* resItemByTask = taskIdToResultsItem.value(taskId, nullptr);
+    if (resItemByTask)
+        resItemByTask->setText(3, task.Status);
+
+    if (!taskIdToComposerItem.contains(taskId)) {
+        if (!task.Completed)
+            return;
+        const QString finalStatus = adaptixWidget && adaptixWidget->TasksMap.contains(taskId)
+            ? adaptixWidget->TasksMap[taskId].Status
+            : task.Status;
+        if (resItemByTask)
+            resItemByTask->setText(3, finalStatus);
+        return;
+    }
 
     QTreeWidgetItem* stepItem = taskIdToComposerItem.value(taskId, nullptr);
     if (!stepItem)
@@ -1279,18 +1318,19 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
 
     // CRITICAL: Verify the task status matches what's displayed in TasksWidget
     // This ensures we only advance when the UI actually shows "Success"
-    if (!adaptixWidget->TasksMap.contains(taskId)) {
-        qDebug() << "[TG] Task not found in TasksMap, waiting:" << taskId;
-        return;
+    QString finalStatus = task.Status;
+    if (adaptixWidget && adaptixWidget->TasksMap.contains(taskId)) {
+        const TaskData& uiTask = adaptixWidget->TasksMap[taskId];
+        qDebug() << "[TG] UI Task Status:" << uiTask.Status << "vs Task Status:" << task.Status;
+        finalStatus = uiTask.Status;
     }
-
-    const TaskData& uiTask = adaptixWidget->TasksMap[taskId];
-    qDebug() << "[TG] UI Task Status:" << uiTask.Status << "vs Task Status:" << task.Status;
-
-    const QString finalStatus = uiTask.Status;
     if (agentResItem) {
         agentResItem->setText(3, finalStatus);
     }
+
+    QTreeWidgetItem* resItemFallback = taskIdToResultsItem.value(taskId, nullptr);
+    if (resItemFallback)
+        resItemFallback->setText(3, finalStatus);
 
     // Success path: advance normally (idempotent even if TasksWidget also calls notifyTaskSuccess)
     if (finalStatus == "Success") {

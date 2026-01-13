@@ -112,6 +112,7 @@ protected:
     bool executionRunning = false;
     QStringList executionTargetAgents;
     QHash<QString, QTreeWidgetItem*> taskIdToComposerItem;
+    QHash<QString, QTreeWidgetItem*> taskIdToResultsItem;
     QHash<QString, QTreeWidgetItem*> resultsAgentItems;
 
     QJsonArray playbooks;
