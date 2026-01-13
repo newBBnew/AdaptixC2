@@ -323,17 +323,30 @@ void ConsoleWidget::ProcessCmdResult(const QString &commandLine, const Commander
         return;
     }
 
+    CommandSubmitCallback submitCb;
+    TaskIdCallback taskIdCb;
+    if (nextSubmitCallback || nextTaskIdCallback) {
+        submitCb = nextSubmitCallback;
+        taskIdCb = nextTaskIdCallback;
+        nextSubmitCallback = nullptr;
+        nextTaskIdCallback = nullptr;
+    }
+
     // Delegate strict size check and large payload handling to CommandSubmitter.
     // We provide a callback that handles normal (small payload) errors.
     CommandSubmitter::Submit(adaptixWidget, agent, commandLine, cmdResult, UI, this, true,
-                              [this, commandLine](const CommandSubmitInfo& info) {
+                              [this, commandLine, submitCb](const CommandSubmitInfo& info) {
+        if (submitCb)
+            submitCb(info);
+
         // Only print error for small payloads here because large payload upload
         // might have its own async error handling/display or we just want to suppress it here.
         if (!info.ok && !info.usedLargePayload) {
             this->ConsoleOutputPrompt(0, "", "", commandLine);
             this->ConsoleOutputMessage(0, "", CONSOLE_OUT_LOCAL_ERROR, info.message, "", true);
         }
-    });
+    },
+    taskIdCb);
 }
 
 /// SLOTS
@@ -357,6 +370,10 @@ void ConsoleWidget::processInput()
     this->AddToHistory(commandLine);
 
     auto cmdResult = commander->ProcessInput( agent->data.Id, commandLine );
+    
+    // NOTE: In Console mode, if is_pre_hook is true, it means the pre-hook
+    // already handled the command via ax.execute_alias(), so we don't need
+    // to send it to the server again.
     if (cmdResult.is_pre_hook)
         return;
 
@@ -467,3 +484,9 @@ void ConsoleWidget::handleShowHistory()
 }
 
 void ConsoleWidget::onCompletionSelected(const QString &selectedText) { userSelectedCompletion = true; }
+
+void ConsoleWidget::SetNextCommandCallbacks(CommandSubmitCallback submitCallback, TaskIdCallback taskIdCallback)
+{
+    nextSubmitCallback = submitCallback;
+    nextTaskIdCallback = taskIdCallback;
+}

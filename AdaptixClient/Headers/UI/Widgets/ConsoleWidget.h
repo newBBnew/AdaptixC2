@@ -6,6 +6,7 @@
 #include <Utils/KeyPressHandler.h>
 #include <Utils/CustomElements.h>
 #include <Agent/Commander.h>
+ #include <Client/CommandSubmitter.h>
 
 class Agent;
 class AdaptixWidget;
@@ -50,6 +51,9 @@ class ConsoleWidget : public DockTab
     Commander* commander = nullptr;
     KPH_ConsoleInput* kphInputLineEdit = nullptr;
 
+    CommandSubmitCallback nextSubmitCallback;
+    TaskIdCallback nextTaskIdCallback;
+
     void createUI();
     void findAndHighlightAll(const QString& pattern);
     void highlightCurrent() const;
@@ -61,6 +65,8 @@ public:
     void SetUpdatesEnabled(const bool enabled);
 
     void ProcessCmdResult(const QString &commandLine, const CommanderResult &cmdResult, bool UI);
+
+    void SetNextCommandCallbacks(CommandSubmitCallback submitCallback, TaskIdCallback taskIdCallback);
 
     void InputFocus() const;
     void AddToHistory(const QString& command);

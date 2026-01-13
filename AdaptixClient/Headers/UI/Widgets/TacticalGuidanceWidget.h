@@ -17,6 +17,8 @@
 #include <QTreeView>
 #include <QTextBrowser>
 #include <QVBoxLayout>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <UI/Widgets/AbstractDock.h>
 
 class AdaptixWidget;
@@ -108,15 +110,13 @@ protected:
     QMap<QString, TacticalNodeData> nodeMap;       // nodeId -> data
 
     bool executionRunning = false;
-    bool executionAdvanceScheduled = false;
-    QList<QTreeWidgetItem*> executionQueue;
-    QTreeWidgetItem* currentExecutingItem = nullptr;
     QStringList executionTargetAgents;
     QHash<QString, QTreeWidgetItem*> taskIdToComposerItem;
-    QHash<QString, int> composerItemPendingCount;
-    QHash<QString, bool> composerItemHasError;
-    QHash<QString, QTreeWidgetItem*> resultsStepItems;
     QHash<QString, QTreeWidgetItem*> resultsAgentItems;
+
+    QJsonArray playbooks;
+    QString currentPlaybookId;
+    bool composerIsLoading = false;
 
     // New per-agent execution management
     QHash<QString, AgentExecutionQueue> agentQueues;  // agentId -> execution queue
@@ -136,6 +136,15 @@ protected:
     void cleanupNodeData(QStandardItem* item);
     QStandardItem* findItemById(const QString& id, QStandardItem* parent = nullptr);
     QMap<QString, QString> getAllCategories(QStandardItem* parent = nullptr, QString prefix = "");
+
+    void saveComposer();
+    void loadComposer();
+    void rebuildPlaybookList();
+    void switchPlaybook(const QString& playbookId);
+    void storeCurrentPlaybook();
+    void ensureDefaultPlaybook();
+    QJsonObject serializeComposerItem(QTreeWidgetItem* item) const;
+    QTreeWidgetItem* deserializeComposerItem(const QJsonObject& obj, QTreeWidgetItem* parent = nullptr);
 
 private:
     QJsonObject serializeNode(QStandardItem* item);
@@ -198,7 +207,6 @@ private:
 
     QList<QTreeWidgetItem*> collectCommandSteps() const;
     QStringList collectSelectedAgentIds() const;
-    void advanceExecution();
     void stopExecution();
 
     // Serialization helpers

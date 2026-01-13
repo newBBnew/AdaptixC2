@@ -130,9 +130,9 @@ CommanderResult Commander::ProcessInput(QString agentId, QString cmdline)
                         if (hook_result.isEmpty()) {
                             return CommanderResult{false, false, "", {}, true, {} };
                         } else {
-                            cmdResult.output = true;
-                            cmdResult.error = true;
-                            cmdResult.message = hook_result;
+                            // Pre-hook returned a new command, recursively process it
+                            qDebug() << "[Commander] Pre-hook returned new command, recursively processing:" << hook_result;
+                            return ProcessInput(agentId, hook_result);
                         }
                     }
                     return cmdResult;
@@ -182,9 +182,9 @@ CommanderResult Commander::ProcessInput(QString agentId, QString cmdline)
                     if (hook_result.isEmpty()) {
                         return CommanderResult{false, false, "", {}, true, {} };
                     } else {
-                        cmdResult.output = true;
-                        cmdResult.error = true;
-                        cmdResult.message = hook_result;
+                        // Pre-hook returned a new command, recursively process it
+                        qDebug() << "[Commander] Pre-hook returned new command, recursively processing:" << hook_result;
+                        return ProcessInput(agentId, hook_result);
                     }
                 }
                 return cmdResult;
@@ -237,9 +237,23 @@ QString Commander::ProcessPreHook(QJSEngine *engine, const Command &command, con
     }
 
     QJSValue result = command.pre_hook.call(jsArgs);
+    
+    qDebug() << "[Commander] Pre-hook called for command:" << command.name;
+    qDebug() << "[Commander] Pre-hook result type:" << (result.isString() ? "string" : result.isError() ? "error" : "other");
+    qDebug() << "[Commander] Pre-hook result:" << result.toString();
+    
     if (result.isError()) {
         return  "Error: " + result.property("message").toString();
     }
+    
+    // Return the pre-hook result if it's a string
+    if (result.isString()) {
+        QString resultStr = result.toString();
+        qDebug() << "[Commander] Pre-hook returning string:" << resultStr;
+        return resultStr;
+    }
+    
+    qDebug() << "[Commander] Pre-hook result is not a string, returning empty";
     return "";
 }
 
