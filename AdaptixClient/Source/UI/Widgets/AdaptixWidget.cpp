@@ -179,6 +179,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     connect( targetsButton,   &QPushButton::clicked, this, &AdaptixWidget::LoadTargetsUI);
     connect( reconnectButton, &QPushButton::clicked, this, &AdaptixWidget::OnReconnect);
     connect( msfButton, &QPushButton::clicked, this, &AdaptixWidget::OnMsfButtonClicked);
+    connect( mcpButton, &QPushButton::toggled, this, &AdaptixWidget::OnMcpButtonClicked);
 
     connect( TickThread, &QThread::started, TickWorker, &LastTickWorker::run );
 
@@ -342,6 +343,18 @@ void AdaptixWidget::createUI()
     msfButton->setFixedSize(37, 28);
     msfButton->setToolTip("Metasploit Framework");
 
+    mcpButton = new QPushButton(themedIcon(":/icons/link"), "");
+    mcpButton->setIconSize(QSize(24, 24));
+    mcpButton->setFixedSize(37, 28);
+    mcpButton->setToolTip("MCP Bridge");
+    mcpButton->setCheckable(true);
+    mcpButton->setChecked(McpBridge && McpBridge->isRunning());
+    if (McpBridge && McpBridge->isRunning()) {
+        mcpButton->setIcon(RecolorIcon(mcpButton->icon(), QColor(COLOR_NeonGreen)));
+    } else {
+        mcpButton->setIcon(RecolorIcon(mcpButton->icon(), QColor(128, 128, 128)));
+    }
+
     horizontalSpacer1 = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
 
     topHLayout = new QHBoxLayout();
@@ -370,6 +383,7 @@ void AdaptixWidget::createUI()
     topHLayout->addWidget(reconnectButton);
     topHLayout->addWidget(aiStatusButton);
     topHLayout->addWidget(msfButton);
+    topHLayout->addWidget(mcpButton);
     topHLayout->addItem(horizontalSpacer1);
 
     dockTop = new KDDockWidgets::QtWidgets::DockWidget(this->profile->GetProject()+"-Dock-Top", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
@@ -1154,5 +1168,28 @@ void AdaptixWidget::OnMsfButtonClicked()
     LoadMSFSessionsUI();
     MSFConsoleDock->dock()->toggleAction()->trigger();
     MSFSessionsDock->dock()->toggleAction()->trigger();
+}
+
+void AdaptixWidget::OnMcpButtonClicked()
+{
+    if (!McpBridge) {
+        return;
+    }
+
+    if (McpBridge->isRunning()) {
+        McpBridge->stop();
+        mcpButton->setChecked(false);
+        mcpButton->setIcon(RecolorIcon(mcpButton->icon(), QColor(128, 128, 128)));
+        mcpButton->setToolTip("MCP Bridge: Disabled");
+    } else {
+        if (McpBridge->start()) {
+            mcpButton->setChecked(true);
+            mcpButton->setIcon(RecolorIcon(mcpButton->icon(), QColor(COLOR_NeonGreen)));
+            mcpButton->setToolTip(QString("MCP Bridge: Running on port %1").arg(McpBridge->getPort()));
+        } else {
+            mcpButton->setChecked(false);
+            MessageError("Failed to start MCP Bridge");
+        }
+    }
 }
 

@@ -73,6 +73,7 @@ Q_OBJECT
     QPushButton*    reconnectButton   = nullptr;
     QPushButton*    aiStatusButton    = nullptr;
     QPushButton*    msfButton         = nullptr;
+    QPushButton*    mcpButton         = nullptr;
     QSpacerItem*    horizontalSpacer1 = nullptr;
     QFrame*         line_1            = nullptr;
     QFrame*         line_2            = nullptr;
@@ -211,6 +212,7 @@ public Q_SLOTS:
     void LoadMSFSessionsUI();
     void OnReconnect();
     void OnMsfButtonClicked();
+    void OnMcpButtonClicked();
 };
 
 #endif
