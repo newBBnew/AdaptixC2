@@ -1,5 +1,7 @@
 package profile
 
+import "AdaptixServer/core/msf"
+
 type AdaptixProfile struct {
 	Server         *TsProfile  `json:"Teamserver"`
 	ServerResponse *TsResponse `json:"ServerResponse"`
@@ -18,15 +20,7 @@ type TsProfile struct {
 	Extenders    []string          `json:"extenders"`
 	ATokenLive   int               `json:"access_token_live_hours"`
 	RTokenLive   int               `json:"refresh_token_live_hours"`
-	MSF          *MSFConfig        `json:"msf"`
-}
-
-type MSFConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	SSL      bool   `json:"ssl"`
+	MSF          *msf.MSFConfig    `json:"msf"`
 }
 
 type TsResponse struct {
