@@ -46,7 +46,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     ScriptManager = new AxScriptManager(this, this);
     McpTerminalManager = new MCPTerminalManager(this);
 
-    // Initialize MCP Bridge (Port 9999)
+    // Initialize MCP Bridge (Port 9999) - auto-start
     McpBridge = new MCPBridgeWorker(this, 9999, this);
     if (McpBridge->start()) {
         LogInfo("MCP Bridge started on port %d", McpBridge->getPort());
@@ -179,7 +179,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     connect( targetsButton,   &QPushButton::clicked, this, &AdaptixWidget::LoadTargetsUI);
     connect( reconnectButton, &QPushButton::clicked, this, &AdaptixWidget::OnReconnect);
     connect( msfButton, &QPushButton::clicked, this, &AdaptixWidget::OnMsfButtonClicked);
-    connect( mcpButton, &QPushButton::toggled, this, &AdaptixWidget::OnMcpButtonClicked);
+    connect( mcpButton, &QPushButton::clicked, this, &AdaptixWidget::OnMcpButtonClicked);
 
     connect( TickThread, &QThread::started, TickWorker, &LastTickWorker::run );
 
@@ -351,9 +351,12 @@ void AdaptixWidget::createUI()
     mcpButton->setChecked(McpBridge && McpBridge->isRunning());
     if (McpBridge && McpBridge->isRunning()) {
         mcpButton->setIcon(RecolorIcon(mcpButton->icon(), QColor(COLOR_NeonGreen)));
+        mcpButton->setToolTip(QString("MCP Bridge: Running on port %1").arg(McpBridge->getPort()));
     } else {
         mcpButton->setIcon(RecolorIcon(mcpButton->icon(), QColor(128, 128, 128)));
+        mcpButton->setToolTip("MCP Bridge: Disabled");
     }
+    m_mcpInitialized = true;
 
     horizontalSpacer1 = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
 
@@ -1148,8 +1151,9 @@ void AdaptixWidget::LoadMSFConsoleUI()
         MSFConsoleDock = new MSFConsoleWidget(profile->GetProject(), this);
         MSFConsoleDock->setServerUrl(profile->GetURL());
         MSFConsoleDock->setToken(profile->GetAccessToken());
+        dockBottom->addDockWidgetAsTab(MSFConsoleDock->dock());
     }
-    this->AddDockBottom(MSFConsoleDock->dock());
+    MSFConsoleDock->dock()->toggleAction()->trigger();
 }
 
 void AdaptixWidget::LoadMSFSessionsUI()
@@ -1158,21 +1162,20 @@ void AdaptixWidget::LoadMSFSessionsUI()
         MSFSessionsDock = new MSFSessionsWidget(profile->GetProject(), this);
         MSFSessionsDock->setServerUrl(profile->GetURL());
         MSFSessionsDock->setToken(profile->GetAccessToken());
+        dockBottom->addDockWidgetAsTab(MSFSessionsDock->dock());
     }
-    this->AddDockBottom(MSFSessionsDock->dock());
+    MSFSessionsDock->dock()->toggleAction()->trigger();
 }
 
 void AdaptixWidget::OnMsfButtonClicked()
 {
     LoadMSFConsoleUI();
     LoadMSFSessionsUI();
-    MSFConsoleDock->dock()->toggleAction()->trigger();
-    MSFSessionsDock->dock()->toggleAction()->trigger();
 }
 
 void AdaptixWidget::OnMcpButtonClicked()
 {
-    if (!McpBridge) {
+    if (!McpBridge || !m_mcpInitialized) {
         return;
     }
 
