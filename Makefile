@@ -72,6 +72,9 @@ server: prepare
 	@ cd AdaptixServer && GOEXPERIMENT=jsonv2,greenteagc go build -buildvcs=false -ldflags="-s -w" -o adaptixserver > /dev/null 2>build_error.log || { echo "[ERROR] Failed to build AdaptixServer:"; cat build_error.log >&2; exit 1; }
 	@ mv AdaptixServer/adaptixserver ./$(DIST_DIR)/
 	@ cp AdaptixServer/ssl_gen.sh AdaptixServer/profile.json AdaptixServer/404page.html ./$(DIST_DIR)/
+	@ mkdir -p $(DIST_DIR)/scripts
+	@ cp AdaptixServer/scripts/msf-controller AdaptixServer/scripts/msf.conf ./$(DIST_DIR)/scripts/
+	@ chmod +x $(DIST_DIR)/scripts/msf-controller
 	@ echo "[+] done"
 
 server-ext: clean server extenders

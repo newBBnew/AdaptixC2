@@ -1,0 +1,190 @@
+#!/bin/bash
+
+# msf-controller - MSF RPCD Controller
+# Control msfrpcd daemon for adaptix integration
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${SCRIPT_DIR}/msf.conf"
+
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+fi
+
+MSF_HOST="${MSF_HOST:-127.0.0.1}"
+MSF_PORT="${MSF_PORT:-55553}"
+MSF_USER="${MSF_USER:-msf}"
+MSF_PASS="${MSF_PASS:-test123}"
+MSF_SSL="${MSF_SSL:-true}"
+
+PID_FILE="/tmp/msfrpcd_${MSF_USER}.pid"
+LOG_FILE="/tmp/msfrpcd_${MSF_USER}.log"
+
+get_pid() {
+    if [ -f "$PID_FILE" ]; then
+        cat "$PID_FILE"
+    fi
+}
+
+is_running() {
+    local pid
+    pid=$(get_pid)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+start() {
+    if is_running; then
+        echo "[*] msfrpcd already running (PID: $(get_pid))"
+        return 0
+    fi
+
+    echo "[*] Starting msfrpcd..."
+    echo "[*] Host: ${MSF_HOST}:${MSF_PORT}"
+    echo "[*] User: ${MSF_USER}"
+    echo "[*] SSL: ${MSF_SSL}"
+
+    if ! command -v msfrpcd &> /dev/null; then
+        echo "[!] msfrpcd not found in PATH"
+        echo "[!] Please install Metasploit Framework"
+        return 1
+    fi
+
+    msfrpcd \
+        -U "$MSF_USER" \
+        -P "$MSF_PASS" \
+        -p "$MSF_PORT" \
+        -S "$MSF_SSL" \
+        -f \
+        > "$LOG_FILE" 2>&1 &
+
+    local pid=$!
+    echo "$pid" > "$PID_FILE"
+
+    sleep 3
+
+    if is_running; then
+        echo "[+] msfrpcd started successfully (PID: $pid)"
+        echo "[+] Log file: $LOG_FILE"
+    else
+        echo "[!] Failed to start msfrpcd"
+        if [ -f "$LOG_FILE" ]; then
+            echo "[!] Check log: $LOG_FILE"
+        fi
+        rm -f "$PID_FILE"
+        return 1
+    fi
+}
+
+stop() {
+    if ! is_running; then
+        echo "[*] msfrpcd not running"
+        rm -f "$PID_FILE" 2>/dev/null || true
+        return 0
+    fi
+
+    local pid
+    pid=$(get_pid)
+    echo "[*] Stopping msfrpcd (PID: $pid)..."
+
+    kill "$pid" 2>/dev/null || true
+
+    local count=0
+    while is_running && [ $count -lt 10 ]; do
+        sleep 1
+        ((count++))
+        echo "[*] Waiting for msfrpcd to stop... ($count/10)"
+    done
+
+    if is_running; then
+        echo "[!] Force killing msfrpcd..."
+        kill -9 "$pid" 2>/dev/null || true
+        sleep 1
+    fi
+
+    rm -f "$PID_FILE"
+    echo "[+] msfrpcd stopped"
+}
+
+status() {
+    if is_running; then
+        echo "running"
+        echo "[*] msfrpcd is running (PID: $(get_pid))"
+    else
+        echo "stopped"
+        echo "[*] msfrpcd is not running"
+    fi
+}
+
+restart() {
+    stop
+    sleep 2
+    start
+}
+
+check_connection() {
+    if ! command -v curl &> /dev/null; then
+        echo "[!] curl not found, cannot check connection"
+        return 1
+    fi
+
+    local scheme="http"
+    if [ "$MSF_SSL" = "true" ]; then
+        scheme="https"
+    fi
+
+    local url="${scheme}://${MSF_HOST}:${MSF_PORT}/api/1.0/version"
+
+    if curl -sk --connect-timeout 3 "$url" > /dev/null 2>&1; then
+        echo "[+] MSF RPC is reachable at ${MSF_HOST}:${MSF_PORT}"
+        return 0
+    else
+        echo "[!] MSF RPC is not reachable at ${MSF_HOST}:${MSF_PORT}"
+        return 1
+    fi
+}
+
+usage() {
+    echo "Usage: $0 {start|stop|status|restart|check}"
+    echo ""
+    echo "Commands:"
+    echo "  start    - Start msfrpcd daemon"
+    echo "  stop     - Stop msfrpcd daemon"
+    echo "  status   - Check if msfrpcd is running"
+    echo "  restart  - Restart msfrpcd daemon"
+    echo "  check    - Check if MSF RPC is reachable"
+    echo ""
+    echo "Configuration:"
+    echo "  Reads from: $CONFIG_FILE"
+    echo "  Default values:"
+    echo "    MSF_HOST=127.0.0.1"
+    echo "    MSF_PORT=55553"
+    echo "    MSF_USER=msf"
+    echo "    MSF_PASS=test123"
+    echo "    MSF_SSL=true"
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    status)
+        status
+        ;;
+    restart)
+        restart
+        ;;
+    check)
+        check_connection
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac
