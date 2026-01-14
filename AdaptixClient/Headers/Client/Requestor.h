@@ -73,4 +73,22 @@ void HttpReqTacticalWorkflowClearAsync(AuthProfile& profile, HttpCallback callba
 
 void HttpReqTacticalSuggestionSendAsync(const QString &content, AuthProfile& profile, HttpCallback callback);
 
+/// MSF API Functions
+
+void HttpReqMSFStartAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFStopAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFStatusAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFConsoleCreateAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFConsoleWriteAsync(const QString& consoleId, const QString& command, AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFConsoleReadAsync(const QString& consoleId, AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFConsoleDestroyAsync(const QString& consoleId, AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFSessionsListAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFSessionInteractAsync(const QString& sessionId, const QString& command, AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFSessionKillAsync(const QString& sessionId, AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFJobsListAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFJobKillAsync(const QString& jobId, AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFControllerStartAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFControllerStopAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFControllerStatusAsync(AuthProfile& profile, HttpCallback callback);
+
 #endif

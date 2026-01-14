@@ -463,3 +463,92 @@ void HttpReqTacticalSuggestionSendAsync(const QString &content, AuthProfile& pro
     QByteArray jsonData = QJsonDocument(data).toJson();
     HttpRequestManager::instance().post(profile.GetURL(), "/tactical/suggestion/send", profile.GetAccessToken(), jsonData, callback);
 }
+
+/// MSF API Functions
+
+void HttpReqMSFStartAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().post(profile.GetURL(), "/api/msf/start", profile.GetAccessToken(), QByteArray(), callback);
+}
+
+void HttpReqMSFStopAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().post(profile.GetURL(), "/api/msf/stop", profile.GetAccessToken(), QByteArray(), callback);
+}
+
+void HttpReqMSFStatusAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().get(profile.GetURL(), "/api/msf/status", profile.GetAccessToken(), callback);
+}
+
+void HttpReqMSFConsoleCreateAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().post(profile.GetURL(), "/api/msf/console/create", profile.GetAccessToken(), QByteArray(), callback);
+}
+
+void HttpReqMSFConsoleWriteAsync(const QString& consoleId, const QString& command, AuthProfile& profile, HttpCallback callback)
+{
+    QJsonObject data;
+    data["command"] = command;
+    QByteArray jsonData = QJsonDocument(data).toJson();
+    QString url = QString("/api/msf/console/%1/write").arg(consoleId);
+    HttpRequestManager::instance().post(profile.GetURL(), url, profile.GetAccessToken(), jsonData, callback);
+}
+
+void HttpReqMSFConsoleReadAsync(const QString& consoleId, AuthProfile& profile, HttpCallback callback)
+{
+    QString url = QString("/api/msf/console/%1/read").arg(consoleId);
+    HttpRequestManager::instance().get(profile.GetURL(), url, profile.GetAccessToken(), callback);
+}
+
+void HttpReqMSFConsoleDestroyAsync(const QString& consoleId, AuthProfile& profile, HttpCallback callback)
+{
+    QString url = QString("/api/msf/console/%1/destroy").arg(consoleId);
+    HttpRequestManager::instance().post(profile.GetURL(), url, profile.GetAccessToken(), QByteArray(), callback);
+}
+
+void HttpReqMSFSessionsListAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().get(profile.GetURL(), "/api/msf/sessions", profile.GetAccessToken(), callback);
+}
+
+void HttpReqMSFSessionInteractAsync(const QString& sessionId, const QString& command, AuthProfile& profile, HttpCallback callback)
+{
+    QJsonObject data;
+    data["command"] = command;
+    QByteArray jsonData = QJsonDocument(data).toJson();
+    QString url = QString("/api/msf/sessions/%1/interact").arg(sessionId);
+    HttpRequestManager::instance().post(profile.GetURL(), url, profile.GetAccessToken(), jsonData, callback);
+}
+
+void HttpReqMSFSessionKillAsync(const QString& sessionId, AuthProfile& profile, HttpCallback callback)
+{
+    QString url = QString("/api/msf/sessions/%1/kill").arg(sessionId);
+    HttpRequestManager::instance().post(profile.GetURL(), url, profile.GetAccessToken(), QByteArray(), callback);
+}
+
+void HttpReqMSFJobsListAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().get(profile.GetURL(), "/api/msf/jobs", profile.GetAccessToken(), callback);
+}
+
+void HttpReqMSFJobKillAsync(const QString& jobId, AuthProfile& profile, HttpCallback callback)
+{
+    QString url = QString("/api/msf/jobs/%1/kill").arg(jobId);
+    HttpRequestManager::instance().post(profile.GetURL(), url, profile.GetAccessToken(), QByteArray(), callback);
+}
+
+void HttpReqMSFControllerStartAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().post(profile.GetURL(), "/api/msf/controller/start", profile.GetAccessToken(), QByteArray(), callback);
+}
+
+void HttpReqMSFControllerStopAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().post(profile.GetURL(), "/api/msf/controller/stop", profile.GetAccessToken(), QByteArray(), callback);
+}
+
+void HttpReqMSFControllerStatusAsync(AuthProfile& profile, HttpCallback callback)
+{
+    HttpRequestManager::instance().get(profile.GetURL(), "/api/msf/controller/status", profile.GetAccessToken(), callback);
+}
