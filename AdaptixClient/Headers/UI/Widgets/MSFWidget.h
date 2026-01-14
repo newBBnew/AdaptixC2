@@ -15,6 +15,11 @@ public:
     void setToken(const QString& token);
     void setServerUrl(const QString& url);
 
+    KDDockWidgets::QtWidgets::DockWidget* dock() const { return m_dock; }
+
+Q_SIGNALS:
+    void consoleOutput(const QString& consoleId, const QString& data, bool busy);
+
 public Q_SLOTS:
     void onConnected();
     void onDisconnected();
@@ -29,6 +34,8 @@ private:
     QString m_token;
     QString m_serverUrl;
     QString m_currentConsoleId;
+
+    KDDockWidgets::QtWidgets::DockWidget* m_dock = nullptr;
 
     QVBoxLayout* mainLayout = nullptr;
     QHBoxLayout* toolbarLayout = nullptr;
@@ -57,6 +64,8 @@ public:
     void setServerUrl(const QString& url);
     void refreshSessions();
 
+    KDDockWidgets::QtWidgets::DockWidget* dock() const { return m_dock; }
+
 public Q_SLOTS:
     void onSessionNew(const QJsonObject& session);
     void onSessionClosed(const QString& sessionId);
@@ -71,6 +80,8 @@ private:
 
     QString m_token;
     QString m_serverUrl;
+
+    KDDockWidgets::QtWidgets::DockWidget* m_dock = nullptr;
 
     QVBoxLayout* mainLayout = nullptr;
     QHBoxLayout* toolbarLayout = nullptr;

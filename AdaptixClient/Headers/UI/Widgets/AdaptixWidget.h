@@ -32,6 +32,8 @@ class DialogSyncPacket;
 class AuthProfile;
 class AxScriptManager;
 class MCPBridgeWorker;
+class MSFConsoleWidget;
+class MSFSessionsWidget;
 
 typedef struct RegListenerConfig {
     QString name;
@@ -70,6 +72,7 @@ Q_OBJECT
     QPushButton*    keysButton        = nullptr;
     QPushButton*    reconnectButton   = nullptr;
     QPushButton*    aiStatusButton    = nullptr;
+    QPushButton*    msfButton         = nullptr;
     QSpacerItem*    horizontalSpacer1 = nullptr;
     QFrame*         line_1            = nullptr;
     QFrame*         line_2            = nullptr;
@@ -116,6 +119,8 @@ public:
     TasksWidget*         TasksDock         = nullptr;
     TargetsWidget*       TargetsDock       = nullptr;
     TacticalGuidanceWidget* TacticalGuidanceDock = nullptr;
+    MSFConsoleWidget*    MSFConsoleDock    = nullptr;
+    MSFSessionsWidget*   MSFSessionsDock   = nullptr;
 
     QVector<RegListenerConfig>     RegisterListeners;
     QVector<RegAgentConfig>        RegisterAgents;
@@ -202,7 +207,10 @@ public Q_SLOTS:
     void LoadScreenshotsUI() const;
     void LoadCredentialsUI() const;
     void LoadTargetsUI() const;
+    void LoadMSFConsoleUI();
+    void LoadMSFSessionsUI();
     void OnReconnect();
+    void OnMsfButtonClicked();
 };
 
 #endif

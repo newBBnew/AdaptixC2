@@ -66,6 +66,10 @@ MSFConsoleWidget::MSFConsoleWidget(const QString& project, QWidget* parent) : QW
 {
     createUI();
     setupCompleter();
+
+    m_dock = new KDDockWidgets::QtWidgets::DockWidget(project + "-MSFConsole", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
+    m_dock->setWidget(this);
+    m_dock->setTitle("MSF Console");
 }
 
 MSFConsoleWidget::~MSFConsoleWidget() {}
@@ -109,7 +113,7 @@ void MSFConsoleWidget::createUI()
 
     outputTextEdit = new QTextEdit();
     outputTextEdit->setReadOnly(true);
-    outputTextEdit->setFont(FontManager::getConsoleFont());
+    outputTextEdit->setFont(FontManager::instance().getDefaultMonospaceFont());
     outputTextEdit->setStyleSheet("background-color: #1e1e1e; color: #d4d4d4;");
 
     mainLayout->addWidget(outputTextEdit);
@@ -119,7 +123,7 @@ void MSFConsoleWidget::createUI()
 
     inputLineEdit = new QLineEdit();
     inputLineEdit->setPlaceholderText("MSF Console (enter MSF commands)");
-    inputLineEdit->setFont(FontManager::getConsoleFont());
+    inputLineEdit->setFont(FontManager::instance().getDefaultMonospaceFont());
     inputLineEdit->setStyleSheet("background-color: #2d2d2d; color: #d4d4d4;");
 
     sendButton = new QPushButton("Send");
@@ -189,7 +193,7 @@ void MSFConsoleWidget::sendCommand()
         QString("%1/api/msf/console/%2/write").arg(m_serverUrl).arg(m_currentConsoleId),
         QJsonDocument(jsonData).toJson(QJsonDocument::Compact),
         m_token
-    ).object();
+    );
 
     if (response["ok"].toBool()) {
         refreshConsole();
@@ -204,7 +208,7 @@ void MSFConsoleWidget::refreshConsole()
         QString("%1/api/msf/console/create").arg(m_serverUrl),
         QByteArray(),
         m_token
-    ).object();
+    );
 
     if (response["ok"].toBool()) {
         m_currentConsoleId = response["id"].toString();
@@ -215,6 +219,10 @@ void MSFConsoleWidget::refreshConsole()
 MSFSessionsWidget::MSFSessionsWidget(const QString& project, QWidget* parent) : QWidget(parent)
 {
     createUI();
+
+    m_dock = new KDDockWidgets::QtWidgets::DockWidget(project + "-MSFSessions", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
+    m_dock->setWidget(this);
+    m_dock->setTitle("MSF Sessions");
 }
 
 MSFSessionsWidget::~MSFSessionsWidget() {}
@@ -375,7 +383,7 @@ void MSFSessionsWidget::refreshSessions()
         QString("%1/api/msf/sessions").arg(m_serverUrl),
         QByteArray(),
         m_token
-    ).object();
+    );
 
     if (response["ok"].toBool()) {
         onSessionsUpdate(response["sessions"].toObject());

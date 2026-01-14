@@ -22,6 +22,7 @@
 #include <UI/Widgets/TasksWidget.h>
 #include <UI/Widgets/TacticalGuidanceWidget.h>
 #include <UI/Widgets/TunnelsWidget.h>
+#include <UI/Widgets/MSFWidget.h>
 #include <UI/Graph/SessionsGraph.h>
 #include <UI/Dialogs/DialogSyncPacket.h>
 #include <UI/Dialogs/DialogTunnel.h>
@@ -177,6 +178,7 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     connect( credsButton,     &QPushButton::clicked, this, &AdaptixWidget::LoadCredentialsUI);
     connect( targetsButton,   &QPushButton::clicked, this, &AdaptixWidget::LoadTargetsUI);
     connect( reconnectButton, &QPushButton::clicked, this, &AdaptixWidget::OnReconnect);
+    connect( msfButton, &QPushButton::clicked, this, &AdaptixWidget::OnMsfButtonClicked);
 
     connect( TickThread, &QThread::started, TickWorker, &LastTickWorker::run );
 
@@ -335,6 +337,11 @@ void AdaptixWidget::createUI()
     aiStatusButton->setIcon(RecolorIcon(aiStatusButton->icon(), QColor(128, 128, 128)));
     aiStatusButton->setEnabled(false); // Read-only status for now
 
+    msfButton = new QPushButton(themedIcon(":/icons/terminal"), "");
+    msfButton->setIconSize(QSize(24, 24));
+    msfButton->setFixedSize(37, 28);
+    msfButton->setToolTip("Metasploit Framework");
+
     horizontalSpacer1 = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
 
     topHLayout = new QHBoxLayout();
@@ -361,7 +368,8 @@ void AdaptixWidget::createUI()
     topHLayout->addWidget(keysButton);
     topHLayout->addWidget(line_4);
     topHLayout->addWidget(reconnectButton);
-    topHLayout->addWidget(aiStatusButton); // Add AI status
+    topHLayout->addWidget(aiStatusButton);
+    topHLayout->addWidget(msfButton);
     topHLayout->addItem(horizontalSpacer1);
 
     dockTop = new KDDockWidgets::QtWidgets::DockWidget(this->profile->GetProject()+"-Dock-Top", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
@@ -1118,5 +1126,33 @@ void AdaptixWidget::OnReconnect()
 
         workerThread->start();
     }
+}
+
+void AdaptixWidget::LoadMSFConsoleUI()
+{
+    if (MSFConsoleDock == nullptr) {
+        MSFConsoleDock = new MSFConsoleWidget(profile->GetProject(), this);
+        MSFConsoleDock->setServerUrl(profile->GetURL());
+        MSFConsoleDock->setToken(profile->GetAccessToken());
+    }
+    this->AddDockBottom(MSFConsoleDock->dock());
+}
+
+void AdaptixWidget::LoadMSFSessionsUI()
+{
+    if (MSFSessionsDock == nullptr) {
+        MSFSessionsDock = new MSFSessionsWidget(profile->GetProject(), this);
+        MSFSessionsDock->setServerUrl(profile->GetURL());
+        MSFSessionsDock->setToken(profile->GetAccessToken());
+    }
+    this->AddDockBottom(MSFSessionsDock->dock());
+}
+
+void AdaptixWidget::OnMsfButtonClicked()
+{
+    LoadMSFConsoleUI();
+    LoadMSFSessionsUI();
+    MSFConsoleDock->dock()->toggleAction()->trigger();
+    MSFSessionsDock->dock()->toggleAction()->trigger();
 }
 
