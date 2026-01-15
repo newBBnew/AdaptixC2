@@ -1,6 +1,7 @@
 package msf
 
 import (
+	"AdaptixServer/core/utils/logs"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -16,6 +17,7 @@ type WSHandler struct {
 	clientMu   sync.RWMutex
 	pollTicker *time.Ticker
 	stopChan   chan struct{}
+	logChan    chan string
 }
 
 type WSClient struct {
@@ -24,6 +26,7 @@ type WSClient struct {
 	ConsoleIDs map[string]bool
 	SessionIDs map[string]bool
 	Send       chan []byte
+	stopChan   chan struct{}
 }
 
 var upgrader = websocket.Upgrader{
@@ -38,11 +41,37 @@ func mustMarshal(v interface{}) []byte {
 }
 
 func NewWSHandler(api *API) *WSHandler {
-	return &WSHandler{
+	h := &WSHandler{
 		api:      api,
 		upgrader: upgrader,
 		clients:  make(map[string]*WSClient),
 		stopChan: make(chan struct{}),
+		logChan:  make(chan string, 100),
+	}
+
+	// 启动日志广播 goroutine
+	go h.broadcastLogs()
+
+	return h
+}
+
+// BroadcastLog 发送日志到所有客户端
+func (h *WSHandler) BroadcastLog(logMsg string) {
+	select {
+	case h.logChan <- logMsg:
+	default:
+		// 日志队列满了就丢弃
+	}
+}
+
+func (h *WSHandler) broadcastLogs() {
+	for {
+		select {
+		case logMsg := <-h.logChan:
+			h.Broadcast("server_log", map[string]string{"message": logMsg})
+		case <-h.stopChan:
+			return
+		}
 	}
 }
 
@@ -53,11 +82,24 @@ func (h *WSHandler) HandleConnect(userID string, conn *websocket.Conn) error {
 		ConsoleIDs: make(map[string]bool),
 		SessionIDs: make(map[string]bool),
 		Send:       make(chan []byte, 256),
+		stopChan:   make(chan struct{}),
 	}
 
 	h.clientMu.Lock()
 	h.clients[userID] = client
 	h.clientMu.Unlock()
+
+	// 第一个客户端连接时，注册日志广播器
+	h.clientMu.RLock()
+	wasEmpty := len(h.clients) == 1
+	h.clientMu.RUnlock()
+
+	if wasEmpty {
+		logs.Info("msf", "First WebSocket client connected, enabling log broadcast")
+		logs.SetLogBroadcaster(func(logMsg string) {
+			h.BroadcastLog(logMsg)
+		})
+	}
 
 	go h.writePump(client)
 	go h.readPump(client)
@@ -71,8 +113,15 @@ func (h *WSHandler) HandleDisconnect(userID string) {
 	defer h.clientMu.Unlock()
 
 	if client, ok := h.clients[userID]; ok {
+		close(client.stopChan)
 		close(client.Send)
 		delete(h.clients, userID)
+
+		// 最后一个客户端断开时，禁用日志广播器
+		if len(h.clients) == 0 {
+			logs.Info("msf", "Last WebSocket client disconnected, disabling log broadcast")
+			logs.SetLogBroadcaster(nil)
+		}
 	}
 }
 
@@ -139,20 +188,14 @@ func (h *WSHandler) writePump(client *WSClient) {
 		client.Conn.Close()
 	}()
 
-	for {
-		select {
-		case message, ok := <-client.Send:
-			client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if !ok {
-				client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-
-			if err := client.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
-				return
-			}
+	for message := range client.Send {
+		client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if err := client.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
+			return
 		}
 	}
+
+	client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 }
 
 func (h *WSHandler) readPump(client *WSClient) {
@@ -225,7 +268,7 @@ func (h *WSHandler) pollPump(client *WSClient) {
 				}
 			}
 
-		case <-h.stopChan:
+		case <-client.stopChan:
 			return
 		}
 	}
