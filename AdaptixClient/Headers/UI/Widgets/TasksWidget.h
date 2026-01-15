@@ -117,20 +117,24 @@ public:
     };
 
     void setAgentFilter(const QString &agent) {
+        beginFilterChange();
         agentFilter = agent;
-        invalidateFilter();
+        endFilterChange();
     }
     void setTypeFilter(const QString &type) {
+        beginFilterChange();
         typeFilter = type;
-        invalidateFilter();
+        endFilterChange();
     }
     void setStatusFilter(const QString &status) {
+        beginFilterChange();
         statusFilter = status;
-        invalidateFilter();
+        endFilterChange();
     }
     void setTextFilter(const QString &text){
+        beginFilterChange();
         textFilter = text;
-        invalidateFilter();
+        endFilterChange();
     }
 
 protected:
