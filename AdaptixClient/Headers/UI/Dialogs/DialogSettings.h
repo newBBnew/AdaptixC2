@@ -74,6 +74,20 @@ Q_OBJECT
     QLabel*         aiPromptLabel    = nullptr;
     QPlainTextEdit* aiPromptTextEdit = nullptr;
 
+    // MSF Settings
+    QWidget*        msfWidget       = nullptr;
+    QGridLayout*    msfLayout       = nullptr;
+    QCheckBox*      msfEnabledCheck = nullptr;
+    QLabel*         msfHostLabel    = nullptr;
+    QLineEdit*      msfHostEdit     = nullptr;
+    QLabel*         msfPortLabel    = nullptr;
+    QSpinBox*       msfPortSpin     = nullptr;
+    QLabel*         msfUserLabel    = nullptr;
+    QLineEdit*      msfUserEdit     = nullptr;
+    QLabel*         msfPassLabel    = nullptr;
+    QLineEdit*      msfPassEdit     = nullptr;
+    QCheckBox*      msfSSLCheck     = nullptr;
+
     void createUI();
     void loadSettings();
 

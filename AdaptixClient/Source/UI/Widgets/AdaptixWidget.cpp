@@ -150,6 +150,11 @@ AdaptixWidget::AdaptixWidget(AuthProfile* authProfile, QThread* channelThread, W
     dockBottom->addDockWidgetAsTab( CredentialsDock->dock() );
     CredentialsDock->dock()->toggleAction()->trigger();
 
+    MSFUnifiedDock = new MSFUnifiedWidget(profile->GetProject(), GlobalClient->settings, this);
+    MSFUnifiedDock->setServerUrl(profile->GetURL());
+    MSFUnifiedDock->setToken(profile->GetAccessToken());
+    dockBottom->addDockWidgetAsTab(MSFUnifiedDock->dock());
+
     TargetsDock = new TargetsWidget(this);
     dockBottom->addDockWidgetAsTab( TargetsDock->dock() );
     TargetsDock->dock()->toggleAction()->trigger();
@@ -422,11 +427,10 @@ void AdaptixWidget::AddDockTop(const KDDockWidgets::QtWidgets::DockWidget *dock)
     }
 }
 
-void AdaptixWidget::AddDockBottom(const KDDockWidgets::QtWidgets::DockWidget* dock) const
+void AdaptixWidget::AddDockBottom(KDDockWidgets::QtWidgets::DockWidget* dock) const
 {
     if (dock->isOpen()) {
-        dock->toggleAction()->trigger();
-        dock->toggleAction()->trigger();
+        dock->setAsCurrentTab();
     } else {
         dock->toggleAction()->trigger();
     }
@@ -449,9 +453,9 @@ void AdaptixWidget::PlaceDockBottom(KDDockWidgets::QtWidgets::DockWidget* dock) 
             previousFocusedName = previousFocused->uniqueName();
     }
 
-    dockBottom->toggleAction()->trigger();
     dockBottom->addDockWidgetAsTab(dock);
-    dockBottom->toggleAction()->trigger();
+    dockBottom->setAsCurrentTab();
+    dock->setAsCurrentTab();
 
     if (!previousFocusedName.isEmpty() && previousFocusedName != dockBeingAddedName && dockBottomGroup) {
         QTimer::singleShot(100, [previousFocusedName, dockBeingAddedName]() {
@@ -854,7 +858,22 @@ void AdaptixWidget::LoadConsoleUI(const QString &AgentId)
 
     auto agent = AgentsMap[AgentId];
     if (agent && agent->Console) {
-        this->PlaceDockBottom( AgentsMap[AgentId]->Console->dock() );
+        auto* consoleDock = AgentsMap[AgentId]->Console->dock();
+        if (consoleDock) {
+            if (!dockBottom->isOpen()) {
+                dockBottom->toggleAction()->trigger();
+            }
+
+            auto* bottomGroup = dockBottom->group();
+            auto* consoleGroup = consoleDock->group();
+            if (!bottomGroup || consoleGroup != bottomGroup) {
+                dockBottom->addDockWidgetAsTab(consoleDock);
+            }
+            consoleDock->setFloating(false);
+            consoleDock->show();
+            dockBottom->setAsCurrentTab();
+            consoleDock->setAsCurrentTab();
+        }
         AgentsMap[AgentId]->Console->InputFocus();
     }
 
@@ -1145,32 +1164,14 @@ void AdaptixWidget::OnReconnect()
     }
 }
 
-void AdaptixWidget::LoadMSFConsoleUI()
+void AdaptixWidget::LoadMSFUnifiedUI()
 {
-    if (MSFConsoleDock == nullptr) {
-        MSFConsoleDock = new MSFConsoleWidget(profile->GetProject(), this);
-        MSFConsoleDock->setServerUrl(profile->GetURL());
-        MSFConsoleDock->setToken(profile->GetAccessToken());
-        dockBottom->addDockWidgetAsTab(MSFConsoleDock->dock());
-    }
-    MSFConsoleDock->dock()->toggleAction()->trigger();
-}
-
-void AdaptixWidget::LoadMSFSessionsUI()
-{
-    if (MSFSessionsDock == nullptr) {
-        MSFSessionsDock = new MSFSessionsWidget(profile->GetProject(), this);
-        MSFSessionsDock->setServerUrl(profile->GetURL());
-        MSFSessionsDock->setToken(profile->GetAccessToken());
-        dockBottom->addDockWidgetAsTab(MSFSessionsDock->dock());
-    }
-    MSFSessionsDock->dock()->toggleAction()->trigger();
+    this->AddDockBottom(MSFUnifiedDock->dock());
 }
 
 void AdaptixWidget::OnMsfButtonClicked()
 {
-    LoadMSFConsoleUI();
-    LoadMSFSessionsUI();
+    LoadMSFUnifiedUI();
 }
 
 void AdaptixWidget::OnMcpButtonClicked()

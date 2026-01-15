@@ -484,6 +484,48 @@ void Storage::UpdateSettingsAI(const SettingsData &settingsData)
         LogError("SettingsAI not updated in database: %s\n", query.lastError().text().toStdString().c_str());
 }
 
+void Storage::SelectSettingsMSF(SettingsData* settingsData)
+{
+    QSqlQuery query;
+    query.prepare("SELECT data FROM Settings WHERE key = 'SettingsMSF' LIMIT 1;");
+    if (query.exec() && query.next()) {
+        QString       data = query.value("data").toString();
+        QJsonDocument doc  = QJsonDocument::fromJson(data.toUtf8());
+        QJsonObject   json = doc.object();
+
+        if (json.contains("enabled"))
+            settingsData->MSFEnabled = json["enabled"].toBool();
+        if (json.contains("host"))
+            settingsData->MSFHost = json["host"].toString();
+        if (json.contains("port"))
+            settingsData->MSFPort = json["port"].toInt();
+        if (json.contains("user"))
+            settingsData->MSFUser = json["user"].toString();
+        if (json.contains("password"))
+            settingsData->MSFPassword = json["password"].toString();
+        if (json.contains("ssl"))
+            settingsData->MSFSSL = json["ssl"].toBool();
+    }
+}
+
+void Storage::UpdateSettingsMSF(const SettingsData &settingsData)
+{
+    QJsonObject json;
+    json["enabled"] = settingsData.MSFEnabled;
+    json["host"] = settingsData.MSFHost;
+    json["port"] = settingsData.MSFPort;
+    json["user"] = settingsData.MSFUser;
+    json["password"] = settingsData.MSFPassword;
+    json["ssl"] = settingsData.MSFSSL;
+    QString data = QJsonDocument(json).toJson(QJsonDocument::Compact);
+
+    QSqlQuery query;
+    query.prepare("INSERT OR REPLACE INTO Settings (key, data) VALUES ('SettingsMSF', :Data);");
+    query.bindValue(":Data", data);
+    if (!query.exec())
+        LogError("SettingsMSF not updated in database: %s\n", query.lastError().text().toStdString().c_str());
+}
+
 
 
 /// LISTENER PROFILES

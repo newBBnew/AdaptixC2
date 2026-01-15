@@ -226,6 +226,14 @@ typedef struct SettingsData {
     QMap<QString, bool> BlinkWidgets;  // className -> enabled
 
     QString AISystemPrompt;
+
+    // MSF Settings
+    bool MSFEnabled;
+    QString MSFHost;
+    int    MSFPort;
+    QString MSFUser;
+    QString MSFPassword;
+    bool   MSFSSL;
 } SettingsData;
 
 typedef struct AxUI

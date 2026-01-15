@@ -1,9 +1,15 @@
 #include <Client/Requestor.h>
 #include <Client/AuthProfile.h>
 #include <Client/HttpRequestManager.h>
+#include <QDebug>
 
 QJsonObject HttpReq(const QString &sUrl, const QByteArray &jsonData, const QString &token, const int timeout)
 {
+    qDebug() << "[CLIENT] → POST" << sUrl;
+    if (!jsonData.isEmpty()) {
+        qDebug() << "[CLIENT] → Data:" << QString(jsonData).left(200);
+    }
+
     QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
     sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
     sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
@@ -33,15 +39,76 @@ QJsonObject HttpReq(const QString &sUrl, const QByteArray &jsonData, const QStri
         timeoutTimer.start(timeout);
     }
     eventLoop.exec();
+    
+    QJsonObject jsonObject;
+    QByteArray response_data = reply->readAll();
+    QJsonParseError parseError;
+    QJsonDocument jsonResponse = QJsonDocument::fromJson(response_data, &parseError);
+    if (parseError.error == QJsonParseError::NoError && jsonResponse.isObject()) {
+        jsonObject = jsonResponse.object();
+        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                 << "Response:" << QString(QJsonDocument(jsonObject).toJson(QJsonDocument::Compact)).left(200);
+    } else if (response_data.size() > 0) {
+        jsonObject["error"] = QString::fromUtf8(response_data);
+        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                 << "Error:" << QString(response_data).left(200);
+    } else {
+        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                 << "Empty response";
+    }
+    reply->deleteLater();
+    return jsonObject;
+}
+
+QJsonObject HttpReqGet(const QString &sUrl, const QString &token, const int timeout)
+{
+    qDebug() << "[CLIENT] → GET" << sUrl;
+
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    QSslConfiguration::setDefaultConfiguration(sslConfig);
+
+    QUrl url(sUrl);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setSslConfiguration(sslConfig);
+    if( !token.isEmpty() ) {
+        QString bearerToken = "Bearer " + token;
+        request.setRawHeader("Authorization", bearerToken.toUtf8());
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkReply *reply = manager.get(request);
+
+    QEventLoop eventLoop;
+    QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
+
+    QTimer timeoutTimer;
+    if (timeout > 0) {
+        QObject::connect(&timeoutTimer, &QTimer::timeout, [&]() {
+            reply->abort();
+            eventLoop.quit();
+        });
+        timeoutTimer.start(timeout);
+    }
+    eventLoop.exec();
 
     QJsonObject jsonObject;
-    if (reply->error() == QNetworkReply::NoError) {
-        QByteArray response_data = reply->readAll();
-        QJsonParseError parseError;
-        QJsonDocument jsonResponse = QJsonDocument::fromJson(response_data, &parseError);
-        if (parseError.error == QJsonParseError::NoError && jsonResponse.isObject()) {
-            jsonObject = jsonResponse.object();
-        }
+    QByteArray response_data = reply->readAll();
+    QJsonParseError parseError;
+    QJsonDocument jsonResponse = QJsonDocument::fromJson(response_data, &parseError);
+    if (parseError.error == QJsonParseError::NoError && jsonResponse.isObject()) {
+        jsonObject = jsonResponse.object();
+        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                 << "Response:" << QString(QJsonDocument(jsonObject).toJson(QJsonDocument::Compact)).left(200);
+    } else if (response_data.size() > 0) {
+        jsonObject["error"] = QString::fromUtf8(response_data);
+        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                 << "Error:" << QString(response_data).left(200);
+    } else {
+        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                 << "Empty response";
     }
     reply->deleteLater();
     return jsonObject;
@@ -551,4 +618,16 @@ void HttpReqMSFControllerStopAsync(AuthProfile& profile, HttpCallback callback)
 void HttpReqMSFControllerStatusAsync(AuthProfile& profile, HttpCallback callback)
 {
     HttpRequestManager::instance().get(profile.GetURL(), "/api/msf/controller/status", profile.GetAccessToken(), callback);
+}
+
+void HttpReqMSFConfigAsync(const QString& host, int port, const QString& user, const QString& password, bool ssl, AuthProfile& profile, HttpCallback callback)
+{
+    QJsonObject json;
+    json["host"] = host;
+    json["port"] = port;
+    json["user"] = user;
+    json["password"] = password;
+    json["ssl"] = ssl;
+
+    HttpRequestManager::instance().post(profile.GetURL(), "/api/msf/config", profile.GetAccessToken(), QJsonDocument(json).toJson(QJsonDocument::Compact), callback);
 }

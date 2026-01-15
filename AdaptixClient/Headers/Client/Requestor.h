@@ -7,6 +7,7 @@
 class AuthProfile;
 
 QJsonObject HttpReq(const QString &sUrl, const QByteArray &jsonData, const QString &token, int timeout = 8000 );
+QJsonObject HttpReqGet(const QString &sUrl, const QString &token, int timeout = 8000 );
 
 /// CLIENT
 
@@ -90,5 +91,6 @@ void HttpReqMSFJobKillAsync(const QString& jobId, AuthProfile& profile, HttpCall
 void HttpReqMSFControllerStartAsync(AuthProfile& profile, HttpCallback callback);
 void HttpReqMSFControllerStopAsync(AuthProfile& profile, HttpCallback callback);
 void HttpReqMSFControllerStatusAsync(AuthProfile& profile, HttpCallback callback);
+void HttpReqMSFConfigAsync(const QString& host, int port, const QString& user, const QString& password, bool ssl, AuthProfile& profile, HttpCallback callback);
 
 #endif

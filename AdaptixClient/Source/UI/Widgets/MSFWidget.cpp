@@ -2,6 +2,7 @@
 #include <Client/Requestor.h>
 #include <Client/AuthProfile.h>
 #include <Utils/FontManager.h>
+#include <Utils/Convert.h>
 
 #include <QTextEdit>
 #include <QLineEdit>
@@ -21,56 +22,272 @@
 #include <QSslConfiguration>
 #include <QDateTime>
 #include <QTimer>
+#include <QKeyEvent>
+#include <QRegularExpression>
+#include <QUrl>
 
 namespace {
 const bool kMsvVerboseLogs = false;
+
+QColor statusAccentFor(const QWidget* widget, const QString& status)
+{
+    if (!widget) {
+        return QColor();
+    }
+
+    const QString normalized = status.toLower();
+    const QPalette pal = widget->palette();
+
+    if (normalized.contains("running") || normalized.contains("connected") || normalized.contains("ready") || normalized.contains("created")) {
+        return pal.color(QPalette::Highlight);
+    }
+    if (normalized.contains("starting") || normalized.contains("stopping") || normalized.contains("connecting") || normalized.contains("disconnecting") || normalized.contains("creating")) {
+        return pal.color(QPalette::Link);
+    }
+    if (normalized.contains("failed") || normalized.contains("stopped") || normalized.contains("disconnected") || normalized.contains("not")) {
+        return pal.color(QPalette::Mid);
+    }
+
+    return pal.color(QPalette::Text);
 }
 
-const QStringList MSFConsoleWidget::MSF_COMPLETER_COMMANDS = {
-    "use ",
-    "set ",
-    "setg ",
-    "unset ",
-    "unsetg ",
-    "show options",
-    "show advanced",
-    "show payloads",
-    "show targets",
-    "show encoders",
-    "show nops",
-    "show auxiliary",
-    "show post",
-    "show exploits",
-    "show missing",
-    "exploit",
-    "exploit -j",
-    "exploit -z",
-    "check",
-    "back",
-    "info ",
-    "search ",
-    "sessions",
-    "sessions -l",
-    "sessions -i ",
-    "sessions -k ",
-    "jobs",
-    "jobs -k ",
-    "route ",
-    "clearroute",
-    "load ",
-    "unload ",
-    "resource ",
-    "save",
-    "setg ",
-    "spool ",
-    "threads ",
-    "color ",
-    "exit",
-    "quit",
-    "help "
-};
+QString statusPillStyle(const QWidget* widget, const QColor& accent)
+{
+    const QPalette pal = widget ? widget->palette() : QPalette();
+    const QColor base = pal.color(QPalette::Base);
+    const QColor border = accent.isValid() ? accent : pal.color(QPalette::Mid);
 
-MSFConsoleWidget::MSFConsoleWidget(const QString& project, Settings* settings, QWidget* parent) : QWidget(parent)
+    return QString("padding: 3px 10px; border-radius: 10px; font-weight: 600; font-size: 11px; background-color: %1; border: 1px solid %2; color: %2;")
+        .arg(base.name(QColor::HexRgb), border.name(QColor::HexRgb));
+}
+
+void applyStatusPill(QLabel* label, const QString& status, const QString& color)
+{
+    if (!label) {
+        return;
+    }
+
+    const QColor accent = color.isEmpty() ? statusAccentFor(label, status) : QColor(color);
+    label->setText(status);
+    label->setStyleSheet(statusPillStyle(label, accent));
+}
+
+QColor logColorFor(const QTextEdit* edit, const QString& level)
+{
+    const QPalette pal = edit ? edit->palette() : QPalette();
+    if (level == "ERROR") {
+        return pal.color(QPalette::BrightText);
+    }
+    if (level == "SUCCESS") {
+        return pal.color(QPalette::Highlight);
+    }
+    if (level == "WARNING") {
+        return pal.color(QPalette::Link);
+    }
+    if (level == "DEBUG") {
+        return pal.color(QPalette::Mid);
+    }
+    return pal.color(QPalette::Text);
+}
+
+QIcon themedIcon(const QIcon& icon, const QWidget* widget)
+{
+    const QColor color = widget ? widget->palette().color(QPalette::ButtonText) : QColor(200, 200, 200);
+    return RecolorIcon(icon, color);
+}
+}
+
+void MSFConsoleWidget::updateCompleterModel()
+{
+    QStringList items = m_completionCache.values();
+    items.sort(Qt::CaseInsensitive);
+    if (m_completerModel) {
+        m_completerModel->setStringList(items);
+    }
+}
+
+void MSFConsoleWidget::updateCompleterPopup(const QString& text)
+{
+    if (!completer || !m_completerModel) {
+        return;
+    }
+
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        completer->popup()->hide();
+        return;
+    }
+
+    int lastSpace = text.lastIndexOf(' ');
+    if (lastSpace < 0) {
+        m_completionPrefixBase.clear();
+        completer->setCompletionPrefix(text.trimmed());
+    } else {
+        m_completionPrefixBase = text.left(lastSpace + 1);
+        completer->setCompletionPrefix(text.mid(lastSpace + 1).trimmed());
+    }
+
+    if (completer->completionPrefix().isEmpty()) {
+        completer->popup()->hide();
+        return;
+    }
+
+    completer->complete();
+}
+
+void MSFConsoleWidget::addCompletionCandidate(const QString& text)
+{
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        return;
+    }
+
+    if (!m_completionCache.contains(trimmed)) {
+        m_completionCache.insert(trimmed);
+        updateCompleterModel();
+    }
+}
+
+void MSFConsoleWidget::addHistoryEntry(const QString& command)
+{
+    const QString trimmed = command.trimmed();
+    if (trimmed.isEmpty()) {
+        return;
+    }
+
+    m_commandHistory.removeAll(trimmed);
+    m_commandHistory.prepend(trimmed);
+    if (m_commandHistory.size() > 200) {
+        m_commandHistory = m_commandHistory.mid(0, 200);
+    }
+    m_historyIndex = -1;
+}
+
+void MSFConsoleWidget::extractOutputCompletions(const QString& output)
+{
+    const QRegularExpression moduleRegex(R"((?:auxiliary|exploit|post|payload|encoder|nop)/[A-Za-z0-9_./-]+)");
+    const QRegularExpression optionRegex(R"(\b[A-Z0-9_]{3,}\b)");
+
+    auto moduleIt = moduleRegex.globalMatch(output);
+    while (moduleIt.hasNext()) {
+        const auto match = moduleIt.next();
+        addCompletionCandidate(match.captured(0));
+    }
+
+    auto optionIt = optionRegex.globalMatch(output);
+    while (optionIt.hasNext()) {
+        const auto match = optionIt.next();
+        const QString token = match.captured(0);
+        if (token.size() >= 3 && token.size() <= 32) {
+            addCompletionCandidate(token);
+        }
+    }
+}
+
+void MSFConsoleWidget::preheatCompletions()
+{
+    if (m_preheatDone || m_token.isEmpty() || m_serverUrl.isEmpty()) {
+        return;
+    }
+
+    const int maxAttempts = 5;
+    if (m_preheatAttempts >= maxAttempts) {
+        return;
+    }
+
+    m_preheatAttempts++;
+
+    QJsonObject health = HttpReqGet(QString("%1/api/msf/health").arg(m_serverUrl), m_token);
+    if (!health["ok"].toBool() || !health["healthy"].toBool()) {
+        const int delayMs = 1500 * m_preheatAttempts;
+        QTimer::singleShot(delayMs, this, &MSFConsoleWidget::preheatCompletions);
+        return;
+    }
+
+    QJsonObject response = HttpReqGet(QString("%1/api/msf/modules").arg(m_serverUrl), m_token);
+    if (!response["ok"].toBool()) {
+        const int delayMs = 1500 * m_preheatAttempts;
+        QTimer::singleShot(delayMs, this, &MSFConsoleWidget::preheatCompletions);
+        return;
+    }
+
+    const QJsonArray modules = response["modules"].toArray();
+    const int maxOptionModules = 10;
+    const int maxPayloadModules = 5;
+    int optionFetched = 0;
+    int payloadFetched = 0;
+    QSet<QString> seenTypes;
+
+    const auto encode = [](const QString& value) {
+        return QString::fromUtf8(QUrl::toPercentEncoding(value));
+    };
+
+    for (const auto& entry : modules) {
+        const QString moduleName = entry.toString();
+        if (moduleName.isEmpty()) {
+            continue;
+        }
+        const int slashIndex = moduleName.indexOf('/');
+        const QString moduleType = slashIndex > 0 ? moduleName.left(slashIndex) : QString();
+        const QString modulePath = slashIndex > 0 ? moduleName.mid(slashIndex + 1) : moduleName;
+
+        addCompletionCandidate(moduleName);
+        addCompletionCandidate(QString("use %1").arg(moduleName));
+        addCompletionCandidate(QString("info %1").arg(moduleName));
+
+        if (!moduleType.isEmpty()) {
+            if (!seenTypes.contains(moduleType)) {
+                seenTypes.insert(moduleType);
+                addCompletionCandidate(QString("show %1").arg(moduleType));
+            }
+
+            if (optionFetched < maxOptionModules) {
+                const QString optionsUrl = QString("%1/api/msf/modules/options?type=%2&name=%3")
+                                               .arg(m_serverUrl, encode(moduleType), encode(modulePath));
+                QJsonObject optionsResponse = HttpReqGet(optionsUrl, m_token);
+                if (optionsResponse["ok"].toBool()) {
+                    const QJsonObject options = optionsResponse["options"].toObject();
+                    for (auto it = options.begin(); it != options.end(); ++it) {
+                        const QString optionName = it.key();
+                        if (optionName.isEmpty()) {
+                            continue;
+                        }
+                        addCompletionCandidate(optionName);
+                        addCompletionCandidate(QString("set %1 ").arg(optionName));
+                        addCompletionCandidate(QString("setg %1 ").arg(optionName));
+                    }
+                }
+                optionFetched++;
+            }
+
+            if (payloadFetched < maxPayloadModules && moduleType == "exploit") {
+                const QString payloadUrl = QString("%1/api/msf/modules/compatible_payloads?type=%2&name=%3")
+                                               .arg(m_serverUrl, encode(moduleType), encode(modulePath));
+                QJsonObject payloadResponse = HttpReqGet(payloadUrl, m_token);
+                if (payloadResponse["ok"].toBool()) {
+                    const QJsonArray payloads = payloadResponse["payloads"].toArray();
+                    for (const auto& payloadEntry : payloads) {
+                        const QString payloadName = payloadEntry.toString();
+                        if (payloadName.isEmpty()) {
+                            continue;
+                        }
+                        addCompletionCandidate(payloadName);
+                        addCompletionCandidate(QString("set PAYLOAD %1").arg(payloadName));
+                    }
+                }
+                payloadFetched++;
+            }
+        }
+
+        if (optionFetched >= maxOptionModules && payloadFetched >= maxPayloadModules) {
+            break;
+        }
+    }
+
+    m_preheatDone = true;
+}
+
+MSFConsoleWidget::MSFConsoleWidget(const QString& project, Settings* settings, QWidget* parent, const bool createDock) : QWidget(parent)
 {
     m_settings = settings;
 
@@ -90,9 +307,11 @@ MSFConsoleWidget::MSFConsoleWidget(const QString& project, Settings* settings, Q
     connect(m_outputPollingTimer, &QTimer::timeout, this, &MSFConsoleWidget::fetchConsoleOutput);
     m_outputPollingTimer->setInterval(500);
 
-    m_dock = new KDDockWidgets::QtWidgets::DockWidget(project + "-MSFConsole", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
-    m_dock->setWidget(this);
-    m_dock->setTitle("MSF Console");
+    if (createDock) {
+        m_dock = new KDDockWidgets::QtWidgets::DockWidget(project + "-MSFConsole", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
+        m_dock->setWidget(this);
+        m_dock->setTitle("MSF Console");
+    }
 }
 
 MSFConsoleWidget::~MSFConsoleWidget() {}
@@ -110,110 +329,119 @@ void MSFConsoleWidget::setServerUrl(const QString& url)
 void MSFConsoleWidget::createUI()
 {
     mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(6, 6, 6, 6);
-    mainLayout->setSpacing(6);
+    mainLayout->setContentsMargins(8, 8, 8, 8);
+    mainLayout->setSpacing(8);
 
-    // 状态显示区域
+    auto* topPanel = new QWidget(this);
+    auto* topLayout = new QVBoxLayout(topPanel);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    topLayout->setSpacing(6);
+
+    auto* headerLayout = new QHBoxLayout();
+    headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(10);
+    auto* titleLabel = new QLabel("Metasploit Console");
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleFont.setPointSize(titleFont.pointSize() + 2);
+    titleLabel->setFont(titleFont);
+    headerLayout->addWidget(titleLabel);
+    headerLayout->addSpacerItem(new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum));
+    topLayout->addLayout(headerLayout);
+
     statusLayout = new QHBoxLayout();
     statusLayout->setSpacing(8);
-    
-    // MSF服务状态
-    msfServiceLabel = new QLabel("MSF Service:");
-    msfServiceLabel->setStyleSheet("font-weight: 600; color: #c7c7c7;");
-    
+
+    QFont labelFont = font();
+    labelFont.setBold(true);
+    labelFont.setPointSize(qMax(9, labelFont.pointSize() - 1));
+
+    msfServiceLabel = new QLabel("MSF Service");
+    msfServiceLabel->setFont(labelFont);
+
     msfServiceStatusLabel = new QLabel("Stopped");
-    msfServiceStatusLabel->setStyleSheet("color: #f44336; padding: 3px 10px; border: 1px solid #f44336; border-radius: 10px; font-weight: 600; font-size: 11px;");
-    
-    // RPC连接状态
-    rpcConnectionLabel = new QLabel("RPC Connection:");
-    rpcConnectionLabel->setStyleSheet("font-weight: 600; color: #c7c7c7;");
-    
+    applyStatusPill(msfServiceStatusLabel, "Stopped", "");
+
+    rpcConnectionLabel = new QLabel("RPC Connection");
+    rpcConnectionLabel->setFont(labelFont);
+
     rpcConnectionStatusLabel = new QLabel("Disconnected");
-    rpcConnectionStatusLabel->setStyleSheet("color: #f44336; padding: 3px 10px; border: 1px solid #f44336; border-radius: 10px; font-weight: 600; font-size: 11px;");
-    
-    // 控制台状态
-    consoleStatusLabel = new QLabel("Console:");
-    consoleStatusLabel->setStyleSheet("font-weight: 600; color: #c7c7c7;");
-    
+    applyStatusPill(rpcConnectionStatusLabel, "Disconnected", "");
+
+    consoleStatusLabel = new QLabel("Console");
+    consoleStatusLabel->setFont(labelFont);
+
     consoleStatusValueLabel = new QLabel("Not Created");
-    consoleStatusValueLabel->setStyleSheet("color: #888; padding: 3px 10px; border: 1px solid #888; border-radius: 10px; font-weight: 600; font-size: 11px;");
-    
+    applyStatusPill(consoleStatusValueLabel, "Not Created", "");
+
     statusLayout->addWidget(msfServiceLabel);
     statusLayout->addWidget(msfServiceStatusLabel);
-    statusLayout->addSpacing(15);
+    statusLayout->addSpacing(12);
     statusLayout->addWidget(rpcConnectionLabel);
     statusLayout->addWidget(rpcConnectionStatusLabel);
-    statusLayout->addSpacing(15);
+    statusLayout->addSpacing(12);
     statusLayout->addWidget(consoleStatusLabel);
     statusLayout->addWidget(consoleStatusValueLabel);
     statusLayout->addSpacerItem(new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum));
 
-    mainLayout->addLayout(statusLayout);
+    topLayout->addLayout(statusLayout);
 
-    // 控制按钮区域
     toolbarLayout = new QHBoxLayout();
     toolbarLayout->setSpacing(6);
 
-    const QString buttonStyle = "QPushButton { background-color: #1a1a1a; border: 1px solid %1; color: %1; padding: 6px 12px; border-radius: 6px; font-weight: 600; } QPushButton:hover { background-color: #232323; } QPushButton:pressed { background-color: #2b2b2b; } QPushButton:disabled { color: #666; border-color: #333; }";
-
-    // MSF服务控制按钮
     startMsfButton = new QPushButton("Start MSF");
-    startMsfButton->setStyleSheet(buttonStyle.arg("#4caf50"));
     connect(startMsfButton, &QPushButton::clicked, this, &MSFConsoleWidget::onStartMsf);
 
     stopMsfButton = new QPushButton("Stop MSF");
-    stopMsfButton->setStyleSheet(buttonStyle.arg("#f44336"));
     connect(stopMsfButton, &QPushButton::clicked, this, &MSFConsoleWidget::onStopMsf);
 
-    // RPC连接控制按钮
     connectRpcButton = new QPushButton("Connect RPC");
-    connectRpcButton->setStyleSheet(buttonStyle.arg("#2196f3"));
     connect(connectRpcButton, &QPushButton::clicked, this, &MSFConsoleWidget::onConnectRpc);
 
     disconnectRpcButton = new QPushButton("Disconnect RPC");
-    disconnectRpcButton->setStyleSheet(buttonStyle.arg("#ff9800"));
     connect(disconnectRpcButton, &QPushButton::clicked, this, &MSFConsoleWidget::onDisconnectRpc);
 
-    // 控制台操作按钮
     newConsoleButton = new QPushButton("New Console");
-    newConsoleButton->setStyleSheet(buttonStyle.arg("#9c27b0"));
     connect(newConsoleButton, &QPushButton::clicked, this, &MSFConsoleWidget::refreshConsole);
 
     clearButton = new QPushButton("Clear");
-    clearButton->setStyleSheet(buttonStyle.arg("#8a8a8a"));
     connect(clearButton, &QPushButton::clicked, outputTextEdit, &QTextEdit::clear);
 
     toolbarLayout->addWidget(startMsfButton);
     toolbarLayout->addWidget(stopMsfButton);
-    toolbarLayout->addSpacing(10);
+    toolbarLayout->addSpacing(8);
     toolbarLayout->addWidget(connectRpcButton);
     toolbarLayout->addWidget(disconnectRpcButton);
-    toolbarLayout->addSpacing(10);
+    toolbarLayout->addSpacing(8);
     toolbarLayout->addWidget(newConsoleButton);
     toolbarLayout->addWidget(clearButton);
     toolbarLayout->addSpacerItem(new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum));
 
-    mainLayout->addLayout(toolbarLayout);
+    topLayout->addLayout(toolbarLayout);
+
+    auto* consolePanel = new QWidget(this);
+    auto* consoleLayout = new QVBoxLayout(consolePanel);
+    consoleLayout->setContentsMargins(0, 0, 0, 0);
+    consoleLayout->setSpacing(6);
 
     outputTextEdit = new QTextEdit();
     outputTextEdit->setReadOnly(true);
     outputTextEdit->setLineWrapMode(QTextEdit::NoWrap);
     outputTextEdit->setFont(FontManager::instance().getDefaultMonospaceFont());
-    outputTextEdit->setStyleSheet("background-color: #121212; color: #d4d4d4; border: 1px solid #2a2a2a; border-radius: 6px; padding: 6px;");
+    outputTextEdit->setProperty("TextEditStyle", "console");
 
-    mainLayout->addWidget(outputTextEdit);
+    consoleLayout->addWidget(outputTextEdit);
 
     QHBoxLayout* inputLayout = new QHBoxLayout();
-    inputLayout->setSpacing(4);
+    inputLayout->setSpacing(6);
 
     inputLineEdit = new QLineEdit();
     inputLineEdit->setPlaceholderText("MSF Console (enter MSF commands)");
     inputLineEdit->setFont(FontManager::instance().getDefaultMonospaceFont());
-    inputLineEdit->setStyleSheet("background-color: #181818; color: #e0e0e0; border: 1px solid #2a2a2a; border-radius: 6px; padding: 6px 8px;");
+    inputLineEdit->setProperty("LineEditStyle", "console");
 
     sendButton = new QPushButton("Send");
-    sendButton->setIcon(QIcon::fromTheme("system-run"));
-    sendButton->setStyleSheet("QPushButton { background-color: #1a1a1a; border: 1px solid #2196f3; color: #2196f3; padding: 6px 14px; border-radius: 6px; font-weight: 600; } QPushButton:hover { background-color: #232323; } QPushButton:pressed { background-color: #2b2b2b; }");
+    sendButton->setIcon(themedIcon(QIcon::fromTheme("system-run"), sendButton));
 
     connect(inputLineEdit, &QLineEdit::returnPressed, this, &MSFConsoleWidget::sendCommand);
     connect(sendButton, &QPushButton::clicked, this, &MSFConsoleWidget::sendCommand);
@@ -221,49 +449,109 @@ void MSFConsoleWidget::createUI()
     inputLayout->addWidget(inputLineEdit);
     inputLayout->addWidget(sendButton);
 
-    mainLayout->addLayout(inputLayout);
+    consoleLayout->addLayout(inputLayout);
+
+    auto* mainSplitter = new QSplitter(Qt::Vertical, this);
+    mainSplitter->setHandleWidth(3);
+    mainSplitter->addWidget(topPanel);
+    mainSplitter->addWidget(consolePanel);
+    mainSplitter->setStretchFactor(0, 0);
+    mainSplitter->setStretchFactor(1, 1);
+
+    mainLayout->addWidget(mainSplitter);
 }
 
 void MSFConsoleWidget::setupCompleter()
 {
-    completer = new QCompleter(msfCommands, this);
+    m_completerModel = new QStringListModel(this);
+    completer = new QCompleter(m_completerModel, this);
     completer->setCaseSensitivity(Qt::CaseInsensitive);
     completer->setCompletionMode(QCompleter::PopupCompletion);
+    completer->setFilterMode(Qt::MatchStartsWith);
     inputLineEdit->setCompleter(completer);
+
+    inputLineEdit->installEventFilter(this);
+
+    connect(inputLineEdit, &QLineEdit::textEdited, this, [this](const QString& text) {
+        updateCompleterPopup(text);
+    });
+
+    connect(completer, QOverload<const QString&>::of(&QCompleter::activated), this, [this](const QString& completion) {
+        QString next = m_completionPrefixBase + completion;
+        if (!next.endsWith(' ')) {
+            next.append(' ');
+        }
+        inputLineEdit->setText(next);
+    });
+}
+
+bool MSFConsoleWidget::eventFilter(QObject* obj, QEvent* event)
+{
+    if (obj == inputLineEdit && event->type() == QEvent::KeyPress) {
+        auto* keyEvent = static_cast<QKeyEvent*>(event);
+        const bool popupVisible = completer && completer->popup() && completer->popup()->isVisible();
+
+        if (!popupVisible) {
+            if (keyEvent->key() == Qt::Key_Up || keyEvent->key() == Qt::Key_Down) {
+                const int direction = keyEvent->key() == Qt::Key_Up ? 1 : -1;
+                if (m_commandHistory.isEmpty()) {
+                    return true;
+                }
+
+                if (m_historyIndex == -1) {
+                    m_pendingInput = inputLineEdit->text();
+                }
+
+                const QString prefix = m_pendingInput.trimmed();
+                int index = m_historyIndex;
+                for (;;) {
+                    index += direction;
+                    if (index < 0 || index >= m_commandHistory.size()) {
+                        if (direction < 0) {
+                            m_historyIndex = -1;
+                            inputLineEdit->setText(m_pendingInput);
+                        }
+                        break;
+                    }
+                    const QString candidate = m_commandHistory.at(index);
+                    if (prefix.isEmpty() || candidate.startsWith(prefix, Qt::CaseInsensitive)) {
+                        m_historyIndex = index;
+                        inputLineEdit->setText(candidate);
+                        break;
+                    }
+                }
+                return true;
+            }
+        }
+    }
+
+    return QWidget::eventFilter(obj, event);
 }
 
 void MSFConsoleWidget::onConnected()
 {
     logMessage("SUCCESS", "Console connected successfully");
-    updateRpcConnectionStatus("Connected", "#4caf50");
-    updateConsoleStatus("Ready", "#4caf50");
+    updateRpcConnectionStatus("Connected", "");
+    updateConsoleStatus("Ready", "");
     connectWebSocket();
+    preheatCompletions();
 }
 
 void MSFConsoleWidget::updateMsfServiceStatus(const QString& status, const QString& color)
 {
-    if (msfServiceStatusLabel) {
-        msfServiceStatusLabel->setText(status);
-        msfServiceStatusLabel->setStyleSheet(QString("color: %1; padding: 2px 8px; border: 1px solid %1; border-radius: 3px;").arg(color));
-    }
+    applyStatusPill(msfServiceStatusLabel, status, color);
     logMessage("STATUS", QString("MSF Service: %1").arg(status));
 }
 
 void MSFConsoleWidget::updateRpcConnectionStatus(const QString& status, const QString& color)
 {
-    if (rpcConnectionStatusLabel) {
-        rpcConnectionStatusLabel->setText(status);
-        rpcConnectionStatusLabel->setStyleSheet(QString("color: %1; padding: 2px 8px; border: 1px solid %1; border-radius: 3px;").arg(color));
-    }
+    applyStatusPill(rpcConnectionStatusLabel, status, color);
     logMessage("STATUS", QString("RPC Connection: %1").arg(status));
 }
 
 void MSFConsoleWidget::updateConsoleStatus(const QString& status, const QString& color)
 {
-    if (consoleStatusValueLabel) {
-        consoleStatusValueLabel->setText(status);
-        consoleStatusValueLabel->setStyleSheet(QString("color: %1; padding: 2px 8px; border: 1px solid %1; border-radius: 3px;").arg(color));
-    }
+    applyStatusPill(consoleStatusValueLabel, status, color);
     logMessage("STATUS", QString("Console: %1").arg(status));
 }
 
@@ -278,14 +566,8 @@ void MSFConsoleWidget::logMessage(const QString& level, const QString& message)
     
     // 输出到控制台（带颜色）
     if (outputTextEdit) {
-        QString color = "#d4d4d4";
-        if (level == "ERROR") color = "#f44336";
-        else if (level == "SUCCESS") color = "#4caf50";
-        else if (level == "WARNING") color = "#ff9800";
-        else if (level == "DEBUG") color = "#607d8b";
-        else if (level == "INFO") color = "#2196f3";
-        
-        outputTextEdit->append(QString("<span style='color: %1;'>%2</span>").arg(color, logEntry));
+        const QColor color = logColorFor(outputTextEdit, level);
+        outputTextEdit->append(QString("<span style='color: %1;'>%2</span>").arg(color.name(QColor::HexRgb), logEntry));
     }
     
     // 输出到调试控制台
@@ -297,8 +579,8 @@ void MSFConsoleWidget::logMessage(const QString& level, const QString& message)
 void MSFConsoleWidget::onDisconnected()
 {
     logMessage("WARNING", "Console disconnected");
-    updateRpcConnectionStatus("Disconnected", "#f44336");
-    updateConsoleStatus("Not Ready", "#f44336");
+    updateRpcConnectionStatus("Disconnected", "");
+    updateConsoleStatus("Not Ready", "");
 }
 
 void MSFConsoleWidget::connectWebSocket()
@@ -345,14 +627,14 @@ void MSFConsoleWidget::disconnectWebSocket()
 void MSFConsoleWidget::onWsConnected()
 {
     logMessage("SUCCESS", "WebSocket connected");
-    updateRpcConnectionStatus("WebSocket Connected", "#4caf50");
+    updateRpcConnectionStatus("WebSocket Connected", "");
     stopOutputPolling();
 }
 
 void MSFConsoleWidget::onWsDisconnected()
 {
     logMessage("WARNING", "WebSocket disconnected");
-    updateRpcConnectionStatus("WebSocket Disconnected", "#ff9800");
+    updateRpcConnectionStatus("WebSocket Disconnected", "");
     startOutputPolling();
 }
 
@@ -385,6 +667,7 @@ void MSFConsoleWidget::onConsoleOutput(const QString& consoleId, const QString& 
 
     if (!data.isEmpty()) {
         outputTextEdit->append(data);
+        extractOutputCompletions(data);
     }
 }
 
@@ -409,6 +692,8 @@ void MSFConsoleWidget::sendCommand()
 
     logMessage("DEBUG", QString("Sending command: %1").arg(command));
     inputLineEdit->clear();
+    addHistoryEntry(command);
+    addCompletionCandidate(command);
 
     // 只发送command字段，console_id在URL中
     QJsonObject json;
@@ -476,14 +761,14 @@ void MSFConsoleWidget::onStartMsf()
     if (response["ok"].toBool()) {
         logMessage("SUCCESS", "MSF service started successfully");
         outputTextEdit->append("[+] " + response["output"].toString());
-        updateMsfServiceStatus("Running", "#4caf50");
+        updateMsfServiceStatus("Running", "");
     } else {
         logMessage("ERROR", "Failed to start MSF service");
         if (!response["error"].toString().isEmpty()) {
             logMessage("ERROR", QString("Error: %1").arg(response["error"].toString()));
             outputTextEdit->append("[-] Error: " + response["error"].toString());
         }
-        updateMsfServiceStatus("Failed", "#f44336");
+        updateMsfServiceStatus("Failed", "");
     }
 }
 
@@ -497,7 +782,7 @@ void MSFConsoleWidget::onStopMsf()
         return;
     }
 
-    updateMsfServiceStatus("Stopping...", "#ff9800");
+    updateMsfServiceStatus("Stopping...", "");
 
     QString url = QString("%1/api/msf/controller/stop").arg(m_serverUrl);
 
@@ -506,15 +791,15 @@ void MSFConsoleWidget::onStopMsf()
     if (response["ok"].toBool()) {
         logMessage("SUCCESS", "MSF service stopped successfully");
         outputTextEdit->append("[+] MSF service stopped");
-        updateMsfServiceStatus("Stopped", "#f44336");
-        updateRpcConnectionStatus("Disconnected", "#f44336");
-        updateConsoleStatus("Not Created", "#888");
+        updateMsfServiceStatus("Stopped", "");
+        updateRpcConnectionStatus("Disconnected", "");
+        updateConsoleStatus("Not Created", "");
         
         m_currentConsoleId.clear();
     } else {
         logMessage("ERROR", "Failed to stop MSF service");
         outputTextEdit->append("[-] Failed to stop MSF service");
-        updateMsfServiceStatus("Failed", "#f44336");
+        updateMsfServiceStatus("Failed", "");
     }
 }
 
@@ -535,13 +820,13 @@ void MSFConsoleWidget::onDisconnectRpc()
 {
     logMessage("INFO", "=== Disconnecting from RPC ===");
     
-    updateRpcConnectionStatus("Disconnecting...", "#ff9800");
+    updateRpcConnectionStatus("Disconnecting...", "");
     
     m_currentConsoleId.clear();
-    updateConsoleStatus("Not Created", "#888");
+    updateConsoleStatus("Not Created", "");
     
     logMessage("SUCCESS", "RPC disconnected successfully");
-    updateRpcConnectionStatus("Disconnected", "#f44336");
+    updateRpcConnectionStatus("Disconnected", "");
     
     disconnectWebSocket();
     stopOutputPolling();
@@ -556,7 +841,7 @@ void MSFConsoleWidget::connectMsfApi()
         return;
     }
 
-    updateRpcConnectionStatus("Connecting...", "#ff9800");
+    updateRpcConnectionStatus("Connecting...", "");
     
     // 使用重试机制连接
     connectMsfApiWithRetry();
@@ -573,7 +858,7 @@ void MSFConsoleWidget::connectMsfApiWithRetry()
 
     if (response["ok"].toBool()) {
         logMessage("SUCCESS", "MSF API connected successfully");
-        updateRpcConnectionStatus("Connected", "#4caf50");
+        updateRpcConnectionStatus("Connected", "");
         refreshConsole();
         retryCount = 0; // 重置计数器
     } else {
@@ -585,7 +870,7 @@ void MSFConsoleWidget::connectMsfApiWithRetry()
         } else {
             logMessage("ERROR", QString("MSF API connection failed after %1 attempts: %2")
                        .arg(maxRetries).arg(response["error"].toString()));
-            updateRpcConnectionStatus("Failed", "#f44336");
+            updateRpcConnectionStatus("Failed", "");
             retryCount = 0; // 重置计数器
         }
     }
@@ -600,7 +885,7 @@ void MSFConsoleWidget::refreshConsole()
         return;
     }
 
-    updateConsoleStatus("Creating...", "#ff9800");
+    updateConsoleStatus("Creating...", "");
 
     QString url = QString("%1/api/msf/console/create").arg(m_serverUrl);
 
@@ -610,11 +895,11 @@ void MSFConsoleWidget::refreshConsole()
         m_currentConsoleId = response["id"].toString();
         m_lastOutputLength = 0;
         logMessage("SUCCESS", QString("Console created successfully with ID: %1").arg(m_currentConsoleId));
-        updateConsoleStatus("Created", "#4caf50");
+        updateConsoleStatus("Created", "");
         onConnected();
     } else {
         logMessage("ERROR", QString("Failed to create console: %1").arg(response["error"].toString()));
-        updateConsoleStatus("Failed", "#f44336");
+        updateConsoleStatus("Failed", "");
     }
 }
 
@@ -623,11 +908,11 @@ void MSFConsoleWidget::updateStatus(const QString& status)
     logMessage("DEBUG", QString("Legacy status update: %1").arg(status));
     
     if (status == "running") {
-        updateMsfServiceStatus("Running", "#4caf50");
+        updateMsfServiceStatus("Running", "");
     } else if (status == "stopped") {
-        updateMsfServiceStatus("Stopped", "#f44336");
+        updateMsfServiceStatus("Stopped", "");
     } else {
-        updateMsfServiceStatus(status, "#888");
+        updateMsfServiceStatus(status, "");
     }
 }
 
@@ -656,13 +941,15 @@ void MSFConsoleWidget::onMsfrpcdStatus(const QJsonObject& response)
     }
 }
 
-MSFSessionsWidget::MSFSessionsWidget(const QString& project, QWidget* parent) : QWidget(parent)
+MSFSessionsWidget::MSFSessionsWidget(const QString& project, QWidget* parent, const bool createDock) : QWidget(parent)
 {
     createUI();
 
-    m_dock = new KDDockWidgets::QtWidgets::DockWidget(project + "-MSFSessions", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
-    m_dock->setWidget(this);
-    m_dock->setTitle("MSF Sessions");
+    if (createDock) {
+        m_dock = new KDDockWidgets::QtWidgets::DockWidget(project + "-MSFSessions", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
+        m_dock->setWidget(this);
+        m_dock->setTitle("MSF Sessions");
+    }
 }
 
 MSFSessionsWidget::~MSFSessionsWidget() {}
@@ -680,18 +967,25 @@ void MSFSessionsWidget::setServerUrl(const QString& url)
 void MSFSessionsWidget::createUI()
 {
     mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(2, 2, 2, 2);
-    mainLayout->setSpacing(2);
+    mainLayout->setContentsMargins(8, 8, 8, 8);
+    mainLayout->setSpacing(8);
 
     toolbarLayout = new QHBoxLayout();
-    toolbarLayout->setSpacing(4);
+    toolbarLayout->setSpacing(8);
+
+    auto* titleLabel = new QLabel("MSF Sessions");
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleFont.setPointSize(titleFont.pointSize() + 1);
+    titleLabel->setFont(titleFont);
 
     refreshButton = new QPushButton("Refresh");
-    refreshButton->setIcon(QIcon::fromTheme("view-refresh"));
+    refreshButton->setIcon(themedIcon(QIcon::fromTheme("view-refresh"), refreshButton));
     connect(refreshButton, &QPushButton::clicked, this, &MSFSessionsWidget::onRefresh);
 
-    toolbarLayout->addWidget(refreshButton);
+    toolbarLayout->addWidget(titleLabel);
     toolbarLayout->addSpacerItem(new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum));
+    toolbarLayout->addWidget(refreshButton);
 
     mainLayout->addLayout(toolbarLayout);
 
@@ -701,7 +995,7 @@ void MSFSessionsWidget::createUI()
     sessionsTable->horizontalHeader()->setStretchLastSection(true);
     sessionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     sessionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    sessionsTable->setStyleSheet("background-color: #2d2d2d;");
+    sessionsTable->setAlternatingRowColors(true);
 
     mainLayout->addWidget(sessionsTable);
 }
@@ -798,7 +1092,6 @@ void MSFSessionsWidget::updateTable(const QJsonObject& sessions)
         connect(interactBtn, &QPushButton::clicked, this, [this, item]() { onInteract(item.id); });
 
         QPushButton* killBtn = new QPushButton("Kill");
-        killBtn->setStyleSheet("color: #f44336;");
         connect(killBtn, &QPushButton::clicked, this, [this, item]() { onKill(item.id); });
 
         QWidget* buttonWidget = new QWidget();
@@ -827,6 +1120,207 @@ void MSFSessionsWidget::refreshSessions()
 
     if (response["ok"].toBool()) {
         onSessionsUpdate(response["sessions"].toObject());
+    }
+}
+
+MSFListenersWidget::MSFListenersWidget(const QString& project, QWidget* parent, const bool createDock) : QWidget(parent)
+{
+    createUI();
+
+    if (createDock) {
+        m_dock = new KDDockWidgets::QtWidgets::DockWidget(project + "-MSFListeners", KDDockWidgets::DockWidgetOption_None, KDDockWidgets::LayoutSaverOption::None);
+        m_dock->setWidget(this);
+        m_dock->setTitle("MSF Listeners");
+    }
+}
+
+MSFUnifiedWidget::MSFUnifiedWidget(const QString& project, Settings* settings, QWidget* parent)
+    : DockTab("MSF", project, ":/icons/terminal")
+{
+    m_settings = settings;
+    m_consoleWidget = new MSFConsoleWidget(project, settings, this, false);
+    m_sessionsWidget = new MSFSessionsWidget(project, this, false);
+    m_listenersWidget = new MSFListenersWidget(project, this, false);
+
+    createUI();
+    dockWidget->setWidget(this);
+}
+
+MSFUnifiedWidget::~MSFUnifiedWidget() = default;
+
+void MSFUnifiedWidget::setToken(const QString& token)
+{
+    if (m_consoleWidget) {
+        m_consoleWidget->setToken(token);
+    }
+    if (m_sessionsWidget) {
+        m_sessionsWidget->setToken(token);
+    }
+    if (m_listenersWidget) {
+        m_listenersWidget->setToken(token);
+    }
+}
+
+void MSFUnifiedWidget::setServerUrl(const QString& url)
+{
+    if (m_consoleWidget) {
+        m_consoleWidget->setServerUrl(url);
+    }
+    if (m_sessionsWidget) {
+        m_sessionsWidget->setServerUrl(url);
+    }
+    if (m_listenersWidget) {
+        m_listenersWidget->setServerUrl(url);
+    }
+}
+
+void MSFUnifiedWidget::createUI()
+{
+    auto* rootLayout = new QVBoxLayout(this);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+
+    auto* splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setHandleWidth(3);
+
+    splitter->addWidget(m_consoleWidget);
+    splitter->addWidget(m_sessionsWidget);
+    splitter->addWidget(m_listenersWidget);
+
+    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(1, 2);
+    splitter->setStretchFactor(2, 2);
+
+    rootLayout->addWidget(splitter);
+}
+
+MSFListenersWidget::~MSFListenersWidget() {}
+
+void MSFListenersWidget::setToken(const QString& token)
+{
+    m_token = token;
+}
+
+void MSFListenersWidget::setServerUrl(const QString& url)
+{
+    m_serverUrl = url;
+}
+
+void MSFListenersWidget::createUI()
+{
+    mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(8, 8, 8, 8);
+    mainLayout->setSpacing(8);
+
+    toolbarLayout = new QHBoxLayout();
+    toolbarLayout->setSpacing(8);
+
+    auto* titleLabel = new QLabel("MSF Listeners");
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleFont.setPointSize(titleFont.pointSize() + 1);
+    titleLabel->setFont(titleFont);
+
+    refreshButton = new QPushButton("Refresh");
+    refreshButton->setIcon(themedIcon(QIcon::fromTheme("view-refresh"), refreshButton));
+    connect(refreshButton, &QPushButton::clicked, this, &MSFListenersWidget::onRefresh);
+
+    toolbarLayout->addWidget(titleLabel);
+    toolbarLayout->addSpacerItem(new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum));
+    toolbarLayout->addWidget(refreshButton);
+
+    mainLayout->addLayout(toolbarLayout);
+
+    jobsTable = new QTableWidget();
+    jobsTable->setColumnCount(4);
+    jobsTable->setHorizontalHeaderLabels({"ID", "Name", "Status", ""});
+    jobsTable->horizontalHeader()->setStretchLastSection(true);
+    jobsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    jobsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    jobsTable->setAlternatingRowColors(true);
+
+    mainLayout->addWidget(jobsTable);
+}
+
+void MSFListenersWidget::onJobsUpdate(const QJsonObject& jobs)
+{
+    m_jobs.clear();
+    for (auto it = jobs.begin(); it != jobs.end(); ++it) {
+        const QString jobId = it.key();
+        const QJsonObject job = it.value().toObject();
+        JobItem item;
+        item.id = job["id"].toString(jobId);
+        item.name = job["name"].toString();
+        item.status = job["status"].toString();
+        m_jobs[item.id] = item;
+    }
+    updateTable(jobs);
+}
+
+void MSFListenersWidget::onRefresh()
+{
+    refreshJobs();
+}
+
+void MSFListenersWidget::onKill(const QString& jobId)
+{
+    QMessageBox::StandardButton reply = QMessageBox::question(this, "Kill Listener",
+        QString("Kill job %1?").arg(jobId),
+        QMessageBox::Yes | QMessageBox::No);
+
+    if (reply == QMessageBox::Yes) {
+        HttpReq(
+            QString("%1/api/msf/jobs/%2/kill").arg(m_serverUrl).arg(jobId),
+            QByteArray(),
+            m_token
+        );
+        refreshJobs();
+    }
+}
+
+void MSFListenersWidget::updateTable(const QJsonObject& jobs)
+{
+    Q_UNUSED(jobs)
+
+    jobsTable->setRowCount(m_jobs.count());
+
+    int row = 0;
+    for (auto it = m_jobs.begin(); it != m_jobs.end(); ++it) {
+        const JobItem& item = it.value();
+
+        jobsTable->setItem(row, 0, new QTableWidgetItem(item.id));
+        jobsTable->setItem(row, 1, new QTableWidgetItem(item.name));
+        jobsTable->setItem(row, 2, new QTableWidgetItem(item.status));
+
+        QPushButton* killBtn = new QPushButton("Kill");
+        killBtn->setStyleSheet("QPushButton { background-color: #141414; border: 1px solid #f44336; color: #f44336; padding: 4px 10px; border-radius: 6px; font-weight: 700; } QPushButton:hover { background-color: #1d1d1d; }");
+        connect(killBtn, &QPushButton::clicked, this, [this, item]() { onKill(item.id); });
+
+        QWidget* buttonWidget = new QWidget();
+        QHBoxLayout* buttonLayout = new QHBoxLayout(buttonWidget);
+        buttonLayout->addWidget(killBtn);
+        buttonLayout->setContentsMargins(0, 0, 0, 0);
+
+        jobsTable->setCellWidget(row, 3, buttonWidget);
+
+        row++;
+    }
+
+    jobsTable->resizeColumnsToContents();
+}
+
+void MSFListenersWidget::refreshJobs()
+{
+    if (m_token.isEmpty() || m_serverUrl.isEmpty()) return;
+
+    QJsonObject response = HttpReq(
+        QString("%1/api/msf/jobs").arg(m_serverUrl),
+        QByteArray(),
+        m_token
+    );
+
+    if (response["ok"].toBool()) {
+        onJobsUpdate(response["jobs"].toObject());
     }
 }
 

@@ -300,6 +300,10 @@ func (ts *Teamserver) Start() {
 	logs.Success("", "Starting server -> https://%s:%v%s", ts.Profile.Server.Interface, ts.Profile.Server.Port, ts.Profile.Server.Endpoint)
 
 	ts.RestoreData()
+
+	// Init MSF module after AdaptixServer is ready
+	ts.InitMSF(ts.Profile.Server.MSF)
+
 	logs.Success("", "The AdaptixC2 server is ready")
 
 	go ts.TsAgentTickUpdate()

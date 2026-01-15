@@ -32,8 +32,7 @@ class DialogSyncPacket;
 class AuthProfile;
 class AxScriptManager;
 class MCPBridgeWorker;
-class MSFConsoleWidget;
-class MSFSessionsWidget;
+class MSFUnifiedWidget;
 
 typedef struct RegListenerConfig {
     QString name;
@@ -120,8 +119,7 @@ public:
     TasksWidget*         TasksDock         = nullptr;
     TargetsWidget*       TargetsDock       = nullptr;
     TacticalGuidanceWidget* TacticalGuidanceDock = nullptr;
-    MSFConsoleWidget*    MSFConsoleDock    = nullptr;
-    MSFSessionsWidget*   MSFSessionsDock   = nullptr;
+    MSFUnifiedWidget*    MSFUnifiedDock    = nullptr;
 
     QVector<RegListenerConfig>     RegisterListeners;
     QVector<RegAgentConfig>        RegisterAgents;
@@ -146,7 +144,7 @@ public:
     AuthProfile* GetProfile() const;
 
     void AddDockTop(const KDDockWidgets::QtWidgets::DockWidget* dock) const;
-    void AddDockBottom(const KDDockWidgets::QtWidgets::DockWidget* dock) const;
+    void AddDockBottom(KDDockWidgets::QtWidgets::DockWidget* dock) const;
     void PlaceDockBottom(KDDockWidgets::QtWidgets::DockWidget* dock) const;
 
     bool AddExtension(ExtensionFile* ext);
@@ -208,11 +206,13 @@ public Q_SLOTS:
     void LoadScreenshotsUI() const;
     void LoadCredentialsUI() const;
     void LoadTargetsUI() const;
-    void LoadMSFConsoleUI();
-    void LoadMSFSessionsUI();
+    void LoadMSFUnifiedUI();
     void OnReconnect();
     void OnMsfButtonClicked();
     void OnMcpButtonClicked();
+
+private:
+    bool m_mcpInitialized = false;
 };
 
 #endif

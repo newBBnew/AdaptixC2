@@ -203,6 +203,14 @@ func NewTsConnector(ts Teamserver, tsProfile profile.TsProfile, tsResponse profi
 	var connector = new(TsConnector)
 	connector.Engine = gin.New()
 	connector.Engine.Use(gin.Recovery())
+
+	// 添加请求日志中间件
+	connector.Engine.Use(func(c *gin.Context) {
+		logs.Info("http", "Request: %s %s", c.Request.Method, c.Request.URL.Path)
+		c.Next()
+		logs.Info("http", "Response: %d %s", c.Writer.Status(), c.Request.URL.Path)
+	})
+
 	connector.teamserver = ts
 	connector.Interface = tsProfile.Interface
 	connector.Port = tsProfile.Port

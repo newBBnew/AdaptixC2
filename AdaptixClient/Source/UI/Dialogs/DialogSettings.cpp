@@ -3,6 +3,7 @@
 #include <UI/Widgets/DockWidgetRegister.h>
 #include <MainAdaptix.h>
 #include <Client/Settings.h>
+#include <Client/Requestor.h>
 #include <Utils/TitleBarStyle.h>
 #include <QShowEvent>
 #include <algorithm>
@@ -70,6 +71,14 @@ DialogSettings::DialogSettings(Settings* s)
     connect(buttonClose,  &QPushButton::clicked,           this, &DialogSettings::onClose);
 
     connect(aiPromptTextEdit, &QPlainTextEdit::textChanged, buttonApply, [this](){ buttonApply->setEnabled(true); });
+
+    // MSF Settings 信号连接
+    connect(msfEnabledCheck, &QCheckBox::stateChanged, buttonApply, [this](int){ buttonApply->setEnabled(true); });
+    connect(msfHostEdit, &QLineEdit::textChanged, buttonApply, [this](const QString&){ buttonApply->setEnabled(true); });
+    connect(msfPortSpin, &QSpinBox::valueChanged, buttonApply, [this](int){ buttonApply->setEnabled(true); });
+    connect(msfUserEdit, &QLineEdit::textChanged, buttonApply, [this](const QString&){ buttonApply->setEnabled(true); });
+    connect(msfPassEdit, &QLineEdit::textChanged, buttonApply, [this](const QString&){ buttonApply->setEnabled(true); });
+    connect(msfSSLCheck, &QCheckBox::stateChanged, buttonApply, [this](int){ buttonApply->setEnabled(true); });
 }
 
 void DialogSettings::createUI()
@@ -292,6 +301,47 @@ void DialogSettings::createUI()
     aiLayout->addWidget(aiPromptTextEdit, 1, 0, 1, 1);
     aiWidget->setLayout(aiLayout);
 
+    // MSF Settings Widget
+    msfWidget = new QWidget(this);
+    msfLayout = new QGridLayout(msfWidget);
+
+    msfEnabledCheck = new QCheckBox("Enable MSF Integration", msfWidget);
+
+    msfHostLabel = new QLabel("MSF Host:", msfWidget);
+    msfHostEdit = new QLineEdit(msfWidget);
+    msfHostEdit->setPlaceholderText("127.0.0.1");
+
+    msfPortLabel = new QLabel("MSF Port:", msfWidget);
+    msfPortSpin = new QSpinBox(msfWidget);
+    msfPortSpin->setMinimum(1);
+    msfPortSpin->setMaximum(65535);
+    msfPortSpin->setValue(55553);
+
+    msfUserLabel = new QLabel("Username:", msfWidget);
+    msfUserEdit = new QLineEdit(msfWidget);
+    msfUserEdit->setPlaceholderText("msf");
+
+    msfPassLabel = new QLabel("Password:", msfWidget);
+    msfPassEdit = new QLineEdit(msfWidget);
+    msfPassEdit->setPlaceholderText("password");
+    msfPassEdit->setEchoMode(QLineEdit::Password);
+
+    msfSSLCheck = new QCheckBox("Use SSL", msfWidget);
+
+    // Layout
+    msfLayout->addWidget(msfEnabledCheck, 0, 0, 1, 2);
+    msfLayout->addWidget(msfHostLabel, 1, 0, 1, 1);
+    msfLayout->addWidget(msfHostEdit, 1, 1, 1, 1);
+    msfLayout->addWidget(msfPortLabel, 2, 0, 1, 1);
+    msfLayout->addWidget(msfPortSpin, 2, 1, 1, 1);
+    msfLayout->addWidget(msfUserLabel, 3, 0, 1, 1);
+    msfLayout->addWidget(msfUserEdit, 3, 1, 1, 1);
+    msfLayout->addWidget(msfPassLabel, 4, 0, 1, 1);
+    msfLayout->addWidget(msfPassEdit, 4, 1, 1, 1);
+    msfLayout->addWidget(msfSSLCheck, 5, 0, 1, 2);
+
+    msfWidget->setLayout(msfLayout);
+
     listSettings = new QListWidget(this);
     listSettings->setFixedWidth(150);
     listSettings->setSpacing(3);
@@ -300,6 +350,7 @@ void DialogSettings::createUI()
     listSettings->addItem("Tasks table");
     listSettings->addItem("Blinking tabs");
     listSettings->addItem("AI Assistant");
+    listSettings->addItem("MSF Integration");
     listSettings->setCurrentRow(0);
 
     labelHeader = new QLabel(this);
@@ -328,6 +379,8 @@ void DialogSettings::createUI()
     stackSettings->addWidget(sessionsWidget);
     stackSettings->addWidget(tasksWidget);
     stackSettings->addWidget(tabblinkWidget);
+    stackSettings->addWidget(aiWidget);
+    stackSettings->addWidget(msfWidget);
 
     layoutMain = new QGridLayout(this);
     layoutMain->setContentsMargins(4, 4, 4, 4);
@@ -440,7 +493,32 @@ void DialogSettings::onApply() const
 
     settings->data.AISystemPrompt = aiPromptTextEdit->toPlainText();
 
+    // MSF Settings
+    settings->data.MSFEnabled = msfEnabledCheck->isChecked();
+    settings->data.MSFHost = msfHostEdit->text();
+    settings->data.MSFPort = msfPortSpin->value();
+    settings->data.MSFUser = msfUserEdit->text();
+    settings->data.MSFPassword = msfPassEdit->text();
+    settings->data.MSFSSL = msfSSLCheck->isChecked();
+
     settings->SaveToDB();
+
+    // Sync MSF config to server
+    auto mainUI = settings->getMainAdaptix()->mainUI;
+    if (mainUI) {
+        AuthProfile* profile = mainUI->GetCurrentProfile();
+        if (profile) {
+            HttpReqMSFConfigAsync(
+                settings->data.MSFHost,
+                settings->data.MSFPort,
+                settings->data.MSFUser,
+                settings->data.MSFPassword,
+                settings->data.MSFSSL,
+                *profile,
+                nullptr
+            );
+        }
+    }
 }
 
 void DialogSettings::onClose()
@@ -481,6 +559,14 @@ void DialogSettings::loadSettings()
     }
 
     aiPromptTextEdit->setPlainText(settings->data.AISystemPrompt);
+
+    // MSF Settings
+    msfEnabledCheck->setChecked(settings->data.MSFEnabled);
+    msfHostEdit->setText(settings->data.MSFHost);
+    msfPortSpin->setValue(settings->data.MSFPort);
+    msfUserEdit->setText(settings->data.MSFUser);
+    msfPassEdit->setText(settings->data.MSFPassword);
+    msfSSLCheck->setChecked(settings->data.MSFSSL);
 
     buttonApply->setEnabled(false);
 }

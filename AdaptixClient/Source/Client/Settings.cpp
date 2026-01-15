@@ -57,6 +57,14 @@ void Settings::SetDefault()
     this->data.TabBlinkEnabled = true;
 
     this->data.AISystemPrompt = "You are a tactical AI assistant integrated into AdaptixC2. Your goal is to assist operators with reconnaissance, analysis, and decision support. Be concise, professional, and focus on operational security.";
+
+    // MSF Settings
+    this->data.MSFEnabled = false;
+    this->data.MSFHost = "127.0.0.1";
+    this->data.MSFPort = 55553;
+    this->data.MSFUser = "msf";
+    this->data.MSFPassword = "test123";
+    this->data.MSFSSL = true;
 }
 
 void Settings::LoadFromDB()
@@ -68,6 +76,7 @@ void Settings::LoadFromDB()
     mainAdaptix->storage->SelectSettingsTasks( &data );
     mainAdaptix->storage->SelectSettingsTabBlink( &data );
     mainAdaptix->storage->SelectSettingsAI( &data );
+    mainAdaptix->storage->SelectSettingsMSF( &data );
 }
 
 void Settings::SaveToDB() const
@@ -79,4 +88,5 @@ void Settings::SaveToDB() const
     mainAdaptix->storage->UpdateSettingsTasks( data );
     mainAdaptix->storage->UpdateSettingsTabBlink( data );
     mainAdaptix->storage->UpdateSettingsAI( data );
+    mainAdaptix->storage->UpdateSettingsMSF( data );
 }

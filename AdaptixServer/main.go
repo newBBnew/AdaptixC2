@@ -70,7 +70,5 @@ func main() {
 
 	ts.Extender.LoadPlugins(ts.Profile.Server.Extenders)
 
-	ts.InitMSF(ts.Profile.Server.MSF)
-
 	ts.Start()
 }

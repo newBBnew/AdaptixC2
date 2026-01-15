@@ -234,6 +234,22 @@ func (dbms *DBMS) DatabaseInit() error {
 	);`
 	_, err = dbms.database.Exec(createTableQuery)
 
+	// 添加MSF相关的表（只保存adaptix需要的元数据）
+	// MSF控制台映射表
+	createTableQuery = `CREATE TABLE IF NOT EXISTS "MSFConsoleMapping" (
+		"Id" INTEGER PRIMARY KEY AUTOINCREMENT,
+		"ConsoleId" TEXT NOT NULL,
+		"UserId" TEXT NOT NULL,
+		"Busy" INTEGER DEFAULT 0,
+		"Prompt" TEXT,
+		"CreatedAt" BIGINT,
+		"LastActive" BIGINT
+	);`
+	_, err = dbms.database.Exec(createTableQuery)
+	if err != nil {
+		return err
+	}
+
 	return err
 }
 

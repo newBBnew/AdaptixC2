@@ -3,6 +3,7 @@ package logs
 import (
 	"AdaptixServer/core/utils/tformat"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -11,6 +12,20 @@ type PrintLogger struct {
 }
 
 var PrintLog *PrintLogger
+
+// LogBroadcaster 用于将日志广播到 WebSocket
+var logBroadcaster struct {
+	mu      sync.RWMutex
+	send    func(string)
+	enabled bool
+}
+
+func SetLogBroadcaster(sendFunc func(string)) {
+	logBroadcaster.mu.Lock()
+	defer logBroadcaster.mu.Unlock()
+	logBroadcaster.send = sendFunc
+	logBroadcaster.enabled = sendFunc != nil
+}
 
 func NewPrintLogger(debug bool) {
 	PrintLog = &PrintLogger{
@@ -22,7 +37,17 @@ func logMessage(indent string, symbol string, color string, format string, a ...
 	timestamp := tformat.SetBold(time.Now().Format("02/01 15:04:05"))
 	message := fmt.Sprintf(format, a...)
 	mark := tformat.SetColor(symbol, color)
-	fmt.Printf("%s%s %s [%s]\n", indent, mark, message, timestamp)
+	logEntry := fmt.Sprintf("[msf] %s%s %s", indent, mark, message)
+
+	// 输出到控制台
+	fmt.Printf("%s %s [%s]\n", timestamp, mark, message)
+
+	// 广播到 WebSocket
+	logBroadcaster.mu.RLock()
+	if logBroadcaster.enabled && logBroadcaster.send != nil {
+		logBroadcaster.send(logEntry)
+	}
+	logBroadcaster.mu.RUnlock()
 }
 
 func Info(indent string, format string, a ...interface{}) {
