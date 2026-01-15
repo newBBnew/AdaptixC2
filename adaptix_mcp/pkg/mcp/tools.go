@@ -38,8 +38,53 @@ func (s *MCPServer) registerTools() {
 	// Extensions
 	s.tools["inspect_extensions"] = s.handleInspectExtensions
 
+	// Agent/Console
+	s.tools["list_agents"] = s.handleListAgents
+	s.tools["get_agent_info"] = s.handleGetAgentInfo
+	s.tools["clear_console"] = s.handleClearConsole
+	s.tools["get_console_output"] = s.handleGetConsoleOutput
+	s.tools["execute_command"] = s.handleExecuteCommand
+	s.tools["update_agent_config"] = s.handleUpdateAgentConfig
+	s.tools["update_agent_metadata"] = s.handleUpdateAgentMetadata
+
+	// Tasks
+	s.tools["list_tasks"] = s.handleListTasks
+	s.tools["get_task_output"] = s.handleGetTaskOutput
+	s.tools["delete_tasks"] = s.handleDeleteTasks
+
+	// Listeners
+	s.tools["list_listeners"] = s.handleListListeners
+	s.tools["manage_listener"] = s.handleManageListener
+
+	// File Delivery
+	s.tools["list_filedelivery"] = s.handleListFileDelivery
+	s.tools["manage_filedelivery"] = s.handleManageFileDelivery
+
+	// Tunnels
+	s.tools["list_tunnels"] = s.handleListTunnels
+	s.tools["manage_tunnel"] = s.handleManageTunnel
+
+	// Targets & Pivots
+	s.tools["list_targets"] = s.handleListTargets
+	s.tools["manage_target"] = s.handleManageTarget
+	s.tools["list_pivots"] = s.handleListPivots
+
+	// Collected Data
+	s.tools["list_collected_data"] = s.handleListCollectedData
+
+	// PTY
+	s.tools["manage_pty"] = s.handleManagePty
+
+	// Introspection
+	s.tools["get_capabilities"] = s.handleGetCapabilities
+	s.tools["get_version"] = s.handleGetVersion
+
 	// Legacy support (optional, but good for transition)
 	s.tools["execute_and_wait"] = s.handleExecuteAndWait
+}
+
+func (s *MCPServer) handleListAgents(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_agents", params)
 }
 
 func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
@@ -59,6 +104,275 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 						"description": "Optional absolute path to Extension-Kit directory. Defaults to internal workspace path if omitted.",
 					},
 				},
+			},
+		},
+		{
+			"name":        "list_agents",
+			"description": "List all active agents.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "get_agent_info",
+			"description": "Fetch detailed agent information by agent_id.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent ID."},
+				},
+				"required": []string{"agent_id"},
+			},
+		},
+		{
+			"name":        "clear_console",
+			"description": "Clear agent console output.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent ID."},
+				},
+				"required": []string{"agent_id"},
+			},
+		},
+		{
+			"name":        "get_console_output",
+			"description": "Fetch full console output for an agent.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent ID."},
+				},
+				"required": []string{"agent_id"},
+			},
+		},
+		{
+			"name":        "execute_command",
+			"description": "Execute a command on an agent console.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent ID."},
+					"command":  map[string]interface{}{"type": "string", "description": "Command to execute."},
+				},
+				"required": []string{"agent_id", "command"},
+			},
+		},
+		{
+			"name":        "update_agent_config",
+			"description": "Update agent runtime config (sleep/jitter).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent ID."},
+					"sleep":    map[string]interface{}{"type": "number", "description": "Sleep interval in seconds."},
+					"jitter":   map[string]interface{}{"type": "number", "description": "Jitter percentage."},
+				},
+				"required": []string{"agent_id"},
+			},
+		},
+		{
+			"name":        "update_agent_metadata",
+			"description": "Update agent metadata (tag/mark).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id":      map[string]interface{}{"type": "string", "description": "Target agent ID."},
+					"metadata_type": map[string]interface{}{"type": "string", "description": "Metadata field (tag/mark)."},
+					"value":         map[string]interface{}{"type": "string", "description": "New value."},
+				},
+				"required": []string{"agent_id", "metadata_type", "value"},
+			},
+		},
+		{
+			"name":        "list_tasks",
+			"description": "List tasks (optionally filter by agent).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_id": map[string]interface{}{"type": "string", "description": "Optional agent ID filter."},
+				},
+			},
+		},
+		{
+			"name":        "get_task_output",
+			"description": "Fetch detailed output for a task.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"task_id": map[string]interface{}{"type": "string", "description": "Task ID."},
+				},
+				"required": []string{"task_id"},
+			},
+		},
+		{
+			"name":        "delete_tasks",
+			"description": "Delete tasks (server support may vary).",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "list_listeners",
+			"description": "List active listeners.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "manage_listener",
+			"description": "Manage listeners (start/stop/edit).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action": map[string]interface{}{"type": "string", "description": "Action (start/stop/edit)."},
+					"name":   map[string]interface{}{"type": "string", "description": "Listener name."},
+					"type":   map[string]interface{}{"type": "string", "description": "Listener type (start/edit)."},
+					"data":   map[string]interface{}{"type": "string", "description": "Listener config JSON string."},
+				},
+				"required": []string{"action", "name"},
+			},
+		},
+		{
+			"name":        "list_filedelivery",
+			"description": "List hosted files available for delivery.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "manage_filedelivery",
+			"description": "Manage hosted files (upload, delete, create_link).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"upload", "delete", "create_link"},
+						"description": "Action type.",
+					},
+					"local_path":   map[string]interface{}{"type": "string", "description": "Local path for upload."},
+					"file_name":    map[string]interface{}{"type": "string", "description": "Optional filename override for upload."},
+					"file_id":      map[string]interface{}{"type": "string", "description": "File ID for delete/create_link."},
+					"expire_hours": map[string]interface{}{"type": "number", "description": "Link expiry hours (create_link)."},
+					"max_uses":     map[string]interface{}{"type": "number", "description": "Max uses (create_link)."},
+					"allowed_ip":   map[string]interface{}{"type": "string", "description": "Allowed IP (create_link)."},
+				},
+				"required": []string{"action"},
+			},
+		},
+		{
+			"name":        "list_pivots",
+			"description": "List pivots.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "list_collected_data",
+			"description": "List collected data (credentials/downloads/screenshots).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"data_type": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"credentials", "downloads", "screenshots"},
+						"description": "Collected data type.",
+					},
+				},
+				"required": []string{"data_type"},
+			},
+		},
+		{
+			"name":        "list_tunnels",
+			"description": "List active tunnels.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "manage_tunnel",
+			"description": "Manage tunnels (start/stop/edit).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action":    map[string]interface{}{"type": "string", "description": "Action (start/stop/edit)."},
+					"type":      map[string]interface{}{"type": "string", "description": "Tunnel type (start)."},
+					"tunnel_id": map[string]interface{}{"type": "string", "description": "Tunnel ID (stop/edit)."},
+					"info":      map[string]interface{}{"type": "string", "description": "Tunnel info (edit)."},
+					"data":      map[string]interface{}{"type": "object", "description": "Tunnel config (start)."},
+				},
+				"required": []string{"action"},
+			},
+		},
+		{
+			"name":        "list_targets",
+			"description": "List discovered targets.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "manage_target",
+			"description": "Manage discovered targets (remove).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"remove"},
+						"description": "Action type.",
+					},
+					"target_id":  map[string]interface{}{"type": "string", "description": "Single target ID."},
+					"target_ids": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of target IDs."},
+				},
+				"required": []string{"action"},
+			},
+		},
+		{
+			"name":        "manage_pty",
+			"description": "Manage PTY sessions (open, read, write, close, list).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"open", "read", "write", "close", "list"},
+						"description": "Action type.",
+					},
+					"agent_id": map[string]interface{}{"type": "string", "description": "Target agent ID."},
+					"pty_id":   map[string]interface{}{"type": "string", "description": "PTY session ID."},
+					"program":  map[string]interface{}{"type": "string", "description": "Program for open."},
+					"rows":     map[string]interface{}{"type": "number", "description": "Rows for open."},
+					"cols":     map[string]interface{}{"type": "number", "description": "Cols for open."},
+					"data":     map[string]interface{}{"type": "string", "description": "Data to write."},
+					"base64":   map[string]interface{}{"type": "boolean", "description": "Whether data is base64."},
+					"clear":    map[string]interface{}{"type": "boolean", "description": "Clear buffer on read."},
+				},
+				"required": []string{"action"},
+			},
+		},
+		{
+			"name":        "get_capabilities",
+			"description": "List MCP bridge capabilities exposed by the client.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "get_version",
+			"description": "Return MCP protocol and framework version.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 		{
@@ -199,6 +513,22 @@ func (s *MCPServer) getToolDefinitions() []map[string]interface{} {
 					"timeout":  map[string]interface{}{"type": "number", "description": "Maximum wait time in seconds."},
 				},
 				"required": []string{"agent_id", "command"},
+			},
+		},
+		{
+			"name":        "get_capabilities",
+			"description": "List MCP bridge capabilities exposed by the client.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "get_version",
+			"description": "Return MCP protocol and framework version.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 		{
@@ -375,6 +705,94 @@ func (s *MCPServer) handleListenIntelligence(params map[string]interface{}) (int
 		}, nil
 	}
 	return nil, fmt.Errorf("unknown intelligence type: %s", t)
+}
+
+func (s *MCPServer) handleGetAgentInfo(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("get_agent_info", params)
+}
+
+func (s *MCPServer) handleClearConsole(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("clear_console", params)
+}
+
+func (s *MCPServer) handleGetConsoleOutput(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("get_console_output", params)
+}
+
+func (s *MCPServer) handleExecuteCommand(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("execute_command", params)
+}
+
+func (s *MCPServer) handleUpdateAgentConfig(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("update_agent_config", params)
+}
+
+func (s *MCPServer) handleUpdateAgentMetadata(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("update_agent_metadata", params)
+}
+
+func (s *MCPServer) handleListTasks(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_tasks", params)
+}
+
+func (s *MCPServer) handleGetTaskOutput(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("get_task_output", params)
+}
+
+func (s *MCPServer) handleDeleteTasks(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("delete_tasks", params)
+}
+
+func (s *MCPServer) handleListListeners(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_listeners", params)
+}
+
+func (s *MCPServer) handleManageListener(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("manage_listener", params)
+}
+
+func (s *MCPServer) handleListFileDelivery(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_filedelivery", params)
+}
+
+func (s *MCPServer) handleManageFileDelivery(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("manage_filedelivery", params)
+}
+
+func (s *MCPServer) handleListTunnels(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_tunnels", params)
+}
+
+func (s *MCPServer) handleManageTunnel(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("manage_tunnel", params)
+}
+
+func (s *MCPServer) handleListTargets(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_targets", params)
+}
+
+func (s *MCPServer) handleManageTarget(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("manage_target", params)
+}
+
+func (s *MCPServer) handleListPivots(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_pivots", params)
+}
+
+func (s *MCPServer) handleListCollectedData(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("list_collected_data", params)
+}
+
+func (s *MCPServer) handleManagePty(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("manage_pty", params)
+}
+
+func (s *MCPServer) handleGetCapabilities(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("get_capabilities", params)
+}
+
+func (s *MCPServer) handleGetVersion(params map[string]interface{}) (interface{}, error) {
+	return s.clientConnector.SendCommand("get_version", params)
 }
 
 // --- Speak Interaction ---
