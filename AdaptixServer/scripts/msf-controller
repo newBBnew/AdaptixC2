@@ -3,7 +3,8 @@
 # msf-controller - MSF RPCD Controller
 # Control msfrpcd daemon for adaptix integration
 
-set -e
+# Disable set -e to allow proper error handling
+# set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/msf.conf"
@@ -13,13 +14,47 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 MSF_HOST="${MSF_HOST:-127.0.0.1}"
-MSF_PORT="${MSF_PORT:-55553}"
+MSF_PORT="${MSF_PORT:-55552}"
 MSF_USER="${MSF_USER:-msf}"
 MSF_PASS="${MSF_PASS:-test123}"
 MSF_SSL="${MSF_SSL:-true}"
 
 PID_FILE="/tmp/msfrpcd_${MSF_USER}.pid"
 LOG_FILE="/tmp/msfrpcd_${MSF_USER}.log"
+
+# Extract command (first argument)
+CMD="$1"
+shift 2>/dev/null || true
+
+# Parse remaining command line arguments (override config)
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --host)
+            MSF_HOST="$2"
+            shift 2
+            ;;
+        --port)
+            MSF_PORT="$2"
+            shift 2
+            ;;
+        --user)
+            MSF_USER="$2"
+            shift 2
+            ;;
+        --password)
+            MSF_PASS="$2"
+            shift 2
+            ;;
+        --ssl)
+            MSF_SSL="$2"
+            shift 2
+            ;;
+        *)
+            echo "[!] Unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
 
 get_pid() {
     if [ -f "$PID_FILE" ]; then
@@ -53,11 +88,20 @@ start() {
         return 1
     fi
 
+    # Build msfrpcd command with SSL flag
+    # Note: -S flag DISABLES SSL, so we only add it when SSL is false
+    SSL_FLAG=""
+    if [ "$MSF_SSL" != "true" ] && [ "$MSF_SSL" != "1" ] && [ "$MSF_SSL" != "yes" ]; then
+        SSL_FLAG="-S"
+    fi
+    
+    echo "[*] Executing: msfrpcd -U $MSF_USER -P $MSF_PASS -p $MSF_PORT $SSL_FLAG -f"
+    
     msfrpcd \
         -U "$MSF_USER" \
         -P "$MSF_PASS" \
         -p "$MSF_PORT" \
-        -S "$MSF_SSL" \
+        $SSL_FLAG \
         -f \
         > "$LOG_FILE" 2>&1 &
 
@@ -167,7 +211,7 @@ usage() {
     echo "    MSF_SSL=true"
 }
 
-case "$1" in
+case "$CMD" in
     start)
         start
         ;;

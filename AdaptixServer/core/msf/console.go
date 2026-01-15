@@ -1,6 +1,8 @@
 package msf
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -17,6 +19,7 @@ type UserConsole struct {
 	UserID     string
 	CreatedAt  time.Time
 	LastActive time.Time
+	LastPrompt string
 }
 
 func NewConsoleManager(client *MsfrpcClient) *ConsoleManager {
@@ -28,9 +31,14 @@ func NewConsoleManager(client *MsfrpcClient) *ConsoleManager {
 }
 
 func (cm *ConsoleManager) Create(userID string) (*UserConsole, error) {
-	consoleID, err := cm.client.ConsoleCreate()
+	consoleResult, err := cm.client.ConsoleCreate()
 	if err != nil {
 		return nil, err
+	}
+
+	consoleID, ok := consoleResult["id"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid console response")
 	}
 
 	console := &UserConsole{
@@ -55,17 +63,54 @@ func (cm *ConsoleManager) Write(consoleID, command string) error {
 	}
 	cm.mu.Unlock()
 
-	return cm.client.ConsoleWrite(consoleID, command)
+	trimmed := strings.TrimSpace(command)
+	if trimmed != "" && !strings.HasSuffix(command, "\n") {
+		command += "\n"
+	}
+
+	_, err := cm.client.ConsoleWrite(consoleID, command)
+	return err
 }
 
 func (cm *ConsoleManager) Read(consoleID string) (string, bool, error) {
 	cm.mu.Lock()
+	var lastPrompt string
 	if console, ok := cm.consoleMap[consoleID]; ok {
 		console.LastActive = time.Now()
+		lastPrompt = console.LastPrompt
 	}
 	cm.mu.Unlock()
 
-	return cm.client.ConsoleRead(consoleID)
+	result, err := cm.client.ConsoleRead(consoleID)
+	if err != nil {
+		return "", false, err
+	}
+
+	// 从map中提取数据
+	data, _ := result["data"].(string)
+	busy := false
+	if b, ok := result["busy"].(bool); ok {
+		busy = b
+	}
+
+	prompt, _ := result["prompt"].(string)
+	if data == "" && prompt != "" && prompt != lastPrompt {
+		data = prompt
+	}
+
+	if prompt != "" {
+		cm.mu.Lock()
+		if console, ok := cm.consoleMap[consoleID]; ok {
+			console.LastPrompt = prompt
+		}
+		cm.mu.Unlock()
+	}
+
+	if data != "" || busy {
+		return data, busy, nil
+	}
+
+	return "", false, nil
 }
 
 func (cm *ConsoleManager) Destroy(consoleID string) error {
