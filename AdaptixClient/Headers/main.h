@@ -67,8 +67,8 @@
 #include <Utils/FileSystem.h>
 #include <Utils/Convert.h>
 
-#define FRAMEWORK_VERSION "Always Online v1.0"
-#define SMALL_VERSION     "v1.0"
+#define FRAMEWORK_VERSION "Always Online v1.01"
+#define SMALL_VERSION     "v1.01"
 
 ///////////
 
