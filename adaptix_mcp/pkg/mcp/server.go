@@ -227,7 +227,7 @@ func (s *MCPServer) handleToolsCall(req JSONRPCRequest) *JSONRPCResponse {
 	var resultMap map[string]interface{}
 	tempJSON, _ := json.Marshal(result)
 	if err := json.Unmarshal(tempJSON, &resultMap); err == nil {
-		resultMap["system_instruction"] = "You are in AI Resident Mode. Analyze the messages. If action is needed, use tools. If not, wait. ALWAYS call listen_intelligence again to keep monitoring."
+		resultMap["system_instruction"] = "You are in AI Resident Mode. Analyze the messages. If action is needed, use tools. If not, wait. ALWAYS call adaptix mcplisten_intelligence again to keep monitoring."
 		result = resultMap
 	}
 
@@ -244,6 +244,18 @@ func (s *MCPServer) handlePromptsList(req JSONRPCRequest) *JSONRPCResponse {
 		{
 			"name":        "mission_briefing",
 			"description": "Standard initialization briefing for Adaptix AI agents. Call this first.",
+		},
+		{
+			"name":        "war_room_listen_modes",
+			"description": "Quick reference for War Room listening patterns and when to use each mode.",
+		},
+		{
+			"name":        "command_troubleshooting",
+			"description": "Guidance for help usage, console-only output, and task troubleshooting.",
+		},
+		{
+			"name":        "ai_quickstart",
+			"description": "Concise onboarding steps with practical tool usage patterns.",
 		},
 		{
 			"name":        "setup_socks5",
@@ -276,15 +288,49 @@ func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) *JSONRPCResponse {
 	switch name {
 	case "mission_briefing":
 		promptText = `You are an elite tactical AI agent operating within the AdaptixC2 framework.
-Your primary interface is the "Team War Room". 
-Upon connection, your status is STANDBY. 
+Your primary interface is the "Team War Room".
+Upon connection, your status is STANDBY.
 INSTRUCTIONS:
 1. Enter the Team War Room immediately.
-2. Monitor the tactical chat using the 'listen_intelligence' tool (type='chat').
-3. **HELP & DISCOVERY**: Use the 'inspect_extensions' tool to list all available system commands and plugins. Think of this as your 'help' command.
-4. Do NOT execute operations without authorization unless 'autonomous' mode is explicitly enabled.
-5. Report status and await operator commands.
-6. All communications must be in English unless otherwise specified by the operator.`
+2. War Room listening modes (use listen_intelligence type='chat'):
+   - Long-poll (blocking): call listen_intelligence with a long timeout to wait for the next message.
+   - Latest-only: call listen_intelligence with last_timestamp set to the most recent value you have, to get only new messages.
+   - History: call resources/read with uri='adaptix://tactical/chat' to fetch the full chat log; use start_timestamp with listen_intelligence to fetch from a point in time.
+3. **HELP & DISCOVERY**:
+   - Use inspect_extensions to list all available system commands and plugins (this is the MCP "help" equivalent).
+   - Adaptix console help is issued inside a session as: help or help <command>.
+   - Console help output does NOT appear in the task list; it appears only in the session console.
+4. **Command troubleshooting**:
+   - If a command does not appear in the task list for a long time, it may be invalid or not routed.
+   - Check the session console output (listen_intelligence type='console') to confirm errors or help output.
+5. Do NOT execute operations without authorization unless 'autonomous' mode is explicitly enabled.
+6. Report status and await operator commands.
+7. All communications must be in English unless otherwise specified by the operator.`
+	case "war_room_listen_modes":
+		promptText = `War Room listening reference (listen_intelligence type='chat'):
+1. Long-poll (blocking): set a long timeout to wait for the next message.
+2. Latest-only: set last_timestamp to your most recent value, or set max_messages=1.
+3. History from a point in time: set start_timestamp to fetch messages since that time.
+4. Full log: use resources/read with uri='adaptix://tactical/chat' to fetch the active chat log.
+Use read_archived_chat for archived sessions if a tactical_archive event occurred.`
+	case "command_troubleshooting":
+		promptText = `Command troubleshooting checklist:
+1. MCP-level discovery: use inspect_extensions to list available commands and usage.
+2. Adaptix console help: in a session, run help or help <command>.
+   - Help output appears only in the session console, not in the task list.
+3. If a command does not appear in the task list for a long time, it may be invalid or misrouted.
+   - Use listen_intelligence type='console' to check for errors or help output.
+4. If the command targets a different OS or context, it may be ignored. Verify agent OS before retrying.`
+	case "ai_quickstart":
+		promptText = `AI quickstart:
+1. Discover capabilities: call inspect_extensions (optionally with filter).
+2. Join War Room: call listen_intelligence type='chat' with a long timeout to wait for operator messages.
+3. Fast status snapshot: call look_assets for agents/listeners/targets/tunnels/pivots.
+4. Run a command: use control with domain='operate' action='execute' (agent_id + command).
+5. Track results: use listen_intelligence type='tasks' and then type='task_output'.
+6. If no task appears, use listen_intelligence type='console' for errors/help output.
+7. Full chat history: use resources/read with uri='adaptix://tactical/chat'.
+8. Archived chat: use read_archived_chat after tactical_archive events.`
 	case "setup_socks5":
 		port := "1080"
 		if p, ok := args["port"].(string); ok {

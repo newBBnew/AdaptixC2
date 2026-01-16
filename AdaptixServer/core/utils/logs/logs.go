@@ -13,6 +13,8 @@ type PrintLogger struct {
 
 var PrintLog *PrintLogger
 
+const kServerDebugLogs = false
+
 // LogBroadcaster 用于将日志广播到 WebSocket
 var logBroadcaster struct {
 	mu      sync.RWMutex
@@ -67,7 +69,7 @@ func Error(indent string, format string, a ...interface{}) {
 }
 
 func Debug(indent string, format string, a ...interface{}) {
-	if PrintLog.debug {
+	if kServerDebugLogs && PrintLog.debug {
 		logMessage(indent, "[#]", tformat.Cyan, format, a...)
 	}
 }

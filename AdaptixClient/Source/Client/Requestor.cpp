@@ -3,11 +3,17 @@
 #include <Client/HttpRequestManager.h>
 #include <QDebug>
 
+namespace {
+const bool kClientHttpVerboseLogs = false;
+}
+
 QJsonObject HttpReq(const QString &sUrl, const QByteArray &jsonData, const QString &token, const int timeout)
 {
-    qDebug() << "[CLIENT] → POST" << sUrl;
-    if (!jsonData.isEmpty()) {
-        qDebug() << "[CLIENT] → Data:" << QString(jsonData).left(200);
+    if (kClientHttpVerboseLogs) {
+        qDebug() << "[CLIENT] → POST" << sUrl;
+        if (!jsonData.isEmpty()) {
+            qDebug() << "[CLIENT] → Data:" << QString(jsonData).left(200);
+        }
     }
 
     QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
@@ -46,15 +52,21 @@ QJsonObject HttpReq(const QString &sUrl, const QByteArray &jsonData, const QStri
     QJsonDocument jsonResponse = QJsonDocument::fromJson(response_data, &parseError);
     if (parseError.error == QJsonParseError::NoError && jsonResponse.isObject()) {
         jsonObject = jsonResponse.object();
-        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                 << "Response:" << QString(QJsonDocument(jsonObject).toJson(QJsonDocument::Compact)).left(200);
+        if (kClientHttpVerboseLogs) {
+            qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                     << "Response:" << QString(QJsonDocument(jsonObject).toJson(QJsonDocument::Compact)).left(200);
+        }
     } else if (response_data.size() > 0) {
         jsonObject["error"] = QString::fromUtf8(response_data);
-        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                 << "Error:" << QString(response_data).left(200);
+        if (kClientHttpVerboseLogs) {
+            qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                     << "Error:" << QString(response_data).left(200);
+        }
     } else {
-        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                 << "Empty response";
+        if (kClientHttpVerboseLogs) {
+            qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                     << "Empty response";
+        }
     }
     reply->deleteLater();
     return jsonObject;
@@ -62,7 +74,9 @@ QJsonObject HttpReq(const QString &sUrl, const QByteArray &jsonData, const QStri
 
 QJsonObject HttpReqGet(const QString &sUrl, const QString &token, const int timeout)
 {
-    qDebug() << "[CLIENT] → GET" << sUrl;
+    if (kClientHttpVerboseLogs) {
+        qDebug() << "[CLIENT] → GET" << sUrl;
+    }
 
     QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
     sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
@@ -100,15 +114,21 @@ QJsonObject HttpReqGet(const QString &sUrl, const QString &token, const int time
     QJsonDocument jsonResponse = QJsonDocument::fromJson(response_data, &parseError);
     if (parseError.error == QJsonParseError::NoError && jsonResponse.isObject()) {
         jsonObject = jsonResponse.object();
-        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                 << "Response:" << QString(QJsonDocument(jsonObject).toJson(QJsonDocument::Compact)).left(200);
+        if (kClientHttpVerboseLogs) {
+            qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                     << "Response:" << QString(QJsonDocument(jsonObject).toJson(QJsonDocument::Compact)).left(200);
+        }
     } else if (response_data.size() > 0) {
         jsonObject["error"] = QString::fromUtf8(response_data);
-        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                 << "Error:" << QString(response_data).left(200);
+        if (kClientHttpVerboseLogs) {
+            qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                     << "Error:" << QString(response_data).left(200);
+        }
     } else {
-        qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                 << "Empty response";
+        if (kClientHttpVerboseLogs) {
+            qDebug() << "[CLIENT] ← HTTP" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                     << "Empty response";
+        }
     }
     reply->deleteLater();
     return jsonObject;

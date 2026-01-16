@@ -1,6 +1,11 @@
 #include <Agent/Commander.h>
 #include <QJSEngine>
 
+namespace {
+const bool kCommanderVerboseLogs = false;
+#define CMD_DEBUG if (kCommanderVerboseLogs) qDebug()
+}
+
 QString serializeParam(const QString &token)
 {
     QString result = token;
@@ -141,7 +146,7 @@ CommanderResult Commander::ProcessInput(QString agentId, QString cmdline)
                             return CommanderResult{false, false, "", {}, true, {} };
                         } else {
                             // Pre-hook returned a new command, recursively process it
-                            qDebug() << "[Commander] Pre-hook returned new command, recursively processing:" << hook_result;
+                            CMD_DEBUG << "[Commander] Pre-hook returned new command, recursively processing:" << hook_result;
                             return ProcessInput(agentId, hook_result);
                         }
                     }
@@ -193,7 +198,7 @@ CommanderResult Commander::ProcessInput(QString agentId, QString cmdline)
                         return CommanderResult{false, false, "", {}, true, {} };
                     } else {
                         // Pre-hook returned a new command, recursively process it
-                        qDebug() << "[Commander] Pre-hook returned new command, recursively processing:" << hook_result;
+                        CMD_DEBUG << "[Commander] Pre-hook returned new command, recursively processing:" << hook_result;
                         return ProcessInput(agentId, hook_result);
                     }
                 }
@@ -248,9 +253,9 @@ QString Commander::ProcessPreHook(QJSEngine *engine, const Command &command, con
 
     QJSValue result = command.pre_hook.call(jsArgs);
     
-    qDebug() << "[Commander] Pre-hook called for command:" << command.name;
-    qDebug() << "[Commander] Pre-hook result type:" << (result.isString() ? "string" : result.isError() ? "error" : "other");
-    qDebug() << "[Commander] Pre-hook result:" << result.toString();
+    CMD_DEBUG << "[Commander] Pre-hook called for command:" << command.name;
+    CMD_DEBUG << "[Commander] Pre-hook result type:" << (result.isString() ? "string" : result.isError() ? "error" : "other");
+    CMD_DEBUG << "[Commander] Pre-hook result:" << result.toString();
     
     if (result.isError()) {
         return  "Error: " + result.property("message").toString();
@@ -259,11 +264,11 @@ QString Commander::ProcessPreHook(QJSEngine *engine, const Command &command, con
     // Return the pre-hook result if it's a string
     if (result.isString()) {
         QString resultStr = result.toString();
-        qDebug() << "[Commander] Pre-hook returning string:" << resultStr;
+        CMD_DEBUG << "[Commander] Pre-hook returning string:" << resultStr;
         return resultStr;
     }
     
-    qDebug() << "[Commander] Pre-hook result is not a string, returning empty";
+    CMD_DEBUG << "[Commander] Pre-hook result is not a string, returning empty";
     return "";
 }
 

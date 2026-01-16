@@ -1,7 +1,6 @@
 package token
 
 import (
-	"AdaptixServer/core/utils/logs"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -78,10 +77,8 @@ func GenerateRefreshToken(username string, version string) (string, error) {
 func ValidateAccessToken() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		tokenString := ctx.GetHeader("Authorization")
-		logs.Info("auth", "ValidateAccessToken: Authorization header = %s", tokenString)
 
 		if tokenString == "" {
-			logs.Info("auth", "ValidateAccessToken: No token, aborting")
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "authorization token required", "ok": false})
 			return
 		}
@@ -89,7 +86,6 @@ func ValidateAccessToken() gin.HandlerFunc {
 		if strings.HasPrefix(tokenString, "Bearer ") {
 			tokenString = tokenString[7:]
 		} else {
-			logs.Info("auth", "ValidateAccessToken: Invalid format, aborting")
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "invalid token format", "ok": false})
 			return
 		}
@@ -99,12 +95,10 @@ func ValidateAccessToken() gin.HandlerFunc {
 			return []byte(accessKey), nil
 		})
 		if err != nil || !jwtToken.Valid {
-			logs.Info("auth", "ValidateAccessToken: Invalid token, err = %v", err)
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "invalid or expired token", "ok": false})
 			return
 		}
 
-		logs.Info("auth", "ValidateAccessToken: Token valid, username = %s", claims.Username)
 		ctx.Set("username", claims.Username)
 		ctx.Set("version", claims.Version)
 		ctx.Next()

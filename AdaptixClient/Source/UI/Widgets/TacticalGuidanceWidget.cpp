@@ -25,10 +25,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QMessageBox>
 #include <QMenu>
 #include <QSignalBlocker>
-#include <QDebug>
 #include <QTimer>
 #include <QMouseEvent>
 #include <QUrl>
@@ -48,6 +46,8 @@
 #include <UI/Widgets/TasksWidget.h>
 
 namespace {
+    const bool kTacticalVerboseLogs = false;
+#define TG_DEBUG if (kTacticalVerboseLogs) qDebug()
     constexpr int ROLE_NODE_ID  = Qt::UserRole;
     constexpr int ROLE_NODE_TYPE = Qt::UserRole + 1;
     constexpr int ROLE_COMMAND_OS = Qt::UserRole + 2;
@@ -1354,14 +1354,14 @@ void TacticalGuidanceWidget::finalizeExecutionIfDone()
             return;
     }
 
-    qDebug() << "[TG] All agent queues finished. Stopping execution.";
+    TG_DEBUG << "[TG] All agent queues finished. Stopping execution.";
     stopExecution();
 }
 
 void TacticalGuidanceWidget::startExecutionWithSteps(const QList<QTreeWidgetItem*>& steps)
 {
     if (executionRunning) {
-        qDebug() << "[TG] Execution already running, ignoring request";
+        TG_DEBUG << "[TG] Execution already running, ignoring request";
         return;
     }
 
@@ -1376,9 +1376,9 @@ void TacticalGuidanceWidget::startExecutionWithSteps(const QList<QTreeWidgetItem
         return;
     }
 
-    qDebug() << "[TG] === Starting Tactical Guidance Execution ===";
-    qDebug() << "[TG] Selected agents:" << executionTargetAgents;
-    qDebug() << "[TG] Found" << steps.size() << "command steps to execute";
+    TG_DEBUG << "[TG] === Starting Tactical Guidance Execution ===";
+    TG_DEBUG << "[TG] Selected agents:" << executionTargetAgents;
+    TG_DEBUG << "[TG] Found" << steps.size() << "command steps to execute";
 
     // Initialize per-agent queues
     initializeAgentQueues();
@@ -1429,9 +1429,9 @@ void TacticalGuidanceWidget::startExecutionWithSteps(const QList<QTreeWidgetItem
     executionRunning = true;
 
     // Start execution for all agents
-    qDebug() << "[TG] Starting execution for" << executionTargetAgents.size() << "agents";
+    TG_DEBUG << "[TG] Starting execution for" << executionTargetAgents.size() << "agents";
     for (const QString& agentId : executionTargetAgents) {
-        qDebug() << "[TG] Starting execution for agent:" << agentId;
+        TG_DEBUG << "[TG] Starting execution for agent:" << agentId;
         executeNextCommandForAgent(agentId);
     }
 }
@@ -1445,26 +1445,26 @@ void TacticalGuidanceWidget::initializeAgentQueues()
         queue.isWaitingForTask = false;
         queue.currentStepIndex = 0;
         agentQueues[agentId] = queue;
-        qDebug() << "[TG] Initialized queue for agent:" << agentId;
+        TG_DEBUG << "[TG] Initialized queue for agent:" << agentId;
     }
 }
 
 void TacticalGuidanceWidget::executeNextCommandForAgent(const QString& agentId)
 {
     if (!agentQueues.contains(agentId)) {
-        qDebug() << "[TG] No queue found for agent:" << agentId;
+        TG_DEBUG << "[TG] No queue found for agent:" << agentId;
         return;
     }
 
     AgentExecutionQueue& queue = agentQueues[agentId];
     
     if (queue.isWaitingForTask) {
-        qDebug() << "[TG] Agent" << agentId << "is already waiting for task completion";
+        TG_DEBUG << "[TG] Agent" << agentId << "is already waiting for task completion";
         return;
     }
 
     if (queue.commandQueue.isEmpty()) {
-        qDebug() << "[TG] No more commands for agent:" << agentId;
+        TG_DEBUG << "[TG] No more commands for agent:" << agentId;
         queue.currentCommand = nullptr;
         queue.currentResultsItem = nullptr;
         queue.currentTaskId.clear();
@@ -1475,7 +1475,7 @@ void TacticalGuidanceWidget::executeNextCommandForAgent(const QString& agentId)
 
     QTreeWidgetItem* nextCommand = queue.commandQueue.takeFirst();
     if (!nextCommand) {
-        qDebug() << "[TG] Invalid command item for agent:" << agentId;
+        TG_DEBUG << "[TG] Invalid command item for agent:" << agentId;
         return;
     }
 
@@ -1515,17 +1515,17 @@ void TacticalGuidanceWidget::executeNextCommandForAgent(const QString& agentId)
         queue.currentResultsItem = taskItem;
     }
 
-    qDebug() << "[TG] === KEY DEBUG ===";
-    qDebug() << "[TG] Executing command" << queue.currentStepIndex << "for agent:" << agentId;
-    qDebug() << "[TG] Command ID:" << nextCommand->data(2, Qt::UserRole).toString();
-    qDebug() << "[TG] Queue size after taking command:" << queue.commandQueue.size() << "for agent:" << agentId;
-    qDebug() << "[TG] =================";
+    TG_DEBUG << "[TG] === KEY DEBUG ===";
+    TG_DEBUG << "[TG] Executing command" << queue.currentStepIndex << "for agent:" << agentId;
+    TG_DEBUG << "[TG] Command ID:" << nextCommand->data(2, Qt::UserRole).toString();
+    TG_DEBUG << "[TG] Queue size after taking command:" << queue.commandQueue.size() << "for agent:" << agentId;
+    TG_DEBUG << "[TG] =================";
 
     const int intervalSec = workflowInterval ? workflowInterval->value() : 0;
     const int delayMs = intervalSec * 1000;
     const bool applyDelay = (delayMs > 0 && queue.currentStepIndex > 1);
     if (applyDelay) {
-        qDebug() << "[TG] Applying interval delay (ms):" << delayMs << "agent:" << agentId;
+        TG_DEBUG << "[TG] Applying interval delay (ms):" << delayMs << "agent:" << agentId;
         QTimer::singleShot(delayMs, this, [this, agentId, nextCommand]() {
             if (!executionRunning)
                 return;
@@ -1545,7 +1545,7 @@ void TacticalGuidanceWidget::executeNextCommandForAgent(const QString& agentId)
 void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTreeWidgetItem* commandItem)
 {
     if (!adaptixWidget || !adaptixWidget->AgentsMap.contains(agentId)) {
-        qDebug() << "[TG] Agent not found:" << agentId;
+        TG_DEBUG << "[TG] Agent not found:" << agentId;
         if (agentQueues.contains(agentId)) {
             AgentExecutionQueue& queue = agentQueues[agentId];
             queue.isWaitingForTask = false;
@@ -1558,7 +1558,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
 
     Agent* agent = adaptixWidget->AgentsMap[agentId];
     if (!agent || !agent->commander) {
-        qDebug() << "[TG] Agent or commander not initialized:" << agentId;
+        TG_DEBUG << "[TG] Agent or commander not initialized:" << agentId;
         AgentExecutionQueue& queue = agentQueues[agentId];
         queue.isWaitingForTask = false;
         queue.currentResultsItem = nullptr;
@@ -1570,7 +1570,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
 
     const QString commandId = commandItem->data(2, Qt::UserRole).toString();
     if (!commandMap.contains(commandId)) {
-        qDebug() << "[TG] Command not found:" << commandId;
+        TG_DEBUG << "[TG] Command not found:" << commandId;
         AgentExecutionQueue& queue = agentQueues[agentId];
         queue.isWaitingForTask = false;
         queue.currentTaskId.clear();
@@ -1604,7 +1604,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
     QTreeWidgetItem* commandItemForCallback = commandItem;
 
     if (!agent->Console) {
-        qDebug() << "[TG] Console is not initialized for agent:" << agentId;
+        TG_DEBUG << "[TG] Console is not initialized for agent:" << agentId;
         AgentExecutionQueue& queue = agentQueues[agentId];
         queue.isWaitingForTask = false;
         queue.currentTaskId.clear();
@@ -1625,7 +1625,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
     }
 
     CommandSubmitCallback submitCb = [this, agentId, commandItemForCallback](const CommandSubmitInfo& info) {
-        qDebug() << "[TG] Submit callback for agent" << agentId
+        TG_DEBUG << "[TG] Submit callback for agent" << agentId
                  << "ok:" << info.ok << "handlerId:" << info.handlerId << "taskId:" << info.taskId;
 
         if (!agentQueues.contains(agentId))
@@ -1675,7 +1675,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
     };
 
     TaskIdCallback taskIdCb = [this, agentId, commandItemForCallback](const QString& handlerId, const QString& taskId) {
-        qDebug() << "[TG] TaskIdCallback received for agent" << agentId
+        TG_DEBUG << "[TG] TaskIdCallback received for agent" << agentId
                  << "handlerId:" << handlerId << "taskId:" << taskId;
 
         if (taskId.isEmpty())
@@ -1709,9 +1709,9 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
     // can still be tracked by Tactical Guidance.
     CommanderResult cmdResult = agent->commander->ProcessInput(agentId, commandLine);
 
-    qDebug() << "[TG] Commander result for agent" << agentId << "command:" << commandLine;
-    qDebug() << "[TG]   is_pre_hook:" << cmdResult.is_pre_hook << "output:" << cmdResult.output << "error:" << cmdResult.error;
-    qDebug() << "[TG]   cmdResult.data:" << QJsonDocument(cmdResult.data).toJson();
+    TG_DEBUG << "[TG] Commander result for agent" << agentId << "command:" << commandLine;
+    TG_DEBUG << "[TG]   is_pre_hook:" << cmdResult.is_pre_hook << "output:" << cmdResult.output << "error:" << cmdResult.error;
+    TG_DEBUG << "[TG]   cmdResult.data:" << QJsonDocument(cmdResult.data).toJson();
 
     if (cmdResult.output) {
         if (agentResItem) {
@@ -1747,7 +1747,7 @@ void TacticalGuidanceWidget::submitCommandForAgent(const QString& agentId, QTree
 void TacticalGuidanceWidget::notifyTaskSuccess(const QString& taskId)
 {
     if (!executionRunning) {
-        qDebug() << "[TG] notifyTaskSuccess: execution not running, ignoring:" << taskId;
+        TG_DEBUG << "[TG] notifyTaskSuccess: execution not running, ignoring:" << taskId;
         return;
     }
 
@@ -1770,7 +1770,7 @@ void TacticalGuidanceWidget::notifyTaskSuccess(const QString& taskId)
 
     AgentExecutionQueue& queue = agentQueues[agentId];
     
-    qDebug() << "[TG] notifyTaskSuccess: Task" << taskId << "for agent" << agentId << "completed successfully";
+    TG_DEBUG << "[TG] notifyTaskSuccess: Task" << taskId << "for agent" << agentId << "completed successfully";
     
     // Mark current task as completed
     queue.isWaitingForTask = false;
@@ -1820,12 +1820,12 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
     }
 
     // Debug: Log task state changes
-    qDebug() << "[TG] TaskUpdate:" << taskId << "Agent:" << task.AgentId 
+    TG_DEBUG << "[TG] TaskUpdate:" << taskId << "Agent:" << task.AgentId 
              << "Status:" << task.Status << "Completed:" << task.Completed;
 
     // Only process completion when task is actually completed
     if (!task.Completed) {
-        qDebug() << "[TG] Task not completed yet, waiting:" << taskId;
+        TG_DEBUG << "[TG] Task not completed yet, waiting:" << taskId;
         return;
     }
 
@@ -1834,7 +1834,7 @@ void TacticalGuidanceWidget::handleTaskUpdate(const TaskData& task)
     QString finalStatus = task.Status;
     if (adaptixWidget && adaptixWidget->TasksMap.contains(taskId)) {
         const TaskData& uiTask = adaptixWidget->TasksMap[taskId];
-        qDebug() << "[TG] UI Task Status:" << uiTask.Status << "vs Task Status:" << task.Status;
+        TG_DEBUG << "[TG] UI Task Status:" << uiTask.Status << "vs Task Status:" << task.Status;
         finalStatus = uiTask.Status;
     }
     if (agentResItem) {
@@ -2455,13 +2455,13 @@ void TacticalGuidanceWidget::saveLibrary()
         file.write(doc.toJson());
         file.close();
     } else {
-        qDebug() << "Failed to save local tactical library:" << file.errorString();
+        TG_DEBUG << "Failed to save local tactical library:" << file.errorString();
     }
 }
 
 void TacticalGuidanceWidget::rebuildLibraryFromJSON(const QJsonArray& nodes)
 {
-    qDebug() << "[Tactical] Rebuilding library from JSON with" << nodes.size() << "root nodes.";
+    TG_DEBUG << "[Tactical] Rebuilding library from JSON with" << nodes.size() << "root nodes.";
     // REMOVED QSignalBlocker to ensure ProxyModel updates correctly
     libraryModel->clear();
     nodeMap.clear();
