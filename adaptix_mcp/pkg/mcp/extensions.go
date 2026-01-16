@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,11 +25,36 @@ type CommandInfo struct {
 
 // handleInspectExtensions scans the Extension-Kit directory and parses .axs files
 func (s *MCPServer) handleInspectExtensions(params map[string]interface{}) (interface{}, error) {
-	// Root path to search. Defaults to hardcoded path for this environment if not provided
+	// Root path to search. Defaults to relative path from workspace root if not provided
 	rootPath, _ := params["root_path"].(string)
 	if rootPath == "" {
-		// Fallback to known location in this workspace
-		rootPath = "/Users/blackman/netattack/c2/adaptixC2_1.0/Extension-Kit"
+		// Try to find Extension-Kit relative to common workspace locations
+		// First try current working directory
+		cwd, err := os.Getwd()
+		if err == nil {
+			// Check if we're in the workspace root or a subdirectory
+			possiblePaths := []string{
+				filepath.Join(cwd, "Extension-Kit"),
+				filepath.Join(cwd, "..", "Extension-Kit"),
+				filepath.Join(cwd, "../..", "Extension-Kit"),
+			}
+			for _, path := range possiblePaths {
+				if info, err := os.Stat(path); err == nil && info.IsDir() {
+					rootPath = path
+					break
+				}
+			}
+		}
+		// If still not found, try environment variable
+		if rootPath == "" {
+			if envPath := os.Getenv("ADAPTIX_EXTENSION_KIT_PATH"); envPath != "" {
+				rootPath = envPath
+			}
+		}
+		// Last resort: return error if not found
+		if rootPath == "" {
+			return nil, fmt.Errorf("Extension-Kit path not found. Please provide root_path parameter or set ADAPTIX_EXTENSION_KIT_PATH environment variable")
+		}
 	}
 
 	filter, _ := params["filter"].(string)
@@ -78,7 +102,7 @@ func (s *MCPServer) handleInspectExtensions(params map[string]interface{}) (inte
 }
 
 func parseAxsFile(path string) (ExtensionInfo, error) {
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return ExtensionInfo{}, err
 	}

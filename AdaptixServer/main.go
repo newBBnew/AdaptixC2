@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Printf("\n[===== Adaptix Framework %v =====]\n\n", server.SMALL_VERSION)
+	fmt.Printf("\n[===== Operations Server %v =====]\n\n", server.SMALL_VERSION)
 
 	var (
 		err          error
@@ -27,13 +27,13 @@ func main() {
 	)
 
 	flag.Usage = func() {
-		fmt.Printf("Usage: AdaptixServer [options]\n")
+		fmt.Printf("Usage: Teamserver [options]\n")
 		fmt.Printf("Options:\n")
 		flag.PrintDefaults()
 		fmt.Printf("\nEither provide options individually or use a JSON config file with -config flag.\n\n")
 		fmt.Printf("Example:\n")
-		fmt.Printf("   AdaptixServer -i 0.0.0.0 -p port -pw password -e endpoint -sc SslCert -sk SslKey [-ex ext1,ext2,...] [-debug]\n")
-		fmt.Printf("   AdaptixServer -profile profile.json [-debug]\n")
+		fmt.Printf("   Teamserver -i 0.0.0.0 -p port -pw password -e endpoint -sc SslCert -sk SslKey [-ex ext1,ext2,...] [-debug]\n")
+		fmt.Printf("   Teamserver -profile profile.json [-debug]\n")
 	}
 	flag.Parse()
 

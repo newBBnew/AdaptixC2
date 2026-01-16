@@ -46,8 +46,8 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
         </div>
         {!isCollapsed && (
           <div className="flex flex-col min-w-0 text-left">
-            <span className="text-sm font-black uppercase tracking-[0.2em] text-theme-primary">Adaptix</span>
-            <span className="text-[9px] font-bold text-theme-muted uppercase tracking-wider -mt-0.5">Intelligence Framework</span>
+            <span className="text-sm font-black uppercase tracking-[0.2em] text-theme-primary">Ops</span>
+            <span className="text-[9px] font-bold text-theme-muted uppercase tracking-wider -mt-0.5">Control Suite</span>
           </div>
         )}
       </div>
@@ -86,7 +86,7 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
                   <User size={14} className="text-theme-accent" />
                 </div>
                 <div className="flex flex-col min-w-0 text-left">
-                  <span className="text-[10px] font-black uppercase text-theme-primary truncate">ADMIN_OP</span>
+                  <span className="text-[10px] font-black uppercase text-theme-primary truncate">OPERATOR</span>
                   <div className="flex items-center space-x-1">
                     <div className="w-1.5 h-1.5 rounded-full bg-theme-success animate-pulse shadow-glow-sm" />
                     <span className="text-[8px] font-bold text-theme-muted uppercase tracking-tighter">Connected</span>

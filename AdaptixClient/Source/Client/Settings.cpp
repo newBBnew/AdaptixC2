@@ -29,7 +29,7 @@ DialogSettings* Settings::getDialogSettings()
 void Settings::SetDefault()
 {
     this->data.MainTheme    = "Dark";
-    this->data.FontFamily   = "Adaptix - DejaVu Sans Mono";
+    this->data.FontFamily   = "AO - DejaVu Sans Mono";
     this->data.FontSize     = 10;
     this->data.GraphVersion = "Version 1";
     this->data.RemoteTerminalBufferSize = 10000;
@@ -56,7 +56,7 @@ void Settings::SetDefault()
 
     this->data.TabBlinkEnabled = true;
 
-    this->data.AISystemPrompt = "You are a tactical AI assistant integrated into AdaptixC2. Your goal is to assist operators with reconnaissance, analysis, and decision support. Be concise, professional, and focus on operational security.";
+    this->data.AISystemPrompt = "You are a tactical AI assistant integrated into Always Online. Your goal is to assist operators with reconnaissance, analysis, and decision support. Be concise, professional, and focus on operational security.";
 
     // MSF Settings
     this->data.MSFEnabled = false;

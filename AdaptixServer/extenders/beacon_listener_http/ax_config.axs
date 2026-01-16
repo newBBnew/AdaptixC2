@@ -25,13 +25,13 @@ function ListenerUI(mode_create)
 
     let labelUri = form.create_label("URI:");
     let textlineUri = form.create_textline();
-    textlineUri.setPlaceholder("/uri.php");
+    textlineUri.setPlaceholder("/content/update");
 
     let labelUserAgent = form.create_label("User-Agent:");
-    let textlineUserAgent = form.create_textline("Mozilla/5.0 (Windows NT 6.2; rv:20.0) Gecko/20121202 Firefox/20.0");
+    let textlineUserAgent = form.create_textline("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
 
     let labelHB = form.create_label("Heartbeat Header:");
-    let textlineHB = form.create_textline("X-Beacon-Id");
+    let textlineHB = form.create_textline("X-Request-Id");
 
     let labelEncryptKey = form.create_label("Encryption key:");
     let textlineEncryptKey = form.create_textline(ax.random_string(32, "hex"));
@@ -102,7 +102,7 @@ function ListenerUI(mode_create)
     panelHeaders.setLayout(layoutHeaders);
 
     // HTTP HEADERS
-    let textError = form.create_textmulti("<!DOCTYPE html>\n<html>\n<head>\n<title>ERROR 404 - Nothing Found</title>\n</head>\n<body>\n<h1 class=\"cover-heading\">ERROR 404 - PAGE NOT FOUND</h1>\n</div>\n</div>\n</div>\n</body>\n</html>");
+    let textError = form.create_textmulti("<!DOCTYPE html>\n<html>\n<head>\n<title>Not Found</title>\n</head>\n<body>\n<h1>404</h1>\n</body>\n</html>");
 
     let layoutError = form.create_gridlayout();
     layoutError.addWidget(textError, 0, 0, 1, 1);
@@ -111,7 +111,7 @@ function ListenerUI(mode_create)
     panelError.setLayout(layoutError);
 
     // PAYLOAD
-    let textPayload = form.create_textmulti("{\"status\": \"ok\", \"data\": \"<<<PAYLOAD_DATA>>>\", \"metrics\": \"sync\"}");
+    let textPayload = form.create_textmulti("{\"ok\":true,\"payload\":\"<<<PAYLOAD_DATA>>>\"}");
 
     let layoutPayload = form.create_gridlayout();
     layoutPayload.addWidget(textPayload, 0, 0, 1, 1);

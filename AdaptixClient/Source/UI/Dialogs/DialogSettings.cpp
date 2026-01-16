@@ -83,7 +83,7 @@ DialogSettings::DialogSettings(Settings* s)
 
 void DialogSettings::createUI()
 {
-    this->setWindowTitle("Adaptix Settings");
+    this->setWindowTitle("Always Online Settings");
     this->resize(600, 300);
     this->setProperty("Main", "base");
 
@@ -111,12 +111,12 @@ void DialogSettings::createUI()
 
     fontFamilyLabel = new QLabel("Font family: ", mainSettingWidget);
     fontFamilyCombo = new QComboBox(mainSettingWidget);
-    fontFamilyCombo->addItem("Adaptix - DejaVu Sans Mono");
-    fontFamilyCombo->addItem("Adaptix - Droid Sans Mono");
-    fontFamilyCombo->addItem("Adaptix - VT323");
-    fontFamilyCombo->addItem("Adaptix - Hack");
-    fontFamilyCombo->addItem("Adaptix - Anonymous Pro");
-    fontFamilyCombo->addItem("Adaptix - Space Mono");
+    fontFamilyCombo->addItem("AO - DejaVu Sans Mono");
+    fontFamilyCombo->addItem("AO - Droid Sans Mono");
+    fontFamilyCombo->addItem("AO - VT323");
+    fontFamilyCombo->addItem("AO - Hack");
+    fontFamilyCombo->addItem("AO - Anonymous Pro");
+    fontFamilyCombo->addItem("AO - Space Mono");
 
     graphLabel1 = new QLabel("Session Graph version:", mainSettingWidget);
     graphCombo1 = new QComboBox(mainSettingWidget);
@@ -444,7 +444,7 @@ void DialogSettings::onApply() const
         settings->data.FontFamily = fontFamilyCombo->currentText();
 
         QString appFontFamily = settings->data.FontFamily;
-        if (appFontFamily.startsWith("Adaptix"))
+        if (appFontFamily.startsWith("AO"))
             appFontFamily = appFontFamily.split("-")[1].trimmed();
 
         auto appFont = QFont(appFontFamily);

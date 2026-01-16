@@ -23,7 +23,7 @@ function ListenerUI(mode_create)
     spinTimeout.setValue(10);
 
     let labelBanner = form.create_label("TCP banner:");
-    let texteditBanner = form.create_textmulti("AdaptixC2 server\n");
+    let texteditBanner = form.create_textmulti("Service endpoint\n");
 
     let labelAnswer = form.create_label("Error answer:");
     let texteditAnswer = form.create_textmulti("Connection error...\n");

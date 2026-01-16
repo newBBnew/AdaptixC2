@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -454,8 +455,7 @@ ERR:
 
 func (handler *TCP) Stop() error {
 	var (
-		err          error = nil
-		listenerPath       = ListenerDataDir + "/" + handler.Name
+		err error = nil
 	)
 
 	if handler.Listener != nil {
@@ -471,16 +471,35 @@ func (handler *TCP) Stop() error {
 		return true
 	})
 
-	// Safety Check: Ensure we are only deleting within the data/listener directory
-	if !strings.Contains(listenerPath, "/data/listener/") {
-		return fmt.Errorf("safety check failed: refusing to delete path %s", listenerPath)
+	// Sanitize listener name to prevent path traversal
+	if handler.Name == "" || strings.Contains(handler.Name, "..") || strings.Contains(handler.Name, "/") || strings.Contains(handler.Name, "\\") {
+		return fmt.Errorf("invalid listener name: %s", handler.Name)
 	}
 
-	_, err = os.Stat(listenerPath)
+	// Use filepath.Join for safe path construction
+	listenerPath := filepath.Join(ListenerDataDir, handler.Name)
+
+	// Resolve the absolute path to prevent path traversal
+	absListenerPath, err := filepath.Abs(listenerPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	absListenerDataDir, err := filepath.Abs(ListenerDataDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute listener data dir: %w", err)
+	}
+
+	// Strict safety check: ensure the resolved path is actually within the listener data directory
+	if !strings.HasPrefix(absListenerPath, absListenerDataDir+string(filepath.Separator)) && absListenerPath != absListenerDataDir {
+		return fmt.Errorf("safety check failed: path %s is not within listener data directory %s", absListenerPath, absListenerDataDir)
+	}
+
+	_, err = os.Stat(absListenerPath)
 	if err == nil {
-		err = os.RemoveAll(listenerPath)
+		err = os.RemoveAll(absListenerPath)
 		if err != nil {
-			return fmt.Errorf("failed to remove %s folder: %s", listenerPath, err.Error())
+			return fmt.Errorf("failed to remove %s folder: %s", absListenerPath, err.Error())
 		}
 	}
 

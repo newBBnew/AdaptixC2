@@ -1,13 +1,13 @@
 {
   "Teamserver": {
     "interface": "0.0.0.0",
-    "port": 4321,
-    "endpoint": "/endpoint",
-    "password": "pass",
+    "port": 8443,
+    "endpoint": "/api/edge",
+    "password": "change-this",
     "only_password": true,
     "operators": {
-      "operator1": "pass1",
-      "operator2": "pass2"
+      "ops": "change-this-1",
+      "audit": "change-this-2"
     },
     "cert": "server.rsa.crt",
     "key": "server.rsa.key",
@@ -27,8 +27,7 @@
     "status": 404,
     "headers": {
       "Content-Type": "text/html; charset=UTF-8",
-      "Server": "AdaptixC2",
-      "Adaptix Version": "v1.0"
+      "Server": "nginx"
     },
     "page": "404page.html"
   },

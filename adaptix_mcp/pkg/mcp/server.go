@@ -26,7 +26,9 @@ type MCPServer struct {
 	initialized     bool
 	chatLog         []map[string]interface{}
 	archivedLog     []map[string]interface{}
+	chatLogMu       sync.RWMutex // Protects chatLog and archivedLog
 	chatChan        chan map[string]interface{}
+	maxChatLogSize  int // Maximum number of messages in chatLog (0 = unlimited)
 }
 
 type ToolHandler func(params map[string]interface{}) (interface{}, error)
@@ -60,6 +62,7 @@ func NewMCPServer(connector *client.Connector) *MCPServer {
 		chatLog:         make([]map[string]interface{}, 0),
 		archivedLog:     make([]map[string]interface{}, 0),
 		chatChan:        make(chan map[string]interface{}, 100),
+		maxChatLogSize:  10000, // Limit chat log to prevent memory issues
 	}
 	s.registerTools()
 
@@ -81,6 +84,10 @@ func (s *MCPServer) readMessage() ([]byte, bool, error) {
 		n, err := strconv.Atoi(value)
 		if err != nil {
 			return nil, true, fmt.Errorf("invalid Content-Length: %w", err)
+		}
+		// Validate Content-Length: must be positive and reasonable (max 100MB)
+		if n < 0 || n > 100*1024*1024 {
+			return nil, true, fmt.Errorf("invalid Content-Length: %d (must be between 0 and 100MB)", n)
 		}
 
 		for {
@@ -216,11 +223,8 @@ func (s *MCPServer) handleToolsCall(req JSONRPCRequest) *JSONRPCResponse {
 
 	result, err := handler(args)
 	if err != nil {
-		return s.successResponse(req.ID, map[string]interface{}{
-			"content": []map[string]interface{}{
-				{"type": "text", "text": "Error: " + err.Error()},
-			},
-		})
+		// Return error response for tool execution failures
+		return s.errorResponse(req.ID, -32603, "Tool execution failed: "+err.Error(), nil)
 	}
 
 	// Inject system_instruction for AI Resident Mode
@@ -243,7 +247,7 @@ func (s *MCPServer) handlePromptsList(req JSONRPCRequest) *JSONRPCResponse {
 	prompts := []map[string]interface{}{
 		{
 			"name":        "mission_briefing",
-			"description": "Standard initialization briefing for Adaptix AI agents. Call this first.",
+			"description": "Standard initialization briefing for tactical AI agents. Call this first.",
 		},
 		{
 			"name":        "war_room_listen_modes",
@@ -287,7 +291,7 @@ func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) *JSONRPCResponse {
 	var promptText string
 	switch name {
 	case "mission_briefing":
-		promptText = `You are an elite tactical AI agent operating within the AdaptixC2 framework.
+		promptText = `You are an elite tactical AI agent operating within the command framework.
 Your primary interface is the "Team War Room".
 Upon connection, your status is STANDBY.
 INSTRUCTIONS:
@@ -298,7 +302,7 @@ INSTRUCTIONS:
    - History: call resources/read with uri='adaptix://tactical/chat' to fetch the full chat log; use start_timestamp with listen_intelligence to fetch from a point in time.
 3. **HELP & DISCOVERY**:
    - Use inspect_extensions to list all available system commands and plugins (this is the MCP "help" equivalent).
-   - Adaptix console help is issued inside a session as: help or help <command>.
+   - Console help is issued inside a session as: help or help <command>.
    - Console help output does NOT appear in the task list; it appears only in the session console.
 4. **Command troubleshooting**:
    - If a command does not appear in the task list for a long time, it may be invalid or not routed.
@@ -371,7 +375,7 @@ func (s *MCPServer) handleClientNotification(notif client.Notification) {
 			"type":      notif.Type,
 			"timestamp": time.Now().Unix(),
 		}
-		s.chatLog = append(s.chatLog, msg)
+		s.appendToChatLog(msg)
 
 		// Wake up any blocking chat tool calls
 		select {
@@ -383,7 +387,10 @@ func (s *MCPServer) handleClientNotification(notif client.Notification) {
 		s.notifyResourcesUpdated()
 	} else if notif.Type == "c2_event" {
 		// Handle C2 system events (e.g. new agent, task completed)
-		event := notif.Params["event"].(string)
+		event, _ := notif.Params["event"].(string)
+		if event == "" {
+			event = "unknown event"
+		}
 		// Format as a system message
 		content := fmt.Sprintf("[SYSTEM EVENT] %s", event)
 		if agentId, ok := notif.Params["agent_id"].(string); ok {
@@ -401,7 +408,7 @@ func (s *MCPServer) handleClientNotification(notif client.Notification) {
 			"timestamp": time.Now().Unix(),
 			"raw_event": notif.Params,
 		}
-		s.chatLog = append(s.chatLog, msg)
+		s.appendToChatLog(msg)
 
 		select {
 		case s.chatChan <- msg:
@@ -409,8 +416,34 @@ func (s *MCPServer) handleClientNotification(notif client.Notification) {
 		}
 		s.notifyResourcesUpdated()
 	} else if notif.Type == "tactical_archive" {
-		// Clear current chat log as it is now archived on the server
+		// Archive current chat log before clearing
+		s.chatLogMu.Lock()
+		// Save current chat log to archived log
+		if len(s.chatLog) > 0 {
+			// Create a copy of messages
+			messagesCopy := make([]map[string]interface{}, len(s.chatLog))
+			for i, msg := range s.chatLog {
+				msgCopy := make(map[string]interface{})
+				for k, v := range msg {
+					msgCopy[k] = v
+				}
+				messagesCopy[i] = msgCopy
+			}
+
+			archivedSession := map[string]interface{}{
+				"session_id": notif.Params["session_id"],
+				"timestamp":  time.Now().Unix(),
+				"messages":   messagesCopy,
+			}
+			s.archivedLog = append(s.archivedLog, archivedSession)
+			// Keep only last 100 archived sessions
+			if len(s.archivedLog) > 100 {
+				s.archivedLog = s.archivedLog[len(s.archivedLog)-100:]
+			}
+		}
+		// Clear current chat log
 		s.chatLog = []map[string]interface{}{}
+		s.chatLogMu.Unlock()
 
 		sessionId, _ := notif.Params["session_id"].(string)
 		content := "[SYSTEM] Chat context has been archived by operator. Active memory cleared."
@@ -426,7 +459,7 @@ func (s *MCPServer) handleClientNotification(notif client.Notification) {
 			"type":      "system",
 			"timestamp": time.Now().Unix(),
 		}
-		s.chatLog = append(s.chatLog, msg)
+		s.appendToChatLog(msg)
 
 		select {
 		case s.chatChan <- msg:
@@ -479,7 +512,12 @@ func (s *MCPServer) handleResourcesRead(req JSONRPCRequest) *JSONRPCResponse {
 		return s.errorResponse(req.ID, -32602, "Resource not found", nil)
 	}
 
-	chatJSON, _ := json.Marshal(s.chatLog)
+	s.chatLogMu.RLock()
+	chatLogCopy := make([]map[string]interface{}, len(s.chatLog))
+	copy(chatLogCopy, s.chatLog)
+	s.chatLogMu.RUnlock()
+
+	chatJSON, _ := json.Marshal(chatLogCopy)
 	result := map[string]interface{}{
 		"contents": []map[string]interface{}{
 			{
@@ -498,4 +536,19 @@ func (s *MCPServer) successResponse(id interface{}, result interface{}) *JSONRPC
 
 func (s *MCPServer) errorResponse(id interface{}, code int, message string, data interface{}) *JSONRPCResponse {
 	return &JSONRPCResponse{JSONRPC: "2.0", ID: id, Error: &RPCError{Code: code, Message: message, Data: data}}
+}
+
+// appendToChatLog safely appends a message to chatLog with size limit and lock protection
+func (s *MCPServer) appendToChatLog(msg map[string]interface{}) {
+	s.chatLogMu.Lock()
+	defer s.chatLogMu.Unlock()
+
+	s.chatLog = append(s.chatLog, msg)
+
+	// Enforce size limit by removing oldest messages
+	if s.maxChatLogSize > 0 && len(s.chatLog) > s.maxChatLogSize {
+		// Keep the most recent messages
+		keepCount := s.maxChatLogSize / 2 // Keep half when limit exceeded
+		s.chatLog = s.chatLog[len(s.chatLog)-keepCount:]
+	}
 }

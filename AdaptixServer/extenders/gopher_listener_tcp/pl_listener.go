@@ -114,12 +114,18 @@ func (m *ModuleExtender) HandlerCreateListenerDataAndStart(name string, configDa
 		// Normalize EncryptKey to 32 hex (16 bytes)
 		keyLen := len(conf.EncryptKey)
 		if keyLen == 32 {
-			match, _ := regexp.MatchString("^[0-9a-f]{32}$", conf.EncryptKey)
+			// Check if it's valid hex (case-insensitive)
+			match, _ := regexp.MatchString("^[0-9a-fA-F]{32}$", strings.ToLower(conf.EncryptKey))
 			if !match {
+				// Not valid hex, hash the input string
 				hash := sha256.Sum256([]byte(conf.EncryptKey))
 				conf.EncryptKey = hex.EncodeToString(hash[:16])
+			} else {
+				// Valid hex, normalize to lowercase for consistency
+				conf.EncryptKey = strings.ToLower(conf.EncryptKey)
 			}
 		} else {
+			// Not 32 chars, hash the input string
 			hash := sha256.Sum256([]byte(conf.EncryptKey))
 			conf.EncryptKey = hex.EncodeToString(hash[:16])
 		}

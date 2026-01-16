@@ -555,8 +555,14 @@ func (s *MCPServer) handleListenIntelligence(params map[string]interface{}) (int
 			lastRead = startTimestamp
 		}
 
+		// Safely read chatLog with lock
+		s.chatLogMu.RLock()
+		chatLogCopy := make([]map[string]interface{}, len(s.chatLog))
+		copy(chatLogCopy, s.chatLog)
+		s.chatLogMu.RUnlock()
+
 		var unreadMsgs []map[string]interface{}
-		for _, msg := range s.chatLog {
+		for _, msg := range chatLogCopy {
 			ts, _ := msg["timestamp"].(int64)
 			username, _ := msg["username"].(string)
 			content, _ := msg["content"].(string)
@@ -838,13 +844,16 @@ func (s *MCPServer) handleReadArchivedChat(params map[string]interface{}) (inter
 		limit = int(val)
 	}
 
+	s.chatLogMu.RLock()
 	total := len(s.archivedLog)
 	start := 0
 	if total > limit {
 		start = total - limit
 	}
 
-	archives := s.archivedLog[start:]
+	archives := make([]map[string]interface{}, len(s.archivedLog[start:]))
+	copy(archives, s.archivedLog[start:])
+	s.chatLogMu.RUnlock()
 
 	return map[string]interface{}{
 		"status":                  "success",

@@ -50,7 +50,6 @@ func NewMSFModule(ts *Teamserver, controllerPath string) *MSFModule {
 }
 
 func (m *MSFModule) Init() {
-	logs.Info("msf", "MSF module initialized with controller: %s", m.controllerPath)
 }
 
 func (m *MSFModule) UpdateConfig(config *msf.MSFConfig) {
@@ -68,20 +67,16 @@ func (m *MSFModule) GetConfig() *msf.MSFConfig {
 }
 
 func (m *MSFModule) RegisterRoutes(r *gin.RouterGroup) {
-	logs.Info("msf", "RegisterRoutes called with base path: %s", r.BasePath())
-
 	m.api.RegisterRoutes(r)
 
 	// 测试路由 - 不需要认证
 	msf := r.Group("/msf")
 	{
 		msf.GET("/test", func(c *gin.Context) {
-			logs.Info("msf", "Test route called!")
 			c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "Test route works"})
 		})
 
 		msf.GET("/debug", func(c *gin.Context) {
-			logs.Info("msf", "Debug route called!")
 			routes := m.collectRoutes(c)
 			c.JSON(http.StatusOK, gin.H{
 				"status":    "ok",
@@ -90,17 +85,11 @@ func (m *MSFModule) RegisterRoutes(r *gin.RouterGroup) {
 			})
 		})
 
-		logs.Info("msf", "Registering /msf/config POST")
 		msf.POST("/config", m.handleConfigUpdate)
-		logs.Info("msf", "Registering /msf/controller/start POST")
 		msf.POST("/controller/start", m.handleControllerStart)
-		logs.Info("msf", "Registering /msf/controller/stop POST")
 		msf.POST("/controller/stop", m.handleControllerStop)
-		logs.Info("msf", "Registering /msf/controller/status GET")
 		msf.GET("/controller/status", m.handleControllerStatus)
 	}
-
-	logs.Info("msf", "All MSF routes registered")
 }
 
 func (m *MSFModule) collectRoutes(c *gin.Context) []string {
@@ -127,24 +116,14 @@ func (m *MSFModule) handleConfigUpdate(c *gin.Context) {
 }
 
 func (m *MSFModule) handleControllerStart(c *gin.Context) {
-	logs.Info("msf", "=== handleControllerStart called ===")
-	logs.Info("msf", "Controller path: %s", m.controllerPath)
-	logs.Info("msf", "Full URL: %s %s", c.Request.Method, c.Request.URL.String())
-	logs.Info("msf", "Content-Type: %s", c.ContentType())
-	logs.Info("msf", "User: %s", c.GetString("username"))
-
 	// 从请求体读取配置参数
 	var config msf.MSFConfig
 	if err := c.ShouldBindJSON(&config); err != nil {
 		// 如果没有请求体，使用当前配置
 		config = *m.GetConfig()
-		logs.Info("msf", "No config in request, using current config: host=%s, port=%d",
-			config.Host, config.Port)
 	} else {
 		// 更新配置
 		m.UpdateConfig(&config)
-		logs.Info("msf", "Config from request: host=%s, port=%d, user=%s, ssl=%v",
-			config.Host, config.Port, config.User, config.SSL)
 	}
 
 	// 检查脚本是否存在
@@ -156,7 +135,6 @@ func (m *MSFModule) handleControllerStart(c *gin.Context) {
 		})
 		return
 	}
-	logs.Info("msf", "Controller script exists")
 
 	// 构建命令参数
 	args := []string{"start"}
@@ -175,14 +153,8 @@ func (m *MSFModule) handleControllerStart(c *gin.Context) {
 	args = append(args, "--ssl", fmt.Sprintf("%t", config.SSL))
 
 	// 执行脚本
-	logs.Info("msf", "Executing: %s %s", m.controllerPath, strings.Join(args, " "))
-
 	cmd := exec.Command(m.controllerPath, args...)
 	output, err := cmd.CombinedOutput()
-
-	logs.Info("msf", "Command output length: %d", len(output))
-	logs.Info("msf", "Command error: %v", err)
-	logs.Info("msf", "Raw output: %q", string(output))
 
 	if err != nil {
 		logs.Error("msf", "msfrpcd start failed: %v", err)
@@ -195,7 +167,6 @@ func (m *MSFModule) handleControllerStart(c *gin.Context) {
 		return
 	}
 
-	logs.Info("msf", "msfrpcd started successfully")
 	c.JSON(http.StatusOK, gin.H{
 		"ok":     true,
 		"output": string(output),
@@ -293,7 +264,6 @@ func (ts *Teamserver) TsMSFWebSocket(c *gin.Context) {
 func (ts *Teamserver) InitMSF(config *msf.MSFConfig) {
 	// 获取当前工作目录
 	cwd, _ := os.Getwd()
-	logs.Info("msf", "Current working directory: %s", cwd)
 
 	// 使用相对路径，Server 从 release 目录启动时 scripts 在同级目录
 	controllerPath := "./scripts/msf-controller"
@@ -306,11 +276,8 @@ func (ts *Teamserver) InitMSF(config *msf.MSFConfig) {
 		absPath := cwd + "/scripts/msf-controller"
 		if _, err := os.Stat(absPath); err == nil {
 			controllerPath = absPath
-			logs.Info("msf", "Using absolute path: %s", controllerPath)
 		}
 	}
-
-	logs.Info("msf", "MSF controller path: %s", controllerPath)
 
 	msfModule = NewMSFModule(ts, controllerPath)
 	msfModule.Init()
@@ -319,17 +286,13 @@ func (ts *Teamserver) InitMSF(config *msf.MSFConfig) {
 		endpoint := ts.AdaptixServer.Endpoint
 		apiGroup := ts.AdaptixServer.Engine.Group(endpoint + "/api")
 		apiGroup.Use(token.ValidateAccessToken())
-		logs.Info("msf", "Registering MSF routes under endpoint: %s with auth middleware", endpoint+"/api")
 		{
 			msfModule.RegisterRoutes(apiGroup)
 			apiGroup.GET("/msf/ws", ts.TsMSFWebSocket)
 		}
-		logs.Info("msf", "MSF routes registered successfully")
 	} else {
 		logs.Error("msf", "AdaptixServer.Engine is nil, MSF routes not registered")
 	}
-
-	logs.Info("msf", "MSF module initialized")
 }
 
 func LoadMSFConfig(profilePath string) (*msf.MSFConfig, error) {

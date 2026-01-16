@@ -93,15 +93,15 @@ const CreateListenerDialog = ({ isOpen, onClose, onCreated, editMode = false, in
     // HTTP Specific
     agent_host: '', // callback_addresses
     http_method: 'POST',
-    uri: '/api/v1/update',
-    hb_header: 'X-Session-Token', // parameter_name
+    uri: '/content/update',
+    hb_header: 'X-Request-Id', // parameter_name
     proxy: '',
     header: '', // request_headers
     host_header: '',
     trust_x_forwarded: false,
-    server_headers: 'Server: nginx\nContent-Type: application/json',
-    page_error: '<!DOCTYPE html><html><body><h1>404 Not Found</h1></body></html>',
-    page_payload: '{"status":"ok","data":"<<<PAYLOAD_DATA>>>"}',
+    server_headers: 'Server: Apache\nContent-Type: text/html; charset=utf-8',
+    page_error: '<!DOCTYPE html><html><head><title>Not Found</title></head><body><h1>404</h1></body></html>',
+    page_payload: '{"ok":true,"payload":"<<<PAYLOAD_DATA>>>"}',
     ssl: false,
     
     // DoH Specific
@@ -109,10 +109,10 @@ const CreateListenerDialog = ({ isOpen, onClose, onCreated, editMode = false, in
     doh_urls: '8.8.8.8', // resolver
     
     // SMB Specific
-    pipe_name: 'adaptix_pipe',
+    pipe_name: 'svcctl',
     
     // TCP Specific
-    bind_port_tcp: '4444'
+    bind_port_tcp: '7001'
   });
 
   useEffect(() => {

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -102,17 +103,40 @@ func (handler *HTTP) Start(ts Teamserver) error {
 	if handler.Config.Ssl {
 		fmt.Printf("   Started listener: https://%s:%d\n", handler.Config.HostBind, handler.Config.PortBind)
 
-		listenerPath := ListenerDataDir + "/" + handler.Name
-		_, err = os.Stat(listenerPath)
+		// Sanitize listener name to prevent path traversal
+		if handler.Name == "" || strings.Contains(handler.Name, "..") || strings.Contains(handler.Name, "/") || strings.Contains(handler.Name, "\\") {
+			return fmt.Errorf("invalid listener name: %s", handler.Name)
+		}
+
+		// Use filepath.Join for safe path construction
+		listenerPath := filepath.Join(ListenerDataDir, handler.Name)
+
+		// Resolve absolute path and verify it's within the listener data directory
+		absListenerPath, err := filepath.Abs(listenerPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve absolute path: %w", err)
+		}
+
+		absListenerDataDir, err := filepath.Abs(ListenerDataDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve absolute listener data dir: %w", err)
+		}
+
+		// Strict safety check
+		if !strings.HasPrefix(absListenerPath, absListenerDataDir+string(filepath.Separator)) && absListenerPath != absListenerDataDir {
+			return fmt.Errorf("safety check failed: path %s is not within listener data directory %s", absListenerPath, absListenerDataDir)
+		}
+
+		_, err = os.Stat(absListenerPath)
 		if os.IsNotExist(err) {
-			err = os.Mkdir(listenerPath, os.ModePerm)
+			err = os.MkdirAll(absListenerPath, os.ModePerm)
 			if err != nil {
-				return fmt.Errorf("failed to create %s folder: %s", listenerPath, err.Error())
+				return fmt.Errorf("failed to create %s folder: %s", absListenerPath, err.Error())
 			}
 		}
 
-		handler.Config.SslCertPath = listenerPath + "/listener.crt"
-		handler.Config.SslKeyPath = listenerPath + "/listener.key"
+		handler.Config.SslCertPath = filepath.Join(absListenerPath, "listener.crt")
+		handler.Config.SslKeyPath = filepath.Join(absListenerPath, "listener.key")
 
 		if len(handler.Config.SslCert) == 0 || len(handler.Config.SslKey) == 0 {
 			err = handler.generateSelfSignedCert(handler.Config.SslCertPath, handler.Config.SslKeyPath)
@@ -187,22 +211,40 @@ func (handler *HTTP) Stop() error {
 		ctx          context.Context
 		cancel       context.CancelFunc
 		err          error = nil
-		listenerPath       = ListenerDataDir + "/" + handler.Name
 	)
 
 	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	// Safety check: ensure we are only deleting within the expected listener data directory
-	if !strings.Contains(listenerPath, "/data/listener/") {
-		return fmt.Errorf("safety check failed: refusing to delete suspicious path %s", listenerPath)
+	// Sanitize listener name to prevent path traversal
+	if handler.Name == "" || strings.Contains(handler.Name, "..") || strings.Contains(handler.Name, "/") || strings.Contains(handler.Name, "\\") {
+		return fmt.Errorf("invalid listener name: %s", handler.Name)
 	}
 
-	_, err = os.Stat(listenerPath)
+	// Use filepath.Join for safe path construction
+	listenerPath := filepath.Join(ListenerDataDir, handler.Name)
+
+	// Resolve the absolute path to prevent path traversal
+	absListenerPath, err := filepath.Abs(listenerPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	absListenerDataDir, err := filepath.Abs(ListenerDataDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute listener data dir: %w", err)
+	}
+
+	// Strict safety check: ensure the resolved path is actually within the listener data directory
+	if !strings.HasPrefix(absListenerPath, absListenerDataDir+string(filepath.Separator)) && absListenerPath != absListenerDataDir {
+		return fmt.Errorf("safety check failed: path %s is not within listener data directory %s", absListenerPath, absListenerDataDir)
+	}
+
+	_, err = os.Stat(absListenerPath)
 	if err == nil {
-		err = os.RemoveAll(listenerPath)
+		err = os.RemoveAll(absListenerPath)
 		if err != nil {
-			return fmt.Errorf("failed to remove %s folder: %s", listenerPath, err.Error())
+			return fmt.Errorf("failed to remove %s folder: %s", absListenerPath, err.Error())
 		}
 	}
 

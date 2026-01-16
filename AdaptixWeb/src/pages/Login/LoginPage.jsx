@@ -100,7 +100,7 @@ const LoginPage = ({ onLogin }) => {
       if (err.response) {
         setError(err.response.data?.message || `Auth failed: ${err.response.status}`);
       } else if (err.request) {
-        setError('Connection refused. Verify Teamserver is running and reachable.');
+        setError('Connection refused. Verify the service is running and reachable.');
       } else {
         setError('Request failed. Check console for details.');
       }
@@ -121,14 +121,13 @@ const LoginPage = ({ onLogin }) => {
           <div className="space-y-4">
             <div className="inline-flex items-center space-x-3 px-4 py-2 glass-card-sm border-theme-glass-light rounded-2xl shadow-glow-sm">
               <ShieldAlert className="w-6 h-6 text-theme-accent" />
-              <span className="text-xs font-black uppercase tracking-[0.3em] text-theme-primary">Intelligence Framework</span>
+              <span className="text-xs font-black uppercase tracking-[0.3em] text-theme-primary">Operations Console</span>
             </div>
             <h1 className="text-7xl font-black tracking-tighter text-theme-primary">
-              ADAPTIX <span className="gradient-text">C2</span>
+              OPS <span className="gradient-text">CONSOLE</span>
             </h1>
             <p className="text-lg text-theme-muted font-bold max-w-md leading-relaxed">
-              Advanced command and control orchestration system. 
-              Secure, distributed, and stealthy infrastructure management.
+              Secure command orchestration and infrastructure coordination for field operations.
             </p>
           </div>
 
@@ -151,8 +150,8 @@ const LoginPage = ({ onLogin }) => {
             <div className="bg-theme-glass-panel rounded-[2.2rem] p-8 md:p-12">
               <div className="flex items-center justify-between mb-10 text-left">
                 <div>
-                  <h2 className="text-2xl font-black text-theme-primary tracking-tight uppercase">Teamserver Access</h2>
-                  <p className="text-sm text-theme-muted font-bold uppercase mt-1">Personnel Authentication Required</p>
+                  <h2 className="text-2xl font-black text-theme-primary tracking-tight uppercase">Control Node Access</h2>
+                  <p className="text-sm text-theme-muted font-bold uppercase mt-1">Authorized Access Only</p>
                 </div>
                 <div className="glass-btn p-3 rounded-2xl border-theme-glass-light">
                   <Lock className="w-6 h-6 text-theme-accent" />
@@ -164,7 +163,7 @@ const LoginPage = ({ onLogin }) => {
                   <div className="space-y-2 md:col-span-2 text-left">
                     <label className="flex items-center space-x-2 text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">
                       <Globe size={12} className="text-theme-accent" />
-                      <span>C2 Endpoint URL</span>
+                      <span>Service Endpoint</span>
                     </label>
                     <div className="relative group">
                       <input 
@@ -172,7 +171,7 @@ const LoginPage = ({ onLogin }) => {
                         value={formData.url}
                         onChange={(e) => handleUrlChange(e.target.value)}
                         className="w-full glass-input pl-12 pr-4 py-4 text-theme-primary font-bold rounded-2xl focus:ring-2 focus:ring-theme-accent/30 transition-all border-theme-glass-light"
-                        placeholder="https://teamserver.local:8443"
+                        placeholder="https://service.local:8443"
                         required
                       />
                       <Server className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={18} />
@@ -187,7 +186,7 @@ const LoginPage = ({ onLogin }) => {
                   <div className="space-y-2 text-left">
                     <label className="flex items-center space-x-2 text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">
                       <User size={12} className="text-theme-accent" />
-                      <span>Operator Alias</span>
+                      <span>User ID</span>
                     </label>
                     <div className="relative group">
                       <input 
@@ -195,7 +194,7 @@ const LoginPage = ({ onLogin }) => {
                         value={formData.username}
                         onChange={(e) => setFormData({...formData, username: e.target.value})}
                         className="w-full glass-input pl-12 pr-4 py-4 text-theme-primary font-bold rounded-2xl border-theme-glass-light focus:ring-2 focus:ring-theme-accent/30 transition-all"
-                        placeholder="ADMIN_OPERATOR"
+                        placeholder="OPERATOR"
                         required
                       />
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-muted group-focus-within:text-theme-accent transition-colors" size={18} />
@@ -205,7 +204,7 @@ const LoginPage = ({ onLogin }) => {
                   <div className="space-y-2 text-left">
                     <label className="flex items-center space-x-2 text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">
                       <Lock size={12} className="text-theme-accent" />
-                      <span>Access Token</span>
+                      <span>Access Key</span>
                     </label>
                     <div className="relative group">
                       <input 
@@ -238,7 +237,7 @@ const LoginPage = ({ onLogin }) => {
                       <RefreshCw className="w-5 h-5 animate-spin text-white" />
                     ) : (
                       <>
-                        <span>Initialize Session</span>
+                        <span>Sign In</span>
                         <Link2 size={18} />
                       </>
                     )}
@@ -258,7 +257,7 @@ const LoginPage = ({ onLogin }) => {
               {profiles.length > 0 && (
                 <div className="mt-10 pt-10 border-t border-theme-glass-light text-left">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Cached Node Profiles</h3>
+                    <h3 className="text-[10px] font-black uppercase text-theme-muted tracking-widest ml-1">Saved Profiles</h3>
                     <Plus className="w-3 h-3 text-theme-accent cursor-pointer hover:rotate-90 transition-transform" />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -298,7 +297,7 @@ const LoginPage = ({ onLogin }) => {
       
       <div className="absolute bottom-6 left-0 w-full text-center pointer-events-none">
         <p className="text-[11px] text-theme-muted font-mono tracking-wider">
-          &copy; 2026 Adaptix Intelligence Framework
+          &copy; 2026 Operations Console
         </p>
       </div>
     </div>

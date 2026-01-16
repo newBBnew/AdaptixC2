@@ -40,6 +40,7 @@ type Connector struct {
 	connected      bool
 	reconnecting   bool
 	stopChan       chan struct{}
+	stopChanOnce   sync.Once
 	onNotification func(Notification)
 }
 
@@ -64,13 +65,30 @@ func (c *Connector) SetNotificationCallback(cb func(Notification)) {
 }
 
 func (c *Connector) Connect() error {
+	c.mu.Lock()
+	// Check if already connected to avoid duplicate connections
+	if c.connected && c.conn != nil {
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
+
 	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %w", c.url, err)
 	}
 
+	c.mu.Lock()
+	// Double-check after acquiring lock
+	if c.connected && c.conn != nil {
+		c.mu.Unlock()
+		conn.Close() // Close the new connection if we already have one
+		return nil
+	}
+
 	c.conn = conn
 	c.connected = true
+	c.mu.Unlock()
 
 	utils.InfoLogger.Printf("✅ Connected to Client MCP Bridge at %s", c.url)
 
@@ -80,8 +98,14 @@ func (c *Connector) Connect() error {
 }
 
 func (c *Connector) Close() error {
-	close(c.stopChan)
+	c.mu.Lock()
 	c.connected = false
+	c.mu.Unlock()
+
+	// Safely close stopChan only once
+	c.stopChanOnce.Do(func() {
+		close(c.stopChan)
+	})
 
 	if c.conn != nil {
 		return c.conn.Close()
@@ -112,7 +136,16 @@ func (c *Connector) SendCommand(commandType string, params map[string]interface{
 	respChan := make(chan *Response, 1)
 	c.pending.Store(requestID, respChan)
 
-	if err := c.conn.WriteJSON(request); err != nil {
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if conn == nil {
+		c.pending.Delete(requestID)
+		return nil, fmt.Errorf("connection not established")
+	}
+
+	if err := conn.WriteJSON(request); err != nil {
 		c.pending.Delete(requestID)
 		return nil, fmt.Errorf("failed to send command: %w", err)
 	}
@@ -150,8 +183,17 @@ func (c *Connector) listenResponses() {
 		case <-c.stopChan:
 			return
 		default:
+			c.mu.RLock()
+			conn := c.conn
+			c.mu.RUnlock()
+
+			if conn == nil {
+				utils.ErrorLogger.Println("Connection is nil, stopping listener")
+				return
+			}
+
 			var raw map[string]interface{}
-			if err := c.conn.ReadJSON(&raw); err != nil {
+			if err := conn.ReadJSON(&raw); err != nil {
 				utils.ErrorLogger.Printf("Failed to read message: %v", err)
 				return
 			}
@@ -192,6 +234,21 @@ func (c *Connector) listenResponses() {
 }
 
 func (c *Connector) autoReconnect() {
+	c.mu.Lock()
+	// Check if already reconnecting to avoid multiple goroutines
+	if c.reconnecting {
+		c.mu.Unlock()
+		return
+	}
+	c.reconnecting = true
+	c.mu.Unlock()
+
+	defer func() {
+		c.mu.Lock()
+		c.reconnecting = false
+		c.mu.Unlock()
+	}()
+
 	for {
 		select {
 		case <-c.stopChan:
@@ -201,9 +258,8 @@ func (c *Connector) autoReconnect() {
 			if err := c.Connect(); err != nil {
 				utils.ErrorLogger.Printf("Reconnect failed: %v", err)
 			} else {
-				c.mu.Lock()
-				c.reconnecting = false
-				c.mu.Unlock()
+				// Successfully reconnected, start listening again
+				go c.listenResponses()
 				return
 			}
 		}
