@@ -25,6 +25,9 @@ func (s *Map) Contains(key string) bool {
 func (s *Map) Put(key string, value interface{}) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	if s.m == nil {
+		s.m = make(map[string]interface{})
+	}
 	s.m[key] = value
 }
 
