@@ -112,17 +112,18 @@ func (ts *Teamserver) RestoreData() {
 	for _, agentData := range restoreAgents {
 
 		agent := &Agent{
-			OutConsole:        safe.NewSlice(),
-			HostedTunnelData:  safe.NewSafeQueue(0x1000),
-			HostedTasks:       safe.NewSafeQueue(0x100),
-			HostedTunnelTasks: safe.NewSafeQueue(0x100),
-			RunningTasks:      safe.NewMap(),
-			RunningJobs:       safe.NewMap(),
-			CompletedTasks:    safe.NewMap(),
-			PivotParent:       nil,
-			PivotChilds:       safe.NewSlice(),
-			Tick:              false,
-			Active:            true,
+			OutConsole:         safe.NewSlice(),
+			HostedTunnelData:   safe.NewSafeQueue(0x1000),
+			HostedTasks:        safe.NewSafeQueue(0x100),
+			HostedTunnelTasks:  safe.NewSafeQueue(0x100),
+			InflightDeliveries: safe.NewMap(),
+			RunningTasks:       safe.NewMap(),
+			RunningJobs:        safe.NewMap(),
+			CompletedTasks:     safe.NewMap(),
+			PivotParent:        nil,
+			PivotChilds:        safe.NewSlice(),
+			Tick:               false,
+			Active:             true,
 		}
 
 		if agentData.Mark == "Terminated" {
